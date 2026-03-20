@@ -9,7 +9,7 @@ export function createFsChannel(ws: WebSocketClient) {
     readdir: (dirPath: string) =>
       ws.invoke('fs:readdir', dirPath),
     readFile: (filePath: string) =>
-      ws.invoke<string>('fs:readFile', filePath),
+      ws.invoke<{ content?: string; error?: string; size?: number }>('fs:readFile', filePath),
     search: (dirPath: string, query: string) =>
       ws.invoke('fs:search', dirPath, query),
   }

@@ -63,7 +63,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'flex-start',
-    backgroundColor: appColors.surface,
+    backgroundColor: appColors.surfaceHover,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     padding: spacing.md,

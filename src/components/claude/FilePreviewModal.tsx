@@ -12,7 +12,6 @@ import {
   FlatList,
   ActivityIndicator,
   StyleSheet,
-  Clipboard,
 } from 'react-native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { getFileName } from '@/utils/path-tokenizer'
@@ -34,13 +33,27 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (!visible || !channels) return
+    if (!visible) return
+    if (!channels) {
+      setLoading(false)
+      setError('Not connected to server')
+      return
+    }
     setLoading(true)
     setError(null)
     setLines([])
 
-    channels.fs.readFile(filePath).then((content: string) => {
-      setLines(content.split('\n'))
+    channels.fs.readFile(filePath).then((result: any) => {
+      // Server returns { content?: string, error?: string, size?: number }
+      if (result?.error) {
+        setError(result.error)
+      } else if (typeof result?.content === 'string') {
+        setLines(result.content.split('\n'))
+      } else if (typeof result === 'string') {
+        setLines(result.split('\n'))
+      } else {
+        setError('Unexpected response format')
+      }
       setLoading(false)
     }).catch((e: unknown) => {
       setError(String(e))
@@ -49,10 +62,10 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
   }, [visible, filePath, channels])
 
   const handleCopy = useCallback(() => {
-    Clipboard.setString(filePath)
+    // TODO: add @react-native-clipboard/clipboard for copy support
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-  }, [filePath])
+  }, [])
 
   const renderLine = useCallback(({ item, index }: { item: string; index: number }) => (
     <View style={styles.lineRow}>

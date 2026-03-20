@@ -5,9 +5,8 @@
 
 import React, { useState, useMemo } from 'react'
 import { Text, type TextStyle } from 'react-native'
-import { tokenizePaths, hasPaths } from '@/utils/path-tokenizer'
+import { tokenizePaths } from '@/utils/path-tokenizer'
 import { FilePreviewModal } from './FilePreviewModal'
-import { appColors } from '@/theme/colors'
 
 interface Props {
   text: string

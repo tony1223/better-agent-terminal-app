@@ -2,7 +2,7 @@
  * ClaudeScreen - Claude agent chat interface
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -15,7 +15,10 @@ import {
   FlatList,
   ScrollView,
   Modal,
+  Image,
+  Alert,
 } from 'react-native'
+import { launchImageLibrary } from 'react-native-image-picker'
 import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -40,6 +43,7 @@ const PERMISSION_LABELS: Record<string, string> = {
 }
 
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
+const MAX_IMAGES = 5
 
 export function ClaudeScreen({ route }: Props) {
   const sessionId = route.params?.sessionId as string
@@ -55,6 +59,7 @@ export function ClaudeScreen({ route }: Props) {
   const [showFab, setShowFab] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
 
@@ -105,22 +110,28 @@ export function ClaudeScreen({ route }: Props) {
   }, [session.meta?.permissionMode])
 
   const handleSend = useCallback(() => {
-    if (!inputText.trim() || !channels) return
+    if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
     const text = inputText.trim()
+    const images = attachedImages.map(img => img.dataUrl)
     setInputText('')
+    setAttachedImages([])
+
+    const contentParts: string[] = []
+    if (images.length > 0) contentParts.push(`[${images.length} image(s)]`)
+    if (text) contentParts.push(text)
 
     useClaudeStore.getState().handleMessage(sessionId, {
       id: `user-${Date.now()}`,
       sessionId,
       role: 'user',
-      content: text,
+      content: contentParts.join(' '),
       timestamp: Date.now(),
     })
 
-    channels.claude.sendMessage(sessionId, text).catch(e => {
+    channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined).catch(e => {
       console.warn('[Claude] sendMessage error:', e)
     })
-  }, [inputText, channels, sessionId])
+  }, [inputText, attachedImages, channels, sessionId])
 
   const handleStop = useCallback(async () => {
     if (!channels) return
@@ -169,6 +180,43 @@ export function ClaudeScreen({ route }: Props) {
     }
   }, [channels, sessionId])
 
+  const handleUpload = useCallback(() => {
+    if (attachedImages.length >= MAX_IMAGES) {
+      Alert.alert('Limit reached', `Maximum ${MAX_IMAGES} images allowed.`)
+      return
+    }
+    try {
+      launchImageLibrary(
+        {
+          mediaType: 'photo',
+          selectionLimit: MAX_IMAGES - attachedImages.length,
+          includeBase64: true,
+          quality: 0.8,
+          maxWidth: 2048,
+          maxHeight: 2048,
+        },
+        (response) => {
+          if (response.didCancel || response.errorCode) return
+          const newImages = (response.assets || [])
+            .filter(a => a.base64 && a.uri)
+            .map(a => ({
+              uri: a.uri!,
+              dataUrl: `data:${a.type || 'image/jpeg'};base64,${a.base64}`,
+            }))
+          if (newImages.length > 0) {
+            setAttachedImages(prev => [...prev, ...newImages].slice(0, MAX_IMAGES))
+          }
+        },
+      )
+    } catch {
+      Alert.alert('Rebuild required', 'Image picker needs a native rebuild. Run: npx react-native run-android')
+    }
+  }, [attachedImages.length])
+
+  const removeImage = useCallback((index: number) => {
+    setAttachedImages(prev => prev.filter((_, i) => i !== index))
+  }, [])
+
   const renderItem = useCallback(({ item }: { item: ClaudeMessage | ClaudeToolCall }) => {
     if (isToolCall(item)) {
       return <ToolCallCard tool={item} />
@@ -176,35 +224,25 @@ export function ClaudeScreen({ route }: Props) {
     return <MessageBubble message={item} />
   }, [])
 
-  const items = session.messages
-  const showStreaming = session.isStreaming && session.streamingText
+  const showStreaming = session.isStreaming && (session.streamingText || session.streamingThinking)
 
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true })
-    }, 100)
-  }, [])
+  // Inverted FlatList: data is reversed so newest = index 0 = visible at bottom
+  const invertedItems = useMemo(() => [...session.messages].reverse(), [session.messages])
 
   const handleScrollToBottomPress = useCallback(() => {
     isAtBottomRef.current = true
     setShowFab(false)
-    scrollToBottom()
-  }, [scrollToBottom])
+    // In inverted list, "bottom" is offset 0
+    listRef.current?.scrollToOffset({ offset: 0, animated: false })
+  }, [])
 
   const handleScroll = useCallback((e: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height
-    const atBottom = distanceFromBottom < 80
+    const { contentOffset } = e.nativeEvent
+    // In inverted list, "at bottom" means near offset 0
+    const atBottom = contentOffset.y < 80
     isAtBottomRef.current = atBottom
     setShowFab(!atBottom)
   }, [])
-
-  // Auto-scroll only when at bottom
-  useEffect(() => {
-    if (isAtBottomRef.current && (items.length > 0 || showStreaming)) {
-      scrollToBottom()
-    }
-  }, [items.length, showStreaming, scrollToBottom])
 
   const modeColor = permissionMode === 'bypassPermissions' || permissionMode === 'planBypass'
     ? appColors.error : appColors.textSecondary
@@ -265,7 +303,7 @@ export function ClaudeScreen({ route }: Props) {
             <ActivityIndicator size="large" color={appColors.accent} />
             <Text style={styles.loadingText}>Loading session...</Text>
           </View>
-        ) : items.length === 0 && !showStreaming ? (
+        ) : invertedItems.length === 0 && !showStreaming ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>{'\u2726'}</Text>
             <Text style={styles.emptyText}>No messages yet</Text>
@@ -274,19 +312,20 @@ export function ClaudeScreen({ route }: Props) {
         ) : (
           <FlatList
             ref={listRef}
-            data={items}
+            data={invertedItems}
             renderItem={renderItem}
+            inverted
             contentContainerStyle={styles.listContent}
             keyExtractor={(item) => item.id}
             onScroll={handleScroll}
             scrollEventThrottle={200}
-            ListFooterComponent={showStreaming ? (
+            ListHeaderComponent={showStreaming ? (
               <StreamingText text={session.streamingText} thinking={session.streamingThinking} />
             ) : null}
           />
         )}
         {/* Scroll to bottom FAB */}
-        {showFab && items.length > 0 && (
+        {showFab && invertedItems.length > 0 && (
           <TouchableOpacity style={styles.scrollFab} onPress={handleScrollToBottomPress} activeOpacity={0.8}>
             <Text style={styles.scrollFabText}>{'\u2193'}</Text>
           </TouchableOpacity>
@@ -311,6 +350,20 @@ export function ClaudeScreen({ route }: Props) {
           </View>
         )}
 
+        {/* Attached images thumbnails */}
+        {attachedImages.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbStrip} contentContainerStyle={styles.thumbStripContent}>
+            {attachedImages.map((img, i) => (
+              <View key={i} style={styles.thumbWrap}>
+                <Image source={{ uri: img.uri }} style={styles.thumbImage} />
+                <TouchableOpacity style={styles.thumbRemove} onPress={() => removeImage(i)}>
+                  <Text style={styles.thumbRemoveText}>{'\u2715'}</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+
         {/* Input row */}
         <View style={styles.inputBar}>
           <TextInput
@@ -326,9 +379,9 @@ export function ClaudeScreen({ route }: Props) {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendDisabled]}
+            style={[styles.sendButton, (!inputText.trim() && attachedImages.length === 0) && styles.sendDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() && attachedImages.length === 0}
           >
             <Text style={styles.sendText}>{'\u2191'}</Text>
           </TouchableOpacity>
@@ -361,8 +414,10 @@ export function ClaudeScreen({ route }: Props) {
             <Text style={styles.controlText}>{'\u2442'} Fork</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.controlBtn} onPress={() => console.log('TODO: upload file')}>
-            <Text style={styles.controlText}>{'\uD83D\uDCCE'}</Text>
+          <TouchableOpacity style={styles.controlBtn} onPress={handleUpload}>
+            <Text style={styles.controlText}>
+              {attachedImages.length > 0 ? `\uD83D\uDCCE ${attachedImages.length}/${MAX_IMAGES}` : '\uD83D\uDCCE'}
+            </Text>
           </TouchableOpacity>
         </ScrollView>
 
@@ -543,6 +598,42 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: appColors.text,
     flexShrink: 1,
+  },
+  thumbStrip: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  thumbStripContent: {
+    paddingHorizontal: spacing.md,
+  },
+  thumbWrap: {
+    width: 60,
+    height: 60,
+    marginRight: spacing.sm,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  thumbImage: {
+    width: 60,
+    height: 60,
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbRemoveText: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '700',
   },
   inputBar: {
     flexDirection: 'row',

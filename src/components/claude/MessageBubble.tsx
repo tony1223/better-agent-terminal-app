@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   },
   assistantContainer: {
     alignSelf: 'flex-start',
-    backgroundColor: appColors.surface,
+    backgroundColor: appColors.surfaceHover,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     padding: spacing.md,

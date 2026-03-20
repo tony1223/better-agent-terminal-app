@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import { LinkedText } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeToolCall } from '@/types'
