@@ -1,9 +1,10 @@
 /**
  * ToolCallCard - Renders a Claude tool call with status and expandable details
+ * Matches BAT Desktop timeline-dot style
  */
 
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeToolCall } from '@/types'
 
@@ -11,16 +12,28 @@ interface Props {
   tool: ClaudeToolCall
 }
 
+/** Compact one-line summary of tool input (matches desktop toolInputSummary) */
+function toolInputSummary(input: Record<string, unknown>): string {
+  if (input.command) return String(input.command).slice(0, 120)
+  if (input.file_path) return String(input.file_path)
+  if (input.pattern) return String(input.pattern)
+  if (input.query) return String(input.query).slice(0, 120)
+  if (input.url) return String(input.url)
+  if (input.prompt) return String(input.prompt).slice(0, 120)
+  return ''
+}
+
 export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
   const [expanded, setExpanded] = useState(false)
 
-  const statusIcon = tool.status === 'running' ? null
-    : tool.status === 'completed' ? '\u2713'
-    : '\u2717'
-
-  const statusColor = tool.status === 'running' ? appColors.accent
-    : tool.status === 'completed' ? appColors.success
+  const dotColor = tool.denied ? appColors.error
+    : tool.status === 'running' ? appColors.accent
+    : tool.status === 'completed' ? '#10b981'
     : appColors.error
+
+  // Description from input.description, or fall back to input summary
+  const desc = tool.input?.description ? String(tool.input.description) : null
+  const summary = desc || toolInputSummary(tool.input)
 
   return (
     <TouchableOpacity
@@ -29,20 +42,13 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
       activeOpacity={0.7}
     >
       <View style={styles.header}>
-        {tool.status === 'running' ? (
-          <ActivityIndicator size="small" color={appColors.accent} style={styles.spinner} />
-        ) : (
-          <Text style={[styles.statusIcon, { color: statusColor }]}>{statusIcon}</Text>
-        )}
-        <Text style={styles.toolName} numberOfLines={1}>{tool.toolName}</Text>
+        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+        <Text style={styles.toolName}>{tool.toolName}</Text>
+        {summary ? (
+          <Text style={styles.summary} numberOfLines={1}>{summary}</Text>
+        ) : null}
         <Text style={styles.expand}>{expanded ? '\u25BC' : '\u25B6'}</Text>
       </View>
-
-      {tool.description && (
-        <Text style={styles.description} numberOfLines={expanded ? undefined : 1}>
-          {tool.description}
-        </Text>
-      )}
 
       {expanded && (
         <View style={styles.details}>
@@ -67,45 +73,44 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: appColors.surface,
-    borderRadius: 10,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: appColors.border,
-    borderLeftWidth: 3,
-    borderLeftColor: appColors.accent,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.xs,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  spinner: {
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginRight: spacing.sm,
-  },
-  statusIcon: {
-    fontSize: fontSize.md,
-    marginRight: spacing.sm,
-    fontWeight: '700',
   },
   toolName: {
-    flex: 1,
     fontSize: fontSize.sm,
-    color: appColors.text,
+    color: appColors.accent,
     fontWeight: '600',
     fontFamily: 'monospace',
+    marginRight: spacing.sm,
+  },
+  summary: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    color: '#bbb',
+    fontFamily: 'monospace',
+    minWidth: 0,
   },
   expand: {
     fontSize: fontSize.xs,
     color: appColors.textSecondary,
-  },
-  description: {
-    fontSize: fontSize.xs,
-    color: appColors.textSecondary,
-    marginTop: spacing.xs,
+    marginLeft: spacing.sm,
   },
   details: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
+    marginLeft: 16, // align with text after dot
   },
   detailLabel: {
     fontSize: fontSize.xs,

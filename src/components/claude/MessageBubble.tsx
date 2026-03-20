@@ -74,6 +74,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     padding: spacing.md,
+    width: '95%',
   },
   systemContainer: {
     alignSelf: 'center',

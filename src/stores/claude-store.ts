@@ -25,6 +25,14 @@ interface SessionState {
   meta: SessionMeta | null
 }
 
+export const EMPTY_SESSION: SessionState = {
+  messages: [],
+  isStreaming: false,
+  streamingText: '',
+  streamingThinking: '',
+  meta: null,
+}
+
 function createEmptySession(): SessionState {
   return {
     messages: [],
@@ -90,7 +98,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   getSession: (sessionId) => {
-    return get().sessions[sessionId] || createEmptySession()
+    return get().sessions[sessionId] || EMPTY_SESSION
   },
 
   // ---- Event Handlers ----
