@@ -5,6 +5,7 @@
 import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import Markdown from 'react-native-markdown-display'
+import { pathLinkerRules } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeMessage } from '@/types'
 
@@ -48,7 +49,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
       {isUser ? (
         <Text style={styles.userText}>{message.content}</Text>
       ) : (
-        <Markdown style={markdownStyles}>
+        <Markdown style={markdownStyles} rules={pathLinkerRules}>
           {message.content}
         </Markdown>
       )}

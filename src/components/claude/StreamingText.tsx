@@ -5,6 +5,7 @@
 import React, { useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, Animated } from 'react-native'
 import Markdown from 'react-native-markdown-display'
+import { pathLinkerRules } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
@@ -45,7 +46,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
 
       {text ? (
         <View style={styles.textBlock}>
-          <Markdown style={markdownStyles}>
+          <Markdown style={markdownStyles} rules={pathLinkerRules}>
             {text}
           </Markdown>
           <Animated.View style={[styles.cursor, { opacity: cursorOpacity }]} />

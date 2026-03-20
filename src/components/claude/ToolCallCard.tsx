@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native'
+import { LinkedText } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeToolCall } from '@/types'
 
@@ -45,7 +46,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <Text style={styles.toolName}>{tool.toolName}</Text>
         {summary ? (
-          <Text style={styles.summary} numberOfLines={1}>{summary}</Text>
+          <LinkedText text={summary} style={styles.summary} />
         ) : null}
         <Text style={styles.expand}>{expanded ? '\u25BC' : '\u25B6'}</Text>
       </View>
@@ -60,9 +61,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
           {tool.result && (
             <>
               <Text style={styles.detailLabel}>Result:</Text>
-              <Text style={styles.detailCode} numberOfLines={20}>
-                {tool.result}
-              </Text>
+              <LinkedText text={tool.result} style={styles.detailCode} />
             </>
           )}
         </View>
