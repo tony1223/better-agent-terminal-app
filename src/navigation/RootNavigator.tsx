@@ -17,7 +17,8 @@ import React from 'react'
 import { NavigationContainer, DarkTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { Text, StyleSheet } from 'react-native'
+import { Text, StyleSheet, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, fontSize } from '@/theme/colors'
 
@@ -126,11 +127,14 @@ function TerminalsStack() {
 function MainTabs() {
   return (
     <Tab.Navigator
+      safeAreaInsets={{ bottom: 0 }}
+      detachInactiveScreens={false}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
           backgroundColor: appColors.surface,
           borderTopColor: appColors.border,
+          marginTop: -28,
         },
         tabBarActiveTintColor: appColors.accent,
         tabBarInactiveTintColor: appColors.textSecondary,

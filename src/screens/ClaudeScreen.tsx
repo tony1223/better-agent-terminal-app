@@ -33,6 +33,17 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 type Props = NativeStackScreenProps<any, 'Claude'>
 
+function fmtRemaining(resetDate: Date): string {
+  const diff = resetDate.getTime() - Date.now()
+  if (diff <= 0) return 'now'
+  const d = Math.floor(diff / 86_400_000)
+  const h = Math.floor((diff % 86_400_000) / 3_600_000)
+  const m = Math.floor((diff % 3_600_000) / 60_000)
+  if (d > 0) return `${d}d${h}h`
+  if (h > 0) return `${h}h${m}m`
+  return `${m}m`
+}
+
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'planBypass', 'plan'] as const
 const PERMISSION_LABELS: Record<string, string> = {
   default: '\u270F Default',
@@ -60,6 +71,8 @@ export function ClaudeScreen({ route }: Props) {
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
+  const [usage, setUsage] = useState<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null>(null)
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
 
@@ -102,6 +115,19 @@ export function ClaudeScreen({ route }: Props) {
     }
   }, [sessionId])
 
+  // Fetch usage on mount and poll every 60s
+  useEffect(() => {
+    if (!channels) return
+    const fetchUsage = () => {
+      channels.claude.getUsage().then((u: any) => {
+        if (u && !u.rateLimited) setUsage(u)
+      }).catch(() => {})
+    }
+    fetchUsage()
+    const timer = setInterval(fetchUsage, 60_000)
+    return () => clearInterval(timer)
+  }, [channels])
+
   // Sync permission mode from meta
   useEffect(() => {
     if (session.meta?.permissionMode) {
@@ -112,6 +138,17 @@ export function ClaudeScreen({ route }: Props) {
   const handleSend = useCallback(() => {
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
     const text = inputText.trim()
+
+    // Handle /new command
+    if (text === '/new') {
+      setInputText('')
+      useClaudeStore.getState().handleSessionReset(sessionId)
+      channels.claude.resetSession(sessionId).catch(e => {
+        console.warn('[Claude] resetSession error:', e)
+      })
+      return
+    }
+
     const images = attachedImages.map(img => img.dataUrl)
     setInputText('')
     setAttachedImages([])
@@ -256,46 +293,6 @@ export function ClaudeScreen({ route }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      {/* Status bar (top) */}
-      {session.meta && (
-        <View style={styles.statusBar}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statusScroll}>
-            <Text style={styles.statusText}>
-              {session.meta.model || 'Claude'}
-            </Text>
-            <Text style={styles.statusSep}>{'\u00B7'}</Text>
-            <Text style={styles.statusText}>
-              {session.meta.numTurns} turns
-            </Text>
-            <Text style={styles.statusSep}>{'\u00B7'}</Text>
-            <Text style={styles.statusText}>
-              ${session.meta.totalCost?.toFixed(4) ?? '0'}
-            </Text>
-            {session.meta.inputTokens > 0 && (
-              <>
-                <Text style={styles.statusSep}>{'\u00B7'}</Text>
-                <Text style={styles.statusText}>
-                  {Math.round((session.meta.inputTokens + session.meta.outputTokens) / 1000)}k tok
-                </Text>
-              </>
-            )}
-            {session.meta.permissionMode && (
-              <>
-                <Text style={styles.statusSep}>{'\u00B7'}</Text>
-                <Text style={[styles.statusText, { color: modeColor }]}>
-                  {PERMISSION_LABELS[session.meta.permissionMode] || session.meta.permissionMode}
-                </Text>
-              </>
-            )}
-          </ScrollView>
-          {session.isStreaming && (
-            <TouchableOpacity onPress={handleStop} style={styles.stopButton}>
-              <Text style={styles.stopText}>Stop</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
       {/* Message list */}
       <View style={styles.listContainer}>
         {loading ? (
@@ -355,7 +352,9 @@ export function ClaudeScreen({ route }: Props) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbStrip} contentContainerStyle={styles.thumbStripContent}>
             {attachedImages.map((img, i) => (
               <View key={i} style={styles.thumbWrap}>
-                <Image source={{ uri: img.uri }} style={styles.thumbImage} />
+                <TouchableOpacity activeOpacity={0.8} onPress={() => setPreviewImageUri(img.uri)}>
+                  <Image source={{ uri: img.uri }} style={styles.thumbImage} />
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.thumbRemove} onPress={() => removeImage(i)}>
                   <Text style={styles.thumbRemoveText}>{'\u2715'}</Text>
                 </TouchableOpacity>
@@ -419,10 +418,36 @@ export function ClaudeScreen({ route }: Props) {
               {attachedImages.length > 0 ? `\uD83D\uDCCE ${attachedImages.length}/${MAX_IMAGES}` : '\uD83D\uDCCE'}
             </Text>
           </TouchableOpacity>
+
+          {session.isStreaming && (
+            <TouchableOpacity style={[styles.controlBtn, { backgroundColor: appColors.error, borderColor: appColors.error }]} onPress={handleStop}>
+              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>Stop</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
 
-        {/* Info row: session ID / cwd */}
-        <View style={styles.infoRow}>
+        {/* Status + usage info row */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoScroll} contentContainerStyle={styles.infoContent}>
+          {session.meta && (
+            <Text style={styles.infoText}>${session.meta.totalCost?.toFixed(4) ?? '0'}</Text>
+          )}
+          {session.meta && session.meta.inputTokens > 0 && (
+            <Text style={styles.infoText}>
+              {Math.round((session.meta.inputTokens + session.meta.outputTokens) / 1000)}k tok
+            </Text>
+          )}
+          {usage?.fiveHour != null && (
+            <Text style={[styles.infoText, usage.fiveHour > 80 && styles.usageHigh]}>
+              5h:{Math.round(usage.fiveHour)}%
+              {usage.fiveHourReset ? ` \u21BB${fmtRemaining(new Date(usage.fiveHourReset))}` : ''}
+            </Text>
+          )}
+          {usage?.sevenDay != null && (
+            <Text style={[styles.infoText, (usage.sevenDay ?? 0) > 80 && styles.usageHigh]}>
+              7d:{Math.round(usage.sevenDay ?? 0)}%
+              {usage.sevenDayReset ? ` \u21BB${fmtRemaining(new Date(usage.sevenDayReset))}` : ''}
+            </Text>
+          )}
           {sdkSessionShort && (
             <Text style={styles.infoText}>sid:{sdkSessionShort}</Text>
           )}
@@ -431,7 +456,7 @@ export function ClaudeScreen({ route }: Props) {
               {terminal.cwd.split('/').slice(-2).join('/')}
             </Text>
           )}
-        </View>
+        </ScrollView>
       </View>
 
       {/* Model picker modal */}
@@ -457,6 +482,15 @@ export function ClaudeScreen({ route }: Props) {
               )}
             />
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Image preview modal */}
+      <Modal visible={!!previewImageUri} transparent animationType="fade" onRequestClose={() => setPreviewImageUri(null)}>
+        <TouchableOpacity style={styles.imagePreviewOverlay} activeOpacity={1} onPress={() => setPreviewImageUri(null)}>
+          {previewImageUri && (
+            <Image source={{ uri: previewImageUri }} style={styles.imagePreviewFull} resizeMode="contain" />
+          )}
         </TouchableOpacity>
       </Modal>
     </KeyboardAvoidingView>
@@ -568,6 +602,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: appColors.border,
     backgroundColor: appColors.surface,
+    paddingBottom: spacing.lg,
   },
   suggestions: {
     flexDirection: 'row',
@@ -694,17 +729,32 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontFamily: 'monospace',
   },
-  // ---- Info row (session/cwd) ----
-  infoRow: {
-    flexDirection: 'row',
+  // ---- Info row (usage + session/cwd) ----
+  infoScroll: {
+    paddingTop: spacing.xs,
+  },
+  infoContent: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xs,
   },
   infoText: {
-    fontSize: 9,
-    color: appColors.textMuted,
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
     fontFamily: 'monospace',
     marginRight: spacing.md,
+  },
+  usageHigh: {
+    color: appColors.error,
+  },
+  // ---- Image preview modal ----
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewFull: {
+    width: '90%',
+    height: '80%',
   },
   // ---- Model picker modal ----
   modalOverlay: {

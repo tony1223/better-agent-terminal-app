@@ -134,6 +134,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     onPromptSuggestion: (cb: (sessionId: string, suggestion: string) => void) =>
       ws.on('claude:prompt-suggestion', cb as (...args: unknown[]) => void),
+
+    onSessionReset: (cb: (sessionId: string) => void) =>
+      ws.on('claude:session-reset', cb as (...args: unknown[]) => void),
   }
 }
 

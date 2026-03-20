@@ -61,15 +61,8 @@ export function LinkedText({ text, style }: Props) {
  * Custom rules for react-native-markdown-display
  * Replaces default text renderer with LinkedText to detect file paths
  */
-let _loggedOnce = false
 export const pathLinkerRules = {
-  text: (node: any, _children: any, _parent: any, styles: any) => {
-    if (!_loggedOnce) {
-      _loggedOnce = true
-      console.warn('[LinkedText] styles keys:', Object.keys(styles || {}))
-      console.warn('[LinkedText] styles.text:', JSON.stringify(styles?.text))
-      console.warn('[LinkedText] styles.body:', JSON.stringify(styles?.body))
-    }
-    return <LinkedText key={node.key} text={node.content} style={{ ...styles?.body, ...styles?.text }} />
-  },
+  text: (node: any, _children: any, _parent: any, styles: any) => (
+    <LinkedText key={node.key} text={node.content} style={{ ...styles?.body, ...styles?.text }} />
+  ),
 }

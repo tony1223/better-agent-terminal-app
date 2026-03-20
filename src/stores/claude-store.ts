@@ -15,6 +15,7 @@ import type {
   isToolCall,
 } from '@/types'
 import type { ClaudeChannel } from '@/api/channels/claude'
+import { useWorkspaceStore } from './workspace-store'
 import { dlog } from '@/utils/debug-log'
 
 interface SessionState {
@@ -70,6 +71,7 @@ interface ClaudeState {
   handleHistory: (sessionId: string, items: (ClaudeMessage | ClaudeToolCall)[]) => void
   handleModeChange: (sessionId: string, mode: string) => void
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
+  handleSessionReset: (sessionId: string) => void
 
   // UI Actions
   clearPermission: () => void
@@ -307,6 +309,24 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     set({ promptSuggestions: [suggestion] })
   },
 
+  handleSessionReset: (sessionId) => {
+    const { sessions } = get()
+    dlog('CLAUDE_STORE', `handleSessionReset sid=${sessionId}`)
+    set({
+      sessions: {
+        ...sessions,
+        [sessionId]: createEmptySession(),
+      },
+      promptSuggestions: [],
+    })
+    // Clear stale sdkSessionId in workspace store
+    const wsStore = useWorkspaceStore.getState()
+    const terminals = wsStore.terminals.map(t =>
+      t.id === sessionId ? { ...t, sdkSessionId: undefined } : t
+    )
+    useWorkspaceStore.setState({ terminals })
+  },
+
   // ---- UI Actions ----
 
   clearPermission: () => set({ pendingPermission: null }),
@@ -335,6 +355,7 @@ export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
   unsubs.push(claude.onHistory((sid, items) => useClaudeStore.getState().handleHistory(sid, items)))
   unsubs.push(claude.onModeChange((sid, mode) => useClaudeStore.getState().handleModeChange(sid, mode)))
   unsubs.push(claude.onPromptSuggestion((sid, sug) => useClaudeStore.getState().handlePromptSuggestion(sid, sug)))
+  unsubs.push(claude.onSessionReset((sid) => useClaudeStore.getState().handleSessionReset(sid)))
 
   return () => {
     for (const unsub of unsubs) unsub()
