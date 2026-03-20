@@ -7,10 +7,11 @@ export const appColors = {
   background: '#1a1a1a',
   surface: '#242424',
   surfaceHover: '#2e2e2e',
+  messageBubble: '#3a3a3a',
   border: '#333333',
-  text: '#e0e0e0',
-  textSecondary: '#888888',
-  textMuted: '#555555',
+  text: '#f5f5f5',
+  textSecondary: '#a0a0a0',
+  textMuted: '#666666',
   accent: '#d97706',       // BAT claude-code orange
   accentDim: '#92400e',
   error: '#ef4444',
@@ -19,6 +20,7 @@ export const appColors = {
   successDim: '#14532d',
   warning: '#f59e0b',
   info: '#3b82f6',
+  codeInline: '#93c5fd',    // light blue, distinct from accent orange
 
   // Agent preset colors
   agentClaudeCode: '#d97706',

@@ -63,7 +63,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'flex-start',
-    backgroundColor: appColors.surfaceHover,
+    backgroundColor: appColors.messageBubble,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     padding: spacing.md,
@@ -112,10 +112,11 @@ const markdownStyles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   code_inline: {
-    backgroundColor: appColors.background,
-    color: appColors.accent,
+    backgroundColor: '#111111',
+    color: '#ffffff',
     fontFamily: 'monospace',
     fontSize: fontSize.sm,
+    fontWeight: '700',
   },
   fence: {
     backgroundColor: appColors.background,

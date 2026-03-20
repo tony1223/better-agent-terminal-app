@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   },
   assistantContainer: {
     alignSelf: 'flex-start',
-    backgroundColor: appColors.surfaceHover,
+    backgroundColor: appColors.messageBubble,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
     padding: spacing.md,
@@ -117,11 +117,12 @@ const markdownStyles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   code_inline: {
-    backgroundColor: appColors.background,
-    color: appColors.accent,
+    backgroundColor: '#111111',
+    color: '#ffffff',
     fontFamily: 'monospace',
     fontSize: fontSize.sm,
-    paddingHorizontal: 4,
+    fontWeight: '700',
+    paddingHorizontal: 5,
     borderRadius: 4,
   },
   fence: {
