@@ -26,12 +26,12 @@ export function LinkedText({ text, style }: Props) {
   const hasPathTokens = tokens.length > 1 || tokens[0]?.type === 'path'
 
   if (!hasPathTokens) {
-    return <Text style={style}>{text}</Text>
+    return <Text style={style} selectable>{text}</Text>
   }
 
   return (
     <>
-      <Text style={style}>
+      <Text style={style} selectable>
         {tokens.map((token, i) =>
           token.type === 'path' ? (
             <Text

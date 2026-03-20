@@ -40,7 +40,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
       {thinking ? (
         <View style={styles.thinkingBlock}>
           <Text style={styles.thinkingLabel}>Thinking...</Text>
-          <Text style={styles.thinkingText}>{thinking}</Text>
+          <Text style={styles.thinkingText} selectable>{thinking}</Text>
         </View>
       ) : null}
 

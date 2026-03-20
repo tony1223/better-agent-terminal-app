@@ -54,7 +54,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
       {expanded && (
         <View style={styles.details}>
           <Text style={styles.detailLabel}>Input:</Text>
-          <Text style={styles.detailCode}>
+          <Text style={styles.detailCode} selectable>
             {JSON.stringify(tool.input, null, 2)}
           </Text>
 

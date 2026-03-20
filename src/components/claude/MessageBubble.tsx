@@ -19,7 +19,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
   if (message.role === 'system') {
     return (
       <View style={styles.systemContainer}>
-        <Text style={styles.systemText}>{message.content}</Text>
+        <Text style={styles.systemText} selectable>{message.content}</Text>
       </View>
     )
   }
@@ -41,13 +41,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
       )}
       {showThinking && message.thinking && (
         <View style={styles.thinkingBlock}>
-          <Text style={styles.thinkingText}>{message.thinking}</Text>
+          <Text style={styles.thinkingText} selectable>{message.thinking}</Text>
         </View>
       )}
 
       {/* Content */}
       {isUser ? (
-        <Text style={styles.userText}>{message.content}</Text>
+        <Text style={styles.userText} selectable>{message.content}</Text>
       ) : (
         <Markdown style={markdownStyles} rules={pathLinkerRules}>
           {message.content}
