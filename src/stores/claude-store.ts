@@ -264,6 +264,18 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         [sessionId]: { ...session, meta },
       },
     })
+
+    // Persist sdkSessionId to workspace store so auto-resume works
+    if (meta.sdkSessionId) {
+      const wsStore = useWorkspaceStore.getState()
+      const terminal = wsStore.terminals.find(t => t.id === sessionId)
+      if (terminal && terminal.sdkSessionId !== meta.sdkSessionId) {
+        const terminals = wsStore.terminals.map(t =>
+          t.id === sessionId ? { ...t, sdkSessionId: meta.sdkSessionId } : t
+        )
+        useWorkspaceStore.setState({ terminals })
+      }
+    }
   },
 
   handlePermissionRequest: (sessionId, data) => {

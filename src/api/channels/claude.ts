@@ -65,8 +65,8 @@ export function createClaudeChannel(ws: WebSocketClient) {
     resolveAskUser: (sessionId: string, toolUseId: string, answers: Record<string, string>) =>
       ws.invoke('claude:resolve-ask-user', sessionId, toolUseId, answers),
 
-    listSessions: (sessionId: string) =>
-      ws.invoke('claude:list-sessions', sessionId),
+    listSessions: (cwd: string) =>
+      ws.invoke('claude:list-sessions', cwd),
 
     resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string) =>
       ws.invoke('claude:resume-session', sessionId, sdkSessionId, cwd, model),

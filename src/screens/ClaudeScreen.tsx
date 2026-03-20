@@ -56,6 +56,18 @@ const PERMISSION_LABELS: Record<string, string> = {
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
 const MAX_IMAGES = 5
 
+interface SessionSummary {
+  sdkSessionId: string
+  timestamp: number
+  preview: string
+  messageCount: number
+  customTitle?: string
+  firstPrompt?: string
+  gitBranch?: string
+  createdAt?: number
+  summary?: string
+}
+
 export function ClaudeScreen({ route }: Props) {
   const sessionId = route.params?.sessionId as string
   const channels = useConnectionStore(s => s.channels)
@@ -73,6 +85,9 @@ export function ClaudeScreen({ route }: Props) {
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
   const [usage, setUsage] = useState<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null>(null)
+  const [showResumeList, setShowResumeList] = useState(false)
+  const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
+  const [resumeLoading, setResumeLoading] = useState(false)
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
 
@@ -135,7 +150,7 @@ export function ClaudeScreen({ route }: Props) {
     }
   }, [session.meta?.permissionMode])
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
     const text = inputText.trim()
 
@@ -146,6 +161,23 @@ export function ClaudeScreen({ route }: Props) {
       channels.claude.resetSession(sessionId).catch(e => {
         console.warn('[Claude] resetSession error:', e)
       })
+      return
+    }
+
+    // Handle /resume command
+    if (text === '/resume') {
+      setInputText('')
+      if (!terminal?.cwd) return
+      setResumeLoading(true)
+      setShowResumeList(true)
+      try {
+        const sessions = await channels.claude.listSessions(terminal.cwd) as SessionSummary[] | null
+        setResumeSessions(sessions || [])
+      } catch {
+        setResumeSessions([])
+      } finally {
+        setResumeLoading(false)
+      }
       return
     }
 
@@ -216,6 +248,22 @@ export function ClaudeScreen({ route }: Props) {
       console.warn('[Claude] fork error:', e)
     }
   }, [channels, sessionId])
+
+  const handleResumeSelect = useCallback(async (sdkSessionId: string) => {
+    if (!channels || !terminal) return
+    setShowResumeList(false)
+    setResumeSessions([])
+    // Clear UI immediately
+    useClaudeStore.getState().handleSessionReset(sessionId)
+    // Resume the selected session
+    await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model)
+    // Persist new sdkSessionId
+    const wsStore = useWorkspaceStore.getState()
+    const terminals = wsStore.terminals.map(t =>
+      t.id === sessionId ? { ...t, sdkSessionId } : t
+    )
+    useWorkspaceStore.setState({ terminals })
+  }, [channels, sessionId, terminal])
 
   const handleUpload = useCallback(() => {
     if (attachedImages.length >= MAX_IMAGES) {
@@ -493,6 +541,52 @@ export function ClaudeScreen({ route }: Props) {
           )}
         </TouchableOpacity>
       </Modal>
+
+      {/* Resume session list modal */}
+      <Modal visible={showResumeList} transparent animationType="fade" onRequestClose={() => setShowResumeList(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowResumeList(false)}>
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Resume Session</Text>
+            {resumeLoading ? (
+              <View style={styles.resumeEmpty}>
+                <ActivityIndicator size="small" color={appColors.accent} />
+                <Text style={styles.resumeEmptyText}>Loading sessions...</Text>
+              </View>
+            ) : resumeSessions.length === 0 ? (
+              <View style={styles.resumeEmpty}>
+                <Text style={styles.resumeEmptyText}>No sessions found</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={resumeSessions}
+                keyExtractor={(item) => item.sdkSessionId}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.resumeItem}
+                    onPress={() => handleResumeSelect(item.sdkSessionId)}
+                  >
+                    <View style={styles.resumeItemHeader}>
+                      <Text style={styles.resumeItemId}>{item.sdkSessionId.slice(0, 8)}</Text>
+                      {item.gitBranch && (
+                        <Text style={styles.resumeItemBranch}>{item.gitBranch}</Text>
+                      )}
+                      <Text style={styles.resumeItemTime}>
+                        {new Date(item.createdAt || item.timestamp).toLocaleString()}
+                      </Text>
+                    </View>
+                    {item.customTitle && (
+                      <Text style={styles.resumeItemTitle} numberOfLines={1}>{item.customTitle}</Text>
+                    )}
+                    {item.summary && item.summary !== item.customTitle && (
+                      <Text style={styles.resumeItemPreview} numberOfLines={2}>{item.summary}</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -755,6 +849,54 @@ const styles = StyleSheet.create({
   imagePreviewFull: {
     width: '90%',
     height: '80%',
+  },
+  // ---- Resume session modal ----
+  resumeEmpty: {
+    padding: spacing.xl,
+    alignItems: 'center' as const,
+  },
+  resumeEmptyText: {
+    fontSize: fontSize.sm,
+    color: appColors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  resumeItem: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: appColors.border,
+  },
+  resumeItemHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: spacing.sm,
+  },
+  resumeItemId: {
+    fontSize: fontSize.xs,
+    color: appColors.accent,
+    fontFamily: 'monospace',
+    fontWeight: '600' as const,
+  },
+  resumeItemBranch: {
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontFamily: 'monospace',
+  },
+  resumeItemTime: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+    marginLeft: 'auto' as const,
+  },
+  resumeItemTitle: {
+    fontSize: fontSize.sm,
+    color: appColors.text,
+    fontWeight: '600' as const,
+    marginTop: spacing.xs,
+  },
+  resumeItemPreview: {
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    marginTop: spacing.xs,
   },
   // ---- Model picker modal ----
   modalOverlay: {
