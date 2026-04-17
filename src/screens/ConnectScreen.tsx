@@ -1,5 +1,6 @@
 /**
  * ConnectScreen - Host selection and connection
+ * Shows TLS security status for each host.
  */
 
 import React, { useEffect, useState } from 'react'
@@ -8,7 +9,6 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
-  TextInput,
   Alert,
   StyleSheet,
   ActivityIndicator,
@@ -27,7 +27,7 @@ type Props = {
 
 export function ConnectScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets()
-  const { hosts, loadFromStorage, removeHost, getToken, setActiveHost } = useHostStore()
+  const { hosts, loadFromStorage, removeHost, getToken, getFingerprint, setActiveHost } = useHostStore()
   const { status, error, connect } = useConnectionStore()
   const [connectingHostId, setConnectingHostId] = useState<string | null>(null)
 
@@ -44,7 +44,8 @@ export function ConnectScreen({ navigation }: Props) {
       return
     }
 
-    const ok = await connect(host.address, host.port, token)
+    const fingerprint = getFingerprint(host.id)
+    const ok = await connect(host.address, host.port, token, fingerprint)
     setConnectingHostId(null)
 
     if (ok) {
@@ -67,6 +68,7 @@ export function ConnectScreen({ navigation }: Props) {
 
   const renderHost = ({ item }: { item: SavedHost }) => {
     const isConnecting = connectingHostId === item.id
+    const hasTLS = !!item.fingerprint
     return (
       <TouchableOpacity
         style={styles.hostCard}
@@ -75,13 +77,27 @@ export function ConnectScreen({ navigation }: Props) {
         disabled={isConnecting}
       >
         <View style={styles.hostInfo}>
-          <Text style={styles.hostName}>{item.name}</Text>
-          <Text style={styles.hostAddress}>{item.address}:{item.port}</Text>
+          <View style={styles.hostNameRow}>
+            <Text style={styles.hostName}>{item.name}</Text>
+            {hasTLS && (
+              <View style={styles.tlsBadge}>
+                <Text style={styles.tlsBadgeText}>TLS</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.hostAddress}>
+            {hasTLS ? 'wss' : 'ws'}://{item.address}:{item.port}
+          </Text>
+          {hasTLS && item.fingerprint && (
+            <Text style={styles.fingerprint}>
+              {item.fingerprint.match(/.{1,2}/g)?.join(':').slice(0, 23)}...
+            </Text>
+          )}
         </View>
         {isConnecting ? (
           <ActivityIndicator color={appColors.accent} />
         ) : (
-          <View style={[styles.statusDot, { backgroundColor: appColors.textMuted }]} />
+          <View style={[styles.statusDot, { backgroundColor: hasTLS ? '#22c55e' : appColors.textMuted }]} />
         )}
       </TouchableOpacity>
     )
@@ -167,16 +183,39 @@ const styles = StyleSheet.create({
   hostInfo: {
     flex: 1,
   },
+  hostNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   hostName: {
     fontSize: fontSize.lg,
     color: appColors.text,
     fontWeight: '600',
+  },
+  tlsBadge: {
+    backgroundColor: '#16a34a22',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  tlsBadgeText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   hostAddress: {
     fontSize: fontSize.sm,
     color: appColors.textSecondary,
     marginTop: 2,
     fontFamily: 'monospace',
+  },
+  fingerprint: {
+    fontSize: 10,
+    color: appColors.textMuted,
+    fontFamily: 'monospace',
+    marginTop: 2,
   },
   statusDot: {
     width: 12,

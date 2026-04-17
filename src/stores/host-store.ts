@@ -1,6 +1,6 @@
 /**
  * Host Manager Store - manages saved BAT server hosts
- * Host metadata → MMKV (fast, non-sensitive)
+ * Host metadata (including fingerprint) → MMKV (fast, non-sensitive)
  * Tokens → Keychain (secure)
  */
 
@@ -40,6 +40,7 @@ interface HostState {
   removeHost: (id: string) => Promise<void>
   updateHost: (id: string, updates: Partial<Omit<SavedHost, 'id'>>, token?: string) => Promise<void>
   getToken: (id: string) => Promise<string | null>
+  getFingerprint: (id: string) => string | null
   setActiveHost: (id: string) => void
 }
 
@@ -58,7 +59,6 @@ export const useHostStore = create<HostState>((set, get) => ({
     const hosts = [...get().hosts, host]
     saveHosts(hosts)
 
-    // Store token securely
     await Keychain.setGenericPassword(id, token, { service: `${TOKEN_SERVICE}-${id}` })
 
     set({ hosts })
@@ -68,7 +68,6 @@ export const useHostStore = create<HostState>((set, get) => ({
     const hosts = get().hosts.filter(h => h.id !== id)
     saveHosts(hosts)
 
-    // Remove token
     await Keychain.resetGenericPassword({ service: `${TOKEN_SERVICE}-${id}` })
 
     const activeHostId = get().activeHostId === id ? null : get().activeHostId
@@ -95,6 +94,11 @@ export const useHostStore = create<HostState>((set, get) => ({
     } catch {
       return null
     }
+  },
+
+  getFingerprint: (id) => {
+    const host = get().hosts.find(h => h.id === id)
+    return host?.fingerprint ?? null
   },
 
   setActiveHost: (id) => {

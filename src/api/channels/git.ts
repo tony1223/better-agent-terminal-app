@@ -18,6 +18,8 @@ export function createGitChannel(ws: WebSocketClient) {
       ws.invoke('git:status', cwd),
     getGithubUrl: (folderPath: string) =>
       ws.invoke<string | null>('git:get-github-url', folderPath),
+    getRoot: (cwd: string) =>
+      ws.invoke<string>('git:getRoot', cwd),
   }
 }
 

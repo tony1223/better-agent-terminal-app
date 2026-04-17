@@ -11,6 +11,8 @@ import { createGitChannel, type GitChannel } from './git'
 import { createFsChannel, type FsChannel } from './fs'
 import { createSnippetsChannel, type SnippetsChannel } from './snippets'
 import { createProfileChannel, type ProfileChannel } from './profile'
+import { createGithubChannel, type GithubChannel } from './github'
+import { createWorktreeChannel, type WorktreeChannel } from './worktree'
 
 export interface Channels {
   pty: PtyChannel
@@ -21,6 +23,8 @@ export interface Channels {
   fs: FsChannel
   snippets: SnippetsChannel
   profile: ProfileChannel
+  github: GithubChannel
+  worktree: WorktreeChannel
 }
 
 export function createChannels(ws: WebSocketClient): Channels {
@@ -33,7 +37,13 @@ export function createChannels(ws: WebSocketClient): Channels {
     fs: createFsChannel(ws),
     snippets: createSnippetsChannel(ws),
     profile: createProfileChannel(ws),
+    github: createGithubChannel(ws),
+    worktree: createWorktreeChannel(ws),
   }
 }
 
-export { type PtyChannel, type ClaudeChannel, type WorkspaceChannel, type SettingsChannel, type GitChannel, type FsChannel, type SnippetsChannel, type ProfileChannel }
+export {
+  type PtyChannel, type ClaudeChannel, type WorkspaceChannel,
+  type SettingsChannel, type GitChannel, type FsChannel,
+  type SnippetsChannel, type ProfileChannel, type GithubChannel, type WorktreeChannel,
+}

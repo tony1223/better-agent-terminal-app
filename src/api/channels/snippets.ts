@@ -15,6 +15,7 @@ export function createSnippetsChannel(ws: WebSocketClient) {
     search: (query: string) => ws.invoke('snippet:search', query),
     getCategories: () => ws.invoke('snippet:getCategories'),
     getFavorites: () => ws.invoke('snippet:getFavorites'),
+    getByWorkspace: (workspaceId: string) => ws.invoke('snippet:getByWorkspace', workspaceId),
   }
 }
 

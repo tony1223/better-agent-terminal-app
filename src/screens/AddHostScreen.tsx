@@ -1,5 +1,6 @@
 /**
  * AddHostScreen - Add or edit a BAT host connection
+ * Supports TLS with certificate fingerprint pinning.
  */
 
 import React, { useState } from 'react'
@@ -33,32 +34,59 @@ export function AddHostScreen({ navigation }: Props) {
   const [address, setAddress] = useState('')
   const [port, setPort] = useState('9876')
   const [token, setToken] = useState('')
+  const [fingerprint, setFingerprint] = useState('')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const isValid = name.trim() && address.trim() && port.trim() && token.trim()
+  const hasTLS = fingerprint.trim().length > 0
+
+  const normalizeFingerprint = (fp: string): string => {
+    return fp.trim().toUpperCase().replace(/[^A-F0-9]/g, '')
+  }
+
+  const formatFingerprint = (fp: string): string => {
+    const clean = normalizeFingerprint(fp)
+    return clean.match(/.{1,2}/g)?.join(':') ?? clean
+  }
 
   const handleTest = async () => {
     if (!isValid) return
     setTesting(true)
 
     const client = new WebSocketClient()
-    const ok = await client.connect(address.trim(), parseInt(port, 10), token.trim(), 'BAT-Mobile-Test')
+    const fp = hasTLS ? normalizeFingerprint(fingerprint) : null
+    const ok = await client.connect(
+      address.trim(),
+      parseInt(port, 10),
+      token.trim(),
+      'BAT-Mobile-Test',
+      fp,
+    )
     client.disconnect()
 
     setTesting(false)
-    Alert.alert(ok ? 'Success' : 'Failed', ok ? 'Connection successful!' : 'Could not connect. Check address, port, and token.')
+    if (ok) {
+      Alert.alert('Success', `Connection successful!${hasTLS ? ' (TLS verified)' : ''}`)
+    } else {
+      const err = client.error
+      Alert.alert('Failed', err || 'Could not connect. Check address, port, token, and fingerprint.')
+    }
   }
 
   const handleSave = async () => {
     if (!isValid) return
     setSaving(true)
 
+    const fp = hasTLS ? normalizeFingerprint(fingerprint) : undefined
+
     await addHost(
       {
         name: name.trim(),
         address: address.trim(),
         port: parseInt(port, 10),
+        fingerprint: fp,
+        useTLS: hasTLS,
       },
       token.trim()
     )
@@ -117,6 +145,27 @@ export function AddHostScreen({ navigation }: Props) {
           autoCorrect={false}
         />
 
+        <Text style={styles.label}>
+          TLS Fingerprint{' '}
+          <Text style={styles.labelOptional}>(from BAT Desktop Settings)</Text>
+        </Text>
+        <TextInput
+          style={[styles.input, styles.fingerprintInput]}
+          value={fingerprint}
+          onChangeText={setFingerprint}
+          onBlur={() => { if (fingerprint) setFingerprint(formatFingerprint(fingerprint)) }}
+          placeholder="AB:CD:EF:... (SHA-256)"
+          placeholderTextColor={appColors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          multiline
+        />
+        {hasTLS && (
+          <View style={styles.tlsBadge}>
+            <Text style={styles.tlsBadgeText}>TLS Pinning Enabled</Text>
+          </View>
+        )}
+
         <TouchableOpacity
           style={[styles.testButton, !isValid && styles.buttonDisabled]}
           onPress={handleTest}
@@ -161,6 +210,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
+  labelOptional: {
+    textTransform: 'none',
+    letterSpacing: 0,
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+  },
   input: {
     backgroundColor: appColors.surface,
     borderRadius: 10,
@@ -169,6 +224,24 @@ const styles = StyleSheet.create({
     color: appColors.text,
     borderWidth: 1,
     borderColor: appColors.border,
+  },
+  fingerprintInput: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: fontSize.sm,
+    minHeight: 60,
+  },
+  tlsBadge: {
+    marginTop: spacing.sm,
+    backgroundColor: '#16a34a22',
+    borderRadius: 6,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    alignSelf: 'flex-start',
+  },
+  tlsBadgeText: {
+    color: '#22c55e',
+    fontSize: fontSize.xs,
+    fontWeight: '600',
   },
   testButton: {
     backgroundColor: appColors.surface,

@@ -1,5 +1,6 @@
 /**
  * ScanQRScreen - Scan BAT QR code to add host
+ * Supports new QR format with TLS fingerprint.
  */
 
 import React, { useState, useCallback, useRef } from 'react'
@@ -38,11 +39,12 @@ export function ScanQRScreen({ navigation }: Props) {
   const { connect } = useConnectionStore()
 
   const handlePayload = useCallback(async (payload: BATQRPayload) => {
-    dlog('QR', `parsed OK: ${payload.host}:${payload.port} token=${payload.token.slice(0, 8)}... mode=${payload.mode}`)
+    dlog('QR', `parsed OK: ${payload.host}:${payload.port} tls=${payload.useTLS} fp=${payload.fingerprint ? payload.fingerprint.slice(0, 12) + '...' : 'none'} mode=${payload.mode}`)
 
+    const tlsLabel = payload.useTLS ? ' (TLS)' : ''
     Alert.alert(
       'BAT Host Found',
-      `Connect to "${payload.name}"\n${payload.host}:${payload.port}?`,
+      `Connect to "${payload.name}"${tlsLabel}\n${payload.host}:${payload.port}?`,
       [
         {
           text: 'Cancel',
@@ -59,7 +61,13 @@ export function ScanQRScreen({ navigation }: Props) {
             try {
               dlog('QR', 'saving host...')
               await addHost(
-                { name: payload.name, address: payload.host, port: payload.port },
+                {
+                  name: payload.name,
+                  address: payload.host,
+                  port: payload.port,
+                  fingerprint: payload.fingerprint ?? undefined,
+                  useTLS: payload.useTLS,
+                },
                 payload.token,
               )
               dlog('QR', 'saved OK')
@@ -76,7 +84,13 @@ export function ScanQRScreen({ navigation }: Props) {
             try {
               dlog('QR', 'saving host before connect...')
               await addHost(
-                { name: payload.name, address: payload.host, port: payload.port },
+                {
+                  name: payload.name,
+                  address: payload.host,
+                  port: payload.port,
+                  fingerprint: payload.fingerprint ?? undefined,
+                  useTLS: payload.useTLS,
+                },
                 payload.token,
               )
               const hosts = useHostStore.getState().hosts
@@ -84,8 +98,8 @@ export function ScanQRScreen({ navigation }: Props) {
               if (newHost) {
                 setActiveHost(newHost.id)
               }
-              dlog('QR', `connecting to ${payload.host}:${payload.port}...`)
-              const ok = await connect(payload.host, payload.port, payload.token)
+              dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
+              const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint)
               dlog('QR', `connect result: ${ok}`)
               if (ok) {
                 navigation.goBack()

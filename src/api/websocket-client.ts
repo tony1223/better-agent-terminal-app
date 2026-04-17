@@ -2,11 +2,13 @@
  * WebSocket Client for BAT Remote Protocol
  * Reference: BAT Desktop electron/remote/remote-client.ts
  *
- * Uses RN built-in WebSocket (global).
- * Implements auth, request-response correlation, event dispatch, and auto-reconnect.
+ * Supports wss:// with SHA-256 certificate fingerprint pinning via native TLS module.
+ * Falls back to plain ws:// when no fingerprint is provided.
+ * Implements auth, request-response correlation, event dispatch, and exponential backoff reconnect.
  */
 
 import { PROXIED_EVENTS, type RemoteFrame } from './protocol'
+import { TLSWebSocket } from '@/native/tls-websocket'
 import { dlog } from '@/utils/debug-log'
 
 export type ConnectionStatus =
@@ -26,8 +28,14 @@ interface PendingInvoke {
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
 
+const AUTH_TIMEOUT_MS = 10_000
+const INVOKE_TIMEOUT_MS = 30_000
+const HEARTBEAT_MS = 30_000
+const RECONNECT_BASE_MS = 1_000
+const RECONNECT_MAX_MS = 30_000
+
 export class WebSocketClient {
-  private ws: WebSocket | null = null
+  private ws: TLSWebSocket | null = null
   private pending: Map<string, PendingInvoke> = new Map()
   private listeners: Map<string, Set<EventHandler>> = new Map()
   private statusListeners: Set<StatusListener> = new Set()
@@ -35,13 +43,16 @@ export class WebSocketClient {
   private _counter = 0
   private _error: string | null = null
 
-  // Reconnection state
+  // Connection params
   private host = ''
   private port = 0
   private token = ''
+  private fingerprint: string | null = null
   private label = ''
   private shouldReconnect = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectAttempt = 0
+  private generation = 0
 
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -55,12 +66,12 @@ export class WebSocketClient {
   }
 
   get isConnected(): boolean {
-    return this._status === 'connected' && this.ws?.readyState === WebSocket.OPEN
+    return this._status === 'connected' && this.ws?.isOpen === true
   }
 
-  get connectionInfo(): { host: string; port: number } | null {
+  get connectionInfo(): { host: string; port: number; tls: boolean } | null {
     if (!this.isConnected) return null
-    return { host: this.host, port: this.port }
+    return { host: this.host, port: this.port, tls: !!this.fingerprint }
   }
 
   // ============================================
@@ -84,14 +95,23 @@ export class WebSocketClient {
   //   Connect / Disconnect
   // ============================================
 
-  connect(host: string, port: number, token: string, label?: string): Promise<boolean> {
+  connect(
+    host: string,
+    port: number,
+    token: string,
+    label?: string,
+    fingerprint?: string | null,
+  ): Promise<boolean> {
     if (this.ws) this.disconnect()
 
     this.host = host
     this.port = port
     this.token = token
+    this.fingerprint = fingerprint ?? null
     this.label = label || `BAT-Mobile-${Date.now()}`
     this.shouldReconnect = true
+    this.reconnectAttempt = 0
+    this.generation++
 
     return this.doConnect()
   }
@@ -105,15 +125,14 @@ export class WebSocketClient {
       this.reconnectTimer = null
     }
 
-    // Reject all pending
-    for (const [id, pending] of this.pending) {
+    for (const [, pending] of this.pending) {
       clearTimeout(pending.timer)
       pending.reject(new Error('Disconnected'))
-      this.pending.delete(id)
     }
+    this.pending.clear()
 
     if (this.ws) {
-      this.ws.close()
+      this.ws.close(1000, 'client disconnect')
       this.ws = null
     }
 
@@ -126,154 +145,180 @@ export class WebSocketClient {
 
   private doConnect(): Promise<boolean> {
     return new Promise((resolve) => {
+      const gen = this.generation
       this.setStatus('connecting')
 
-      const url = `ws://${this.host}:${this.port}`
-      dlog('WS', `connecting to ${url}`)
-      this.ws = new WebSocket(url)
+      const scheme = this.fingerprint ? 'wss' : 'ws'
+      const url = `${scheme}://${this.host}:${this.port}`
+      dlog('WS', `connecting to ${url} (TLS=${!!this.fingerprint})`)
+
+      const ws = new TLSWebSocket()
+      this.ws = ws
 
       let authResolved = false
 
       const authTimeout = setTimeout(() => {
-        if (!authResolved) {
+        if (!authResolved && gen === this.generation) {
           authResolved = true
           this.setStatus('error', 'Authentication timeout')
-          this.ws?.close()
+          ws.close()
           resolve(false)
         }
-      }, 10000)
+      }, AUTH_TIMEOUT_MS)
 
-      this.ws.onopen = () => {
-        dlog('WS', 'socket opened, sending auth...')
-        this.setStatus('authenticating')
-        const authFrame: RemoteFrame = {
-          type: 'auth',
-          id: this.nextId(),
-          token: this.token,
-          args: [this.label],
-        }
-        this.ws!.send(JSON.stringify(authFrame))
-      }
-
-      this.ws.onmessage = (event: WebSocketMessageEvent) => {
-        let frame: RemoteFrame
-        try {
-          frame = JSON.parse(typeof event.data === 'string' ? event.data : '')
-        } catch {
-          return
-        }
-
-        // Auth result
-        if (frame.type === 'auth-result') {
-          clearTimeout(authTimeout)
-          if (!authResolved) {
-            authResolved = true
-            if (frame.error) {
-              dlog('WS', `auth failed: ${frame.error}`)
-              this.setStatus('error', frame.error)
-              resolve(false)
-            } else {
-              dlog('WS', 'auth success, connected!')
-              this.setStatus('connected')
-              this.startHeartbeat()
-              resolve(true)
-            }
+      ws.connect(url, this.fingerprint, {
+        onOpen: () => {
+          if (gen !== this.generation) return
+          dlog('WS', 'socket opened, sending auth...')
+          this.setStatus('authenticating')
+          const authFrame: RemoteFrame = {
+            type: 'auth',
+            id: this.nextId(),
+            token: this.token,
+            args: [this.label],
           }
-          return
-        }
+          ws.send(JSON.stringify(authFrame))
+        },
 
-        // Invoke result
-        if (frame.type === 'invoke-result' || frame.type === 'invoke-error') {
-          const pending = this.pending.get(frame.id)
-          if (pending) {
-            clearTimeout(pending.timer)
-            this.pending.delete(frame.id)
-            if (frame.type === 'invoke-error') {
-              pending.reject(new Error(frame.error || 'Remote invoke failed'))
-            } else {
-              pending.resolve(frame.result)
-            }
+        onMessage: (data: string) => {
+          if (gen !== this.generation) return
+          let frame: RemoteFrame
+          try {
+            frame = JSON.parse(data)
+          } catch {
+            return
           }
-          return
-        }
 
-        // Pong (heartbeat response)
-        if (frame.type === 'pong') return
+          if (frame.type === 'auth-result') {
+            clearTimeout(authTimeout)
+            if (!authResolved) {
+              authResolved = true
+              if (frame.error) {
+                dlog('WS', `auth failed: ${frame.error}`)
+                this.setStatus('error', frame.error)
+                resolve(false)
+              } else {
+                dlog('WS', 'auth success, connected!')
+                this.setStatus('connected')
+                this.reconnectAttempt = 0
+                this.startHeartbeat()
+                resolve(true)
+              }
+            }
+            return
+          }
 
-        // Event → dispatch to listeners
-        if (frame.type === 'event' && frame.channel && PROXIED_EVENTS.has(frame.channel)) {
-          const handlers = this.listeners.get(frame.channel)
-          if (handlers) {
-            const args = frame.args || []
-            for (const handler of handlers) {
-              try {
-                handler(...args)
-              } catch (e) {
-                console.warn(`[WS] Event handler error for ${frame.channel}:`, e)
+          if (frame.type === 'invoke-result' || frame.type === 'invoke-error') {
+            const pending = this.pending.get(frame.id)
+            if (pending) {
+              clearTimeout(pending.timer)
+              this.pending.delete(frame.id)
+              if (frame.type === 'invoke-error') {
+                pending.reject(new Error(frame.error || 'Remote invoke failed'))
+              } else {
+                pending.resolve(frame.result)
+              }
+            }
+            return
+          }
+
+          if (frame.type === 'pong') return
+
+          if (frame.type === 'event' && frame.channel && PROXIED_EVENTS.has(frame.channel)) {
+            const handlers = this.listeners.get(frame.channel)
+            if (handlers) {
+              const args = frame.args || []
+              for (const handler of handlers) {
+                try {
+                  handler(...args)
+                } catch (e) {
+                  console.warn(`[WS] Event handler error for ${frame.channel}:`, e)
+                }
               }
             }
           }
-          return
-        }
-      }
+        },
 
-      this.ws.onclose = () => {
-        dlog('WS', `socket closed (was: ${this._status})`)
-        clearTimeout(authTimeout)
-        const wasConnected = this._status === 'connected'
-        this.stopHeartbeat()
-
-        // Reject all pending invokes
-        for (const [id, pending] of this.pending) {
-          clearTimeout(pending.timer)
-          pending.reject(new Error('Connection closed'))
-          this.pending.delete(id)
-        }
-
-        if (this.shouldReconnect && wasConnected) {
-          this.setStatus('reconnecting')
-          this.scheduleReconnect()
-        } else if (!authResolved) {
-          authResolved = true
-          this.setStatus('error', 'Connection closed before auth')
-          resolve(false)
-        } else {
-          this.setStatus('disconnected')
-        }
-      }
-
-      this.ws.onerror = (event: Event) => {
-        dlog('WS', `socket error: ${JSON.stringify(event)}`)
-        if (!authResolved) {
+        onClose: (_code: number, _reason: string) => {
+          if (gen !== this.generation) return
+          dlog('WS', `socket closed (was: ${this._status})`)
           clearTimeout(authTimeout)
-          authResolved = true
-          this.setStatus('error', 'Connection failed')
-          resolve(false)
-        }
-      }
+          const wasConnected = this._status === 'connected'
+          this.stopHeartbeat()
+
+          for (const [, pending] of this.pending) {
+            clearTimeout(pending.timer)
+            pending.reject(new Error('Connection closed'))
+          }
+          this.pending.clear()
+
+          if (this.shouldReconnect && wasConnected) {
+            this.setStatus('reconnecting')
+            this.scheduleReconnect(gen)
+          } else if (!authResolved) {
+            authResolved = true
+            this.setStatus('error', 'Connection closed before auth')
+            resolve(false)
+          } else {
+            this.setStatus('disconnected')
+          }
+        },
+
+        onError: (message: string) => {
+          if (gen !== this.generation) return
+          dlog('WS', `socket error: ${message}`)
+
+          if (message.includes('TLS fingerprint mismatch')) {
+            clearTimeout(authTimeout)
+            if (!authResolved) {
+              authResolved = true
+              this.shouldReconnect = false
+              this.setStatus('error', message)
+              resolve(false)
+            }
+            return
+          }
+
+          if (!authResolved) {
+            clearTimeout(authTimeout)
+            authResolved = true
+            this.setStatus('error', message || 'Connection failed')
+            resolve(false)
+          }
+        },
+      })
     })
   }
 
   // ============================================
-  //   Reconnection
+  //   Reconnection (exponential backoff + jitter)
   // ============================================
 
-  private scheduleReconnect() {
+  private scheduleReconnect(gen: number) {
     if (this.reconnectTimer) return
+    if (gen !== this.generation) return
+
+    this.reconnectAttempt++
+    const base = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt - 1), RECONNECT_MAX_MS)
+    const jitter = base * (0.75 + Math.random() * 0.5)
+    const delay = Math.round(jitter)
+
+    dlog('WS', `reconnect #${this.reconnectAttempt} in ${delay}ms`)
+
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null
-      if (!this.shouldReconnect) return
+      if (!this.shouldReconnect || gen !== this.generation) return
       try {
         const ok = await this.doConnect()
-        if (!ok && this.shouldReconnect) {
-          this.scheduleReconnect()
+        if (!ok && this.shouldReconnect && gen === this.generation) {
+          this.scheduleReconnect(gen)
         }
       } catch {
-        if (this.shouldReconnect) {
-          this.scheduleReconnect()
+        if (this.shouldReconnect && gen === this.generation) {
+          this.scheduleReconnect(gen)
         }
       }
-    }, 3000)
+    }, delay)
   }
 
   // ============================================
@@ -287,7 +332,7 @@ export class WebSocketClient {
         const frame: RemoteFrame = { type: 'ping', id: this.nextId() }
         this.ws!.send(JSON.stringify(frame))
       }
-    }, 15000)
+    }, HEARTBEAT_MS)
   }
 
   private stopHeartbeat() {
@@ -313,7 +358,7 @@ export class WebSocketClient {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error(`Remote invoke timeout: ${channel}`))
-      }, 30000)
+      }, INVOKE_TIMEOUT_MS)
 
       this.pending.set(id, {
         resolve: resolve as (result: unknown) => void,
@@ -346,7 +391,6 @@ export class WebSocketClient {
     }
   }
 
-  /** Remove all event listeners */
   removeAllListeners(): void {
     this.listeners.clear()
   }
@@ -359,6 +403,3 @@ export class WebSocketClient {
     return `${Date.now()}-${++this._counter}`
   }
 }
-
-// Singleton instance
-export const wsClient = new WebSocketClient()

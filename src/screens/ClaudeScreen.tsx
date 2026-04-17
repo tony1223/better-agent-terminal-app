@@ -134,8 +134,8 @@ export function ClaudeScreen({ route }: Props) {
   useEffect(() => {
     if (!channels) return
     const fetchUsage = () => {
-      channels.claude.getUsage().then((u: any) => {
-        if (u && !u.rateLimited) setUsage(u)
+      channels.claude.getContextUsage(sessionId).then((u: any) => {
+        if (u) setUsage(u)
       }).catch(() => {})
     }
     fetchUsage()

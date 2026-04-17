@@ -225,6 +225,8 @@ export interface SavedHost {
   name: string
   address: string
   port: number
+  fingerprint?: string
+  useTLS?: boolean
 }
 
 // ============================================
