@@ -33,6 +33,7 @@ export function ScanQRScreen({ navigation }: Props) {
   const { hasPermission, requestPermission } = useCameraPermission()
   const device = useCameraDevice('back')
   const [scanned, setScanned] = useState(false)
+  const [scanStatus, setScanStatus] = useState('Point the camera at the BAT Desktop QR code.')
   const scannedRef = useRef(false)
 
   const { addHost, setActiveHost } = useHostStore()
@@ -40,6 +41,7 @@ export function ScanQRScreen({ navigation }: Props) {
 
   const handlePayload = useCallback(async (payload: BATQRPayload) => {
     dlog('QR', `parsed OK: ${payload.host}:${payload.port} tls=${payload.useTLS} fp=${payload.fingerprint ? payload.fingerprint.slice(0, 12) + '...' : 'none'} mode=${payload.mode}`)
+    setScanStatus(`Found ${payload.host}:${payload.port}.`)
 
     const tlsLabel = payload.useTLS ? ' (TLS)' : ''
     Alert.alert(
@@ -53,6 +55,7 @@ export function ScanQRScreen({ navigation }: Props) {
             dlog('QR', 'user cancelled')
             scannedRef.current = false
             setScanned(false)
+            setScanStatus('Point the camera at the BAT Desktop QR code.')
           },
         },
         {
@@ -124,14 +127,22 @@ export function ScanQRScreen({ navigation }: Props) {
     codeTypes: ['qr'],
     onCodeScanned: (codes) => {
       if (scannedRef.current) return
-      const qrValue = codes[0]?.value
-      if (!qrValue) return
+      const qrValue = codes.find(code => code.value)?.value
+      if (!qrValue) {
+        if (codes.length > 0) {
+          setScanStatus('QR detected, but it could not be decoded.')
+          console.log(`[BAT][QR] detected ${codes.length} code(s) without value`)
+        }
+        return
+      }
 
-      dlog('QR', `scanned raw: ${qrValue}`)
+      setScanStatus('QR detected. Reading connection details...')
+      console.log(`[BAT][QR] scanned value length=${qrValue.length}`)
 
       const payload = parseBATQR(qrValue)
       if (!payload) {
-        dlog('QR', 'parse failed - not BAT QR format')
+        setScanStatus('QR detected, but it is not a BAT connection code.')
+        console.log('[BAT][QR] parse failed - not BAT QR format')
         return
       }
 
@@ -177,6 +188,15 @@ export function ScanQRScreen({ navigation }: Props) {
         device={device}
         isActive={!scanned}
         codeScanner={codeScanner}
+        onInitialized={() => {
+          setScanStatus('Camera ready. Point at the desktop QR code.')
+          console.log('[BAT][QR] camera initialized')
+        }}
+        onError={(error) => {
+          const message = `Camera error: ${error.code}`
+          setScanStatus(message)
+          console.warn(`[BAT][QR] ${message}`, error)
+        }}
       />
 
       {/* Overlay */}
@@ -186,6 +206,7 @@ export function ScanQRScreen({ navigation }: Props) {
         <Text style={styles.subHint}>
           BAT Desktop {'\u2192'} Settings {'\u2192'} Remote {'\u2192'} Show QR Code
         </Text>
+        <Text style={styles.status}>{scanStatus}</Text>
       </View>
     </View>
   )
@@ -250,5 +271,16 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
+  },
+  status: {
+    fontSize: fontSize.sm,
+    color: '#fff',
+    textAlign: 'center',
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 8,
+    overflow: 'hidden',
   },
 })

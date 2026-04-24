@@ -21,6 +21,9 @@ export interface BATQRPayload {
 }
 
 export function parseBATQR(raw: string): BATQRPayload | null {
+  const urlPayload = parseConnectionUrlPayload(raw)
+  if (urlPayload) return urlPayload
+
   try {
     const data = JSON.parse(raw)
     if (
@@ -67,6 +70,35 @@ export function parseBATQR(raw: string): BATQRPayload | null {
     // not valid JSON
   }
   return null
+}
+
+function parseConnectionUrlPayload(raw: string): BATQRPayload | null {
+  const trimmed = raw.trim()
+  if (!/^wss?:\/\//i.test(trimmed)) return null
+
+  try {
+    const parsed = new URL(trimmed)
+    const host = parsed.hostname
+    const port = parsed.port ? parseInt(parsed.port, 10) : 9876
+    const token = parsed.searchParams.get('token') || ''
+    const fingerprint = parsed.searchParams.get('fp') || parsed.searchParams.get('fingerprint')
+    const mode = parsed.searchParams.get('mode') || 'url'
+    const windowId = parsed.searchParams.get('windowId')
+
+    if (!host || !token || !fingerprint || isNaN(port)) return null
+    return {
+      name: `${host}:${port}`,
+      host,
+      port,
+      token,
+      fingerprint,
+      mode,
+      useTLS: parsed.protocol === 'wss:',
+      context: windowId ? { windowId } : undefined,
+    }
+  } catch {
+    return null
+  }
 }
 
 function parseWsUrl(url: string): { host: string; port: number; tls: boolean } | null {
