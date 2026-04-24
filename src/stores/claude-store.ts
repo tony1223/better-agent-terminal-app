@@ -12,7 +12,6 @@ import type {
   AskUserRequest,
   ClaudeStreamData,
   ClaudeResult,
-  isToolCall,
 } from '@/types'
 import type { ClaudeChannel } from '@/api/channels/claude'
 import { useWorkspaceStore } from './workspace-store'
@@ -64,6 +63,7 @@ interface ClaudeState {
   handleToolResult: (sessionId: string, result: { id: string; status: string; result?: string; description?: string }) => void
   handleStream: (sessionId: string, data: ClaudeStreamData) => void
   handleResult: (sessionId: string, result: ClaudeResult) => void
+  handleTurnEnd: (sessionId: string) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
   handlePermissionRequest: (sessionId: string, data: PermissionRequest) => void
@@ -195,7 +195,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     })
   },
 
-  handleResult: (sessionId, result) => {
+  handleResult: (sessionId, _result) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     dlog('CLAUDE_STORE', `handleResult sid=${sessionId} streamingText.len=${session.streamingText.length} msgs=${session.messages.length}`)
@@ -221,6 +221,22 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         [sessionId]: {
           ...session,
           messages,
+          isStreaming: false,
+          streamingText: '',
+          streamingThinking: '',
+        },
+      },
+    })
+  },
+
+  handleTurnEnd: (sessionId) => {
+    const { sessions } = get()
+    const session = sessions[sessionId] || createEmptySession()
+    set({
+      sessions: {
+        ...sessions,
+        [sessionId]: {
+          ...session,
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
@@ -352,7 +368,6 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
  * Returns unsubscribe function.
  */
 export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
-  const store = useClaudeStore.getState()
   const unsubs: Array<() => void> = []
 
   unsubs.push(claude.onMessage((sid, msg) => useClaudeStore.getState().handleMessage(sid, msg)))
@@ -360,6 +375,7 @@ export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
   unsubs.push(claude.onToolResult((sid, result) => useClaudeStore.getState().handleToolResult(sid, result)))
   unsubs.push(claude.onStream((sid, data) => useClaudeStore.getState().handleStream(sid, data)))
   unsubs.push(claude.onResult((sid, result) => useClaudeStore.getState().handleResult(sid, result)))
+  unsubs.push(claude.onTurnEnd((sid) => useClaudeStore.getState().handleTurnEnd(sid)))
   unsubs.push(claude.onError((sid, error) => useClaudeStore.getState().handleError(sid, error)))
   unsubs.push(claude.onStatus((sid, meta) => useClaudeStore.getState().handleStatus(sid, meta)))
   unsubs.push(claude.onPermissionRequest((sid, data) => useClaudeStore.getState().handlePermissionRequest(sid, data)))

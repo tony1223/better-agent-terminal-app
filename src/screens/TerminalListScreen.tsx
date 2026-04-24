@@ -20,6 +20,8 @@ type Props = {
   navigation: NativeStackNavigationProp<any>
 }
 
+const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'openai-agent'])
+
 export function TerminalListScreen({ navigation }: Props) {
   const { activeWorkspaceId, workspaces, terminals, setActiveTerminal } = useWorkspaceStore()
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
@@ -30,8 +32,7 @@ export function TerminalListScreen({ navigation }: Props) {
 
   const handlePress = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)
-    if (terminal.agentPreset === 'claude-code') {
-      // Claude Code terminals go directly to Claude chat screen
+    if (terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset)) {
       navigation.navigate('Claude', { sessionId: terminal.id })
     } else {
       navigation.navigate('Terminal', { terminalId: terminal.id })

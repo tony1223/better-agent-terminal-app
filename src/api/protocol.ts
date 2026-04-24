@@ -32,11 +32,12 @@ export const PROXIED_CHANNELS = new Set([
   'pty:create', 'pty:write', 'pty:resize', 'pty:kill', 'pty:restart', 'pty:get-cwd',
   // Claude
   'claude:start-session', 'claude:send-message', 'claude:stop-session', 'claude:abort-session',
-  'claude:set-permission-mode', 'claude:set-model', 'claude:set-effort', 'claude:reset-session',
+  'claude:set-permission-mode', 'claude:set-codex-sandbox-mode', 'claude:set-codex-approval-policy', 'claude:set-model', 'claude:set-effort', 'claude:reset-session',
+  'claude:set-auto-continue', 'claude:get-auto-continue',
   'claude:get-supported-models', 'claude:get-account-info', 'claude:get-supported-commands', 'claude:get-supported-agents', 'claude:get-session-meta',
   'claude:get-worktree-status', 'claude:cleanup-worktree',
   'claude:resolve-permission', 'claude:resolve-ask-user',
-  'claude:list-sessions', 'claude:resume-session', 'claude:fork-session', 'claude:stop-task', 'claude:rest-session',
+  'claude:list-sessions', 'claude:resume-session', 'claude:fork-session', 'claude:rewind-to-prompt', 'claude:stop-task', 'claude:rest-session',
   'claude:wake-session', 'claude:is-resting',
   'claude:archive-messages', 'claude:load-archived', 'claude:clear-archive', 'claude:fetch-subagent-messages',
   'claude:scan-skills', 'claude:get-context-usage',
@@ -57,6 +58,11 @@ export const PROXIED_CHANNELS = new Set([
   'git:branch', 'git:log', 'git:diff', 'git:diff-files', 'git:status', 'git:get-github-url', 'git:getRoot',
   // FS
   'fs:readdir', 'fs:readFile', 'fs:search', 'fs:watch', 'fs:unwatch',
+  'fs:home', 'fs:list-dirs', 'fs:mkdir', 'fs:quick-locations',
+  'image:read-as-data-url',
+  // OpenAI direct agent settings
+  'openai:list-sessions', 'openai:get-api-key-status', 'openai:set-api-key',
+  'openai:clear-api-key', 'openai:compact-now',
   // Snippet
   'snippet:getAll', 'snippet:getById', 'snippet:create', 'snippet:update',
   'snippet:delete', 'snippet:toggleFavorite', 'snippet:search',
@@ -69,7 +75,7 @@ export const PROXIED_CHANNELS = new Set([
 export const PROXIED_EVENTS = new Set([
   'pty:output', 'pty:exit',
   'claude:message', 'claude:tool-use', 'claude:tool-result',
-  'claude:stream', 'claude:result', 'claude:error',
+  'claude:stream', 'claude:result', 'claude:turn-end', 'claude:error',
   'claude:status', 'claude:permission-request', 'claude:permission-resolved', 'claude:ask-user', 'claude:ask-user-resolved',
   'claude:modeChange', 'claude:history', 'claude:prompt-suggestion', 'claude:session-reset', 'claude:worktree-info', 'claude:rate-limit',
   'fs:changed',

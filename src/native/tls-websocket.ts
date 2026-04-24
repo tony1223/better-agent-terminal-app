@@ -1,4 +1,4 @@
-import { NativeModules, NativeEventEmitter, Platform } from 'react-native'
+import { NativeModules, NativeEventEmitter } from 'react-native'
 import { dlog } from '@/utils/debug-log'
 
 const { TLSWebSocket: NativeTLS } = NativeModules
@@ -84,30 +84,27 @@ export class TLSWebSocket {
   private connectFallback(url: string, callbacks: TLSWebSocketCallbacks): void {
     this._readyState = 'CONNECTING'
     const ws = new WebSocket(url)
-    const self = this
 
     ws.onopen = () => {
-      self._readyState = 'OPEN'
+      this._readyState = 'OPEN'
       callbacks.onOpen?.()
     }
     ws.onmessage = (event) => {
       callbacks.onMessage?.(typeof event.data === 'string' ? event.data : '')
     }
     ws.onclose = (event) => {
-      self._readyState = 'CLOSED'
+      this._readyState = 'CLOSED'
       callbacks.onClose?.(event.code ?? 1000, event.reason ?? '')
     }
     ws.onerror = () => {
       callbacks.onError?.('WebSocket connection failed')
     }
 
-    const origSend = this.send.bind(this)
     this.send = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data)
     }
-    const origClose = this.close.bind(this)
     this.close = (code = 1000, reason?: string) => {
-      self._readyState = 'CLOSING'
+      this._readyState = 'CLOSING'
       ws.close(code, reason)
     }
   }

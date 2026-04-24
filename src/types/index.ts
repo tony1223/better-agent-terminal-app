@@ -10,7 +10,18 @@
 //   Agent Presets
 // ============================================
 
-export type AgentPresetId = 'claude-code' | 'gemini-cli' | 'codex-cli' | 'copilot-cli' | 'none'
+export type AgentPresetId =
+  | 'claude-code'
+  | 'claude-code-v2'
+  | 'claude-code-worktree'
+  | 'claude-cli'
+  | 'claude-cli-worktree'
+  | 'codex-agent'
+  | 'codex-cli'
+  | 'openai-agent'
+  | 'gemini-cli'
+  | 'copilot-cli'
+  | 'none'
 
 export interface AgentPreset {
   id: string
@@ -21,7 +32,13 @@ export interface AgentPreset {
 }
 
 export const AGENT_PRESETS: AgentPreset[] = [
-  { id: 'claude-code', name: 'Claude Code', icon: '\u2726', color: '#d97706', command: 'claude --continue' },
+  { id: 'claude-code', name: 'Claude Agent (V1)', icon: '\u2726', color: '#d97706', command: 'claude --continue' },
+  { id: 'claude-code-v2', name: 'Claude Agent (V2)', icon: '\u2726', color: '#eab308' },
+  { id: 'claude-code-worktree', name: 'Claude Agent (Worktree)', icon: '\u2726', color: '#22c55e' },
+  { id: 'claude-cli', name: 'Claude CLI', icon: '\u25B6', color: '#d97706' },
+  { id: 'claude-cli-worktree', name: 'Claude CLI (Worktree)', icon: '\u25B6', color: '#22c55e' },
+  { id: 'codex-agent', name: 'Codex Agent', icon: '\u2B21', color: '#10a37f' },
+  { id: 'openai-agent', name: 'OpenAI (Direct)', icon: '\u25EF', color: '#0ea5e9' },
   { id: 'gemini-cli', name: 'Gemini CLI', icon: '\u25C7', color: '#4285f4', command: 'gemini' },
   { id: 'codex-cli', name: 'Codex', icon: '\u2B21', color: '#10a37f', command: 'codex' },
   { id: 'copilot-cli', name: 'GitHub Copilot', icon: '\u2B22', color: '#6e40c9', command: 'gh copilot' },
@@ -76,6 +93,7 @@ export interface TerminalInstance {
   hasPendingAction?: boolean
   sdkSessionId?: string
   model?: string
+  agentParams?: Record<string, string | number | boolean | null>
   pendingPrompt?: string
   pendingImages?: string[]
 }
@@ -227,6 +245,9 @@ export interface SavedHost {
   port: number
   fingerprint?: string
   useTLS?: boolean
+  context?: {
+    windowId?: string | null
+  }
 }
 
 // ============================================

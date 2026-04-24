@@ -15,6 +15,9 @@ export interface BATQRPayload {
   fingerprint: string | null
   mode: string
   useTLS: boolean
+  context?: {
+    windowId?: string | null
+  }
 }
 
 export function parseBATQR(raw: string): BATQRPayload | null {
@@ -40,6 +43,7 @@ export function parseBATQR(raw: string): BATQRPayload | null {
         fingerprint: data.fingerprint || null,
         mode: data.mode || 'unknown',
         useTLS: parsed.tls,
+        context: parseContext(data.context),
       }
     }
 
@@ -56,6 +60,7 @@ export function parseBATQR(raw: string): BATQRPayload | null {
         fingerprint: data.fingerprint || null,
         mode: data.mode || 'unknown',
         useTLS: !!data.fingerprint,
+        context: parseContext(data.context),
       }
     }
   } catch {
@@ -66,15 +71,19 @@ export function parseBATQR(raw: string): BATQRPayload | null {
 
 function parseWsUrl(url: string): { host: string; port: number; tls: boolean } | null {
   try {
-    const tls = url.startsWith('wss://')
-    const stripped = url.replace(/^wss?:\/\//, '')
-    const parts = stripped.split(':')
-    if (parts.length < 2) return null
-    const host = parts[0]
-    const port = parseInt(parts[1], 10)
+    const parsed = new URL(url)
+    const tls = parsed.protocol === 'wss:'
+    const host = parsed.hostname
+    const port = parsed.port ? parseInt(parsed.port, 10) : 9876
     if (!host || isNaN(port)) return null
     return { host, port, tls }
   } catch {
     return null
   }
+}
+
+function parseContext(value: unknown): BATQRPayload['context'] {
+  if (!value || typeof value !== 'object') return undefined
+  const windowId = (value as { windowId?: unknown }).windowId
+  return typeof windowId === 'string' ? { windowId } : undefined
 }

@@ -4,7 +4,7 @@
  */
 
 const PATH_RE =
-  /(?:[A-Za-z]:[\\\/]|\/(?:Users|home|tmp|var|opt|etc|usr|mnt|srv|root)\/)[\w\-. \\\/]+\.\w{1,10}/g
+  /(?:[A-Za-z]:[\\/]|\/(?:Users|home|tmp|var|opt|etc|usr|mnt|srv|root)\/)[\w\-. \\/]+\.\w{1,10}/g
 
 export type TokenType = 'text' | 'path'
 export interface Token {

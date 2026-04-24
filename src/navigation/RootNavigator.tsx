@@ -17,8 +17,7 @@ import React from 'react'
 import { NavigationContainer, DarkTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { Text, StyleSheet, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Text, StyleSheet } from 'react-native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, fontSize } from '@/theme/colors'
 
@@ -108,7 +107,7 @@ function TerminalsStack() {
       <TerminalsNav.Screen
         name="Terminal"
         component={TerminalScreen}
-        options={({ route }) => ({
+        options={() => ({
           title: 'Terminal',
           headerShown: false,
         })}

@@ -24,7 +24,7 @@ export function WorkspaceListScreen() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [load])
 
   const onRefresh = async () => {
     setRefreshing(true)

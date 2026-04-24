@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand'
-import { WebSocketClient, type ConnectionStatus } from '@/api/websocket-client'
+import { WebSocketClient, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
 import { createChannels, type Channels } from '@/api/channels'
 import { dlog } from '@/utils/debug-log'
 
@@ -17,7 +17,7 @@ interface ConnectionState {
   client: WebSocketClient | null
   channels: Channels | null
 
-  connect: (host: string, port: number, token: string, fingerprint?: string | null) => Promise<boolean>
+  connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null) => Promise<boolean>
   disconnect: () => void
 }
 
@@ -30,7 +30,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   client: null,
   channels: null,
 
-  connect: async (host: string, port: number, token: string, fingerprint?: string | null) => {
+  connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null) => {
     dlog('CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
     const { client: existing } = get()
     if (existing) {
@@ -51,7 +51,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     set({ client, host, port, tls: !!fingerprint, status: 'connecting', error: null })
 
     try {
-      const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint)
+      const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint, context)
       dlog('CONN', `client.connect returned: ${ok}`)
 
       if (ok) {

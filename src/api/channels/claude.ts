@@ -24,6 +24,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
       sdkSessionId?: string
       permissionMode?: string
       model?: string
+      effort?: string
+      agentPreset?: string
+      codexSandboxMode?: string
+      codexApprovalPolicy?: string
     }) => ws.invoke('claude:start-session', sessionId, options),
 
     sendMessage: (sessionId: string, prompt: string, images?: string[]) =>
@@ -38,11 +42,35 @@ export function createClaudeChannel(ws: WebSocketClient) {
     resetSession: (sessionId: string) =>
       ws.invoke('claude:reset-session', sessionId),
 
-    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string) =>
-      ws.invoke('claude:resume-session', sessionId, sdkSessionId, cwd, model),
+    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, options?: {
+      agentPreset?: string
+      permissionMode?: string
+      effort?: string
+      codexSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+      codexApprovalPolicy?: 'untrusted' | 'on-request' | 'never'
+    }) =>
+      ws.invoke(
+        'claude:resume-session',
+        sessionId,
+        sdkSessionId,
+        cwd,
+        model,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        options?.agentPreset,
+        options?.codexSandboxMode,
+        options?.codexApprovalPolicy,
+        options?.permissionMode,
+        options?.effort,
+      ),
 
     forkSession: (sessionId: string) =>
       ws.invoke<string>('claude:fork-session', sessionId),
+
+    rewindToPrompt: (sessionId: string, promptIndex: number) =>
+      ws.invoke('claude:rewind-to-prompt', sessionId, promptIndex),
 
     restSession: (sessionId: string) =>
       ws.invoke('claude:rest-session', sessionId),
@@ -60,11 +88,23 @@ export function createClaudeChannel(ws: WebSocketClient) {
     setPermissionMode: (sessionId: string, mode: string) =>
       ws.invoke('claude:set-permission-mode', sessionId, mode),
 
+    setCodexSandboxMode: (sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access') =>
+      ws.invoke('claude:set-codex-sandbox-mode', sessionId, mode),
+
+    setCodexApprovalPolicy: (sessionId: string, policy: 'untrusted' | 'on-request' | 'never') =>
+      ws.invoke('claude:set-codex-approval-policy', sessionId, policy),
+
     setModel: (sessionId: string, model: string) =>
       ws.invoke('claude:set-model', sessionId, model),
 
     setEffort: (sessionId: string, effort: string) =>
       ws.invoke('claude:set-effort', sessionId, effort),
+
+    setAutoContinue: (sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) =>
+      ws.invoke('claude:set-auto-continue', sessionId, opts),
+
+    getAutoContinue: (sessionId: string) =>
+      ws.invoke<{ enabled: boolean; max?: number; prompt?: string } | null>('claude:get-auto-continue', sessionId),
 
     // ---- Info ----
     getSupportedModels: (sessionId: string) =>
@@ -150,6 +190,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     onResult: (cb: (sessionId: string, result: ClaudeResult) => void) =>
       ws.on('claude:result', cb as (...args: unknown[]) => void),
+
+    onTurnEnd: (cb: (sessionId: string) => void) =>
+      ws.on('claude:turn-end', cb as (...args: unknown[]) => void),
 
     onError: (cb: (sessionId: string, error: string) => void) =>
       ws.on('claude:error', cb as (...args: unknown[]) => void),

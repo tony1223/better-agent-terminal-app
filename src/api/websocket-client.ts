@@ -28,6 +28,10 @@ interface PendingInvoke {
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
 
+export interface RemoteClientContext {
+  windowId?: string | null
+}
+
 const AUTH_TIMEOUT_MS = 10_000
 const INVOKE_TIMEOUT_MS = 30_000
 const HEARTBEAT_MS = 30_000
@@ -49,6 +53,7 @@ export class WebSocketClient {
   private token = ''
   private fingerprint: string | null = null
   private label = ''
+  private context: RemoteClientContext | null = null
   private shouldReconnect = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
@@ -101,6 +106,7 @@ export class WebSocketClient {
     token: string,
     label?: string,
     fingerprint?: string | null,
+    context?: RemoteClientContext | null,
   ): Promise<boolean> {
     if (this.ws) this.disconnect()
 
@@ -109,6 +115,7 @@ export class WebSocketClient {
     this.token = token
     this.fingerprint = fingerprint ?? null
     this.label = label || `BAT-Mobile-${Date.now()}`
+    this.context = context ?? null
     this.shouldReconnect = true
     this.reconnectAttempt = 0
     this.generation++
@@ -175,7 +182,7 @@ export class WebSocketClient {
             type: 'auth',
             id: this.nextId(),
             token: this.token,
-            args: [this.label],
+            args: [this.label, this.context],
           }
           ws.send(JSON.stringify(authFrame))
         },

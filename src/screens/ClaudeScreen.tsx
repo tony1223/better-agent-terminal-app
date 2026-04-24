@@ -54,6 +54,8 @@ const PERMISSION_LABELS: Record<string, string> = {
 }
 
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
+const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const
+const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const
 const MAX_IMAGES = 5
 
 interface SessionSummary {
@@ -79,6 +81,8 @@ export function ClaudeScreen({ route }: Props) {
   const [loading, setLoading] = useState(true)
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [effortLevel, setEffortLevel] = useState('high')
+  const [codexSandboxMode, setCodexSandboxMode] = useState<typeof CODEX_SANDBOX_MODES[number]>('workspace-write')
+  const [codexApprovalPolicy, setCodexApprovalPolicy] = useState<typeof CODEX_APPROVAL_POLICIES[number]>('on-request')
   const [showFab, setShowFab] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -90,6 +94,9 @@ export function ClaudeScreen({ route }: Props) {
   const [resumeLoading, setResumeLoading] = useState(false)
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
+  const agentPreset = terminal?.agentPreset
+  const isCodexAgent = agentPreset === 'codex-agent'
+  const isOpenAIAgent = agentPreset === 'openai-agent'
 
   // Init session in store and load history
   useEffect(() => {
@@ -104,11 +111,22 @@ export function ClaudeScreen({ route }: Props) {
         try {
           if (terminal.sdkSessionId) {
             dlog('CLAUDE_SCREEN', `resuming session sdkSessionId=${terminal.sdkSessionId}`)
+            const sandbox = terminal.agentParams?.sandboxMode
+            const approval = terminal.agentParams?.approvalPolicy
             await channels.claude.resumeSession(
               sessionId,
               terminal.sdkSessionId,
               terminal.cwd,
-              terminal.model
+              terminal.model,
+              {
+                agentPreset: terminal.agentPreset,
+                codexSandboxMode: sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
+                  ? sandbox
+                  : undefined,
+                codexApprovalPolicy: approval === 'untrusted' || approval === 'on-request' || approval === 'never'
+                  ? approval
+                  : undefined,
+              },
             )
           } else {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
@@ -128,7 +146,7 @@ export function ClaudeScreen({ route }: Props) {
     } else {
       setLoading(false)
     }
-  }, [sessionId])
+  }, [channels, sessionId, terminal])
 
   // Fetch usage on mount and poll every 60s
   useEffect(() => {
@@ -141,7 +159,7 @@ export function ClaudeScreen({ route }: Props) {
     fetchUsage()
     const timer = setInterval(fetchUsage, 60_000)
     return () => clearInterval(timer)
-  }, [channels])
+  }, [channels, sessionId])
 
   // Sync permission mode from meta
   useEffect(() => {
@@ -149,6 +167,17 @@ export function ClaudeScreen({ route }: Props) {
       setPermissionMode(session.meta.permissionMode)
     }
   }, [session.meta?.permissionMode])
+
+  useEffect(() => {
+    const sandbox = terminal?.agentParams?.sandboxMode
+    if (sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access') {
+      setCodexSandboxMode(sandbox)
+    }
+    const approval = terminal?.agentParams?.approvalPolicy
+    if (approval === 'untrusted' || approval === 'on-request' || approval === 'never') {
+      setCodexApprovalPolicy(approval)
+    }
+  }, [terminal?.agentParams])
 
   const handleSend = useCallback(async () => {
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
@@ -171,7 +200,9 @@ export function ClaudeScreen({ route }: Props) {
       setResumeLoading(true)
       setShowResumeList(true)
       try {
-        const sessions = await channels.claude.listSessions(terminal.cwd) as SessionSummary[] | null
+        const sessions = isOpenAIAgent
+          ? await channels.openai.listSessions(terminal.cwd) as SessionSummary[] | null
+          : await channels.claude.listSessions(terminal.cwd) as SessionSummary[] | null
         setResumeSessions(sessions || [])
       } catch {
         setResumeSessions([])
@@ -200,7 +231,7 @@ export function ClaudeScreen({ route }: Props) {
     channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined).catch(e => {
       console.warn('[Claude] sendMessage error:', e)
     })
-  }, [inputText, attachedImages, channels, sessionId])
+  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent])
 
   const handleStop = useCallback(async () => {
     if (!channels) return
@@ -222,6 +253,27 @@ export function ClaudeScreen({ route }: Props) {
     setEffortLevel(next)
     await channels.claude.setEffort(sessionId, next)
   }, [channels, sessionId, effortLevel])
+
+  const handleCodexSandboxCycle = useCallback(async () => {
+    if (!channels) return
+    const idx = CODEX_SANDBOX_MODES.indexOf(codexSandboxMode)
+    const next = CODEX_SANDBOX_MODES[(idx + 1) % CODEX_SANDBOX_MODES.length]
+    setCodexSandboxMode(next)
+    await channels.claude.setCodexSandboxMode(sessionId, next)
+  }, [channels, sessionId, codexSandboxMode])
+
+  const handleCodexApprovalCycle = useCallback(async () => {
+    if (!channels) return
+    const idx = CODEX_APPROVAL_POLICIES.indexOf(codexApprovalPolicy)
+    const next = CODEX_APPROVAL_POLICIES[(idx + 1) % CODEX_APPROVAL_POLICIES.length]
+    setCodexApprovalPolicy(next)
+    await channels.claude.setCodexApprovalPolicy(sessionId, next)
+  }, [channels, sessionId, codexApprovalPolicy])
+
+  const handleCompact = useCallback(async () => {
+    if (!channels) return
+    await channels.openai.compactNow(sessionId)
+  }, [channels, sessionId])
 
   const handleModelPress = useCallback(async () => {
     if (!channels) return
@@ -256,14 +308,20 @@ export function ClaudeScreen({ route }: Props) {
     // Clear UI immediately
     useClaudeStore.getState().handleSessionReset(sessionId)
     // Resume the selected session
-    await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model)
+    await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
+      agentPreset,
+      permissionMode,
+      effort: effortLevel,
+      codexSandboxMode,
+      codexApprovalPolicy,
+    })
     // Persist new sdkSessionId
     const wsStore = useWorkspaceStore.getState()
     const terminals = wsStore.terminals.map(t =>
       t.id === sessionId ? { ...t, sdkSessionId } : t
     )
     useWorkspaceStore.setState({ terminals })
-  }, [channels, sessionId, terminal])
+  }, [channels, sessionId, terminal, agentPreset, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy])
 
   const handleUpload = useCallback(() => {
     if (attachedImages.length >= MAX_IMAGES) {
@@ -456,6 +514,23 @@ export function ClaudeScreen({ route }: Props) {
           <TouchableOpacity style={styles.controlBtn} onPress={handleEffortCycle}>
             <Text style={styles.controlText}>{effortLevel}</Text>
           </TouchableOpacity>
+
+          {isCodexAgent && (
+            <>
+              <TouchableOpacity style={styles.controlBtn} onPress={handleCodexSandboxCycle}>
+                <Text style={styles.controlText}>sandbox:{codexSandboxMode}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.controlBtn} onPress={handleCodexApprovalCycle}>
+                <Text style={styles.controlText}>approval:{codexApprovalPolicy}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {isOpenAIAgent && (
+            <TouchableOpacity style={styles.controlBtn} onPress={handleCompact}>
+              <Text style={styles.controlText}>compact</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={styles.controlBtn} onPress={handleFork}>
             <Text style={styles.controlText}>{'\u2442'} Fork</Text>

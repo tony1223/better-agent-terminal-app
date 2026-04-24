@@ -67,6 +67,7 @@ export function ScanQRScreen({ navigation }: Props) {
                   port: payload.port,
                   fingerprint: payload.fingerprint ?? undefined,
                   useTLS: payload.useTLS,
+                  context: payload.context,
                 },
                 payload.token,
               )
@@ -90,6 +91,7 @@ export function ScanQRScreen({ navigation }: Props) {
                   port: payload.port,
                   fingerprint: payload.fingerprint ?? undefined,
                   useTLS: payload.useTLS,
+                  context: payload.context,
                 },
                 payload.token,
               )
@@ -99,7 +101,7 @@ export function ScanQRScreen({ navigation }: Props) {
                 setActiveHost(newHost.id)
               }
               dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
-              const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint)
+              const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context)
               dlog('QR', `connect result: ${ok}`)
               if (ok) {
                 navigation.goBack()

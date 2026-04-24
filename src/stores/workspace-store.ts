@@ -8,7 +8,6 @@ import type {
   Workspace,
   TerminalInstance,
   AppState,
-  AgentPresetId,
 } from '@/types'
 import { useConnectionStore } from './connection-store'
 

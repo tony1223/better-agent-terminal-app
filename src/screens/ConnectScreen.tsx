@@ -28,12 +28,12 @@ type Props = {
 export function ConnectScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets()
   const { hosts, loadFromStorage, removeHost, getToken, getFingerprint, setActiveHost } = useHostStore()
-  const { status, error, connect } = useConnectionStore()
+  const { error, connect } = useConnectionStore()
   const [connectingHostId, setConnectingHostId] = useState<string | null>(null)
 
   useEffect(() => {
     loadFromStorage()
-  }, [])
+  }, [loadFromStorage])
 
   const handleConnect = async (host: SavedHost) => {
     setConnectingHostId(host.id)
@@ -45,7 +45,7 @@ export function ConnectScreen({ navigation }: Props) {
     }
 
     const fingerprint = getFingerprint(host.id)
-    const ok = await connect(host.address, host.port, token, fingerprint)
+    const ok = await connect(host.address, host.port, token, fingerprint, host.context)
     setConnectingHostId(null)
 
     if (ok) {

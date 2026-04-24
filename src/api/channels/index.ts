@@ -13,6 +13,7 @@ import { createSnippetsChannel, type SnippetsChannel } from './snippets'
 import { createProfileChannel, type ProfileChannel } from './profile'
 import { createGithubChannel, type GithubChannel } from './github'
 import { createWorktreeChannel, type WorktreeChannel } from './worktree'
+import { createOpenAIChannel, type OpenAIChannel } from './openai'
 
 export interface Channels {
   pty: PtyChannel
@@ -25,6 +26,7 @@ export interface Channels {
   profile: ProfileChannel
   github: GithubChannel
   worktree: WorktreeChannel
+  openai: OpenAIChannel
 }
 
 export function createChannels(ws: WebSocketClient): Channels {
@@ -39,6 +41,7 @@ export function createChannels(ws: WebSocketClient): Channels {
     profile: createProfileChannel(ws),
     github: createGithubChannel(ws),
     worktree: createWorktreeChannel(ws),
+    openai: createOpenAIChannel(ws),
   }
 }
 
@@ -46,4 +49,5 @@ export {
   type PtyChannel, type ClaudeChannel, type WorkspaceChannel,
   type SettingsChannel, type GitChannel, type FsChannel,
   type SnippetsChannel, type ProfileChannel, type GithubChannel, type WorktreeChannel,
+  type OpenAIChannel,
 }
