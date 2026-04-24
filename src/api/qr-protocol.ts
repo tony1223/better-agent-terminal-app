@@ -102,47 +102,40 @@ function parseConnectionUrlPayload(raw: string): BATQRPayload | null {
   const trimmed = raw.trim()
   if (!/^(wss?|bat|batmobile|better-terminal):/i.test(trimmed)) return null
 
-  try {
-    const parsed = new URL(trimmed)
-    const isWs = /^wss?:$/i.test(parsed.protocol)
-    const host = isWs
-      ? parsed.hostname
-      : parsed.searchParams.get('host') || parsed.searchParams.get('address') || ''
-    const port = isWs
-      ? (parsed.port ? parseInt(parsed.port, 10) : 9876)
-      : parseInt(parsed.searchParams.get('port') || '9876', 10)
-    const token = parsed.searchParams.get('token') || ''
-    const fingerprint = parsed.searchParams.get('fp') || parsed.searchParams.get('fingerprint') || null
-    const mode = parsed.searchParams.get('mode') || 'url'
-    const windowId = parsed.searchParams.get('windowId')
+  const parsed = parseUrlParts(trimmed)
+  if (!parsed) return null
 
-    if (!host || !token || isNaN(port)) return null
-    return {
-      name: `${host}:${port}`,
-      host,
-      port,
-      token,
-      fingerprint,
-      mode,
-      useTLS: parsed.protocol === 'wss:' || !!fingerprint,
-      context: windowId ? { windowId } : undefined,
-    }
-  } catch {
-    return null
+  const isWs = parsed.protocol === 'ws' || parsed.protocol === 'wss'
+  const host = isWs
+    ? parsed.host
+    : parsed.params.host || parsed.params.address || ''
+  const port = isWs
+    ? parsed.port ?? 9876
+    : getNumber(parsed.params.port) ?? 9876
+  const token = parsed.params.token || ''
+  const fingerprint = parsed.params.fp || parsed.params.fingerprint || null
+  const mode = parsed.params.mode || 'url'
+  const windowId = parsed.params.windowId
+
+  if (!host || !token || !Number.isFinite(port)) return null
+  return {
+    name: `${host}:${port}`,
+    host,
+    port,
+    token,
+    fingerprint,
+    mode,
+    useTLS: parsed.protocol === 'wss' || !!fingerprint,
+    context: windowId ? { windowId } : undefined,
   }
 }
 
 function parseWsUrl(url: string): { host: string; port: number; tls: boolean } | null {
-  try {
-    const parsed = new URL(url)
-    const tls = parsed.protocol === 'wss:'
-    const host = parsed.hostname
-    const port = parsed.port ? parseInt(parsed.port, 10) : 9876
-    if (!host || isNaN(port)) return null
-    return { host, port, tls }
-  } catch {
-    return null
-  }
+  const parsed = parseUrlParts(url)
+  if (!parsed || (parsed.protocol !== 'ws' && parsed.protocol !== 'wss')) return null
+  const port = parsed.port ?? 9876
+  if (!parsed.host || !Number.isFinite(port)) return null
+  return { host: parsed.host, port, tls: parsed.protocol === 'wss' }
 }
 
 function getString(value: unknown): string | undefined {
@@ -156,6 +149,71 @@ function getNumber(value: unknown): number | undefined {
     if (Number.isFinite(parsed)) return parsed
   }
   return undefined
+}
+
+function parseUrlParts(url: string): {
+  protocol: string
+  host: string
+  port?: number
+  params: Record<string, string>
+} | null {
+  const match = url.trim().match(/^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)(?:[^?#]*)?(?:\?([^#]*))?/i)
+  if (!match) return null
+
+  const protocol = match[1].toLowerCase()
+  const authority = match[2]
+  const query = match[3] ?? ''
+  const hostPort = parseHostPort(authority)
+  if (!hostPort) return null
+
+  return {
+    protocol,
+    host: hostPort.host,
+    port: hostPort.port,
+    params: parseQuery(query),
+  }
+}
+
+function parseHostPort(authority: string): { host: string; port?: number } | null {
+  if (!authority) return { host: '' }
+  if (authority.startsWith('[')) {
+    const end = authority.indexOf(']')
+    if (end === -1) return null
+    const host = authority.slice(1, end)
+    const rest = authority.slice(end + 1)
+    const port = rest.startsWith(':') ? getNumber(rest.slice(1)) : undefined
+    return { host, port }
+  }
+
+  const colon = authority.lastIndexOf(':')
+  if (colon > -1) {
+    const host = authority.slice(0, colon)
+    const port = getNumber(authority.slice(colon + 1))
+    return { host, port }
+  }
+  return { host: authority }
+}
+
+function parseQuery(query: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const part of query.split('&')) {
+    if (!part) continue
+    const equal = part.indexOf('=')
+    const rawKey = equal === -1 ? part : part.slice(0, equal)
+    const rawValue = equal === -1 ? '' : part.slice(equal + 1)
+    const key = decodeQueryPart(rawKey)
+    if (!key) continue
+    result[key] = decodeQueryPart(rawValue)
+  }
+  return result
+}
+
+function decodeQueryPart(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '))
+  } catch {
+    return value
+  }
 }
 
 function parseContext(value: unknown): BATQRPayload['context'] {
