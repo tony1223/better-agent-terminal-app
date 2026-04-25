@@ -37,10 +37,19 @@ interface HostState {
 
   loadFromStorage: () => void
   addHost: (host: Omit<SavedHost, 'id'>, token: string) => Promise<void>
+  /**
+   * Insert or update a host keyed by address+port.
+   * Returns the id of the affected host. Updates fingerprint, token, and other
+   * metadata in place when an existing entry matches.
+   */
+  upsertHost: (host: Omit<SavedHost, 'id'>, token: string) => Promise<{ id: string; created: boolean }>
+  /** Update the fingerprint for an existing host. */
+  updateFingerprint: (id: string, fingerprint: string) => Promise<void>
   removeHost: (id: string) => Promise<void>
   updateHost: (id: string, updates: Partial<Omit<SavedHost, 'id'>>, token?: string) => Promise<void>
   getToken: (id: string) => Promise<string | null>
   getFingerprint: (id: string) => string | null
+  findByAddress: (address: string, port: number) => SavedHost | null
   setActiveHost: (id: string) => void
 }
 
@@ -61,6 +70,37 @@ export const useHostStore = create<HostState>((set, get) => ({
 
     await Keychain.setGenericPassword(id, token, { service: `${TOKEN_SERVICE}-${id}` })
 
+    set({ hosts })
+  },
+
+  upsertHost: async (hostData, token) => {
+    const existing = get().hosts.find(
+      h => h.address === hostData.address && h.port === hostData.port,
+    )
+    if (existing) {
+      const merged: SavedHost = { ...existing, ...hostData, id: existing.id, name: existing.name }
+      const hosts = get().hosts.map(h => (h.id === existing.id ? merged : h))
+      saveHosts(hosts)
+      await Keychain.setGenericPassword(existing.id, token, { service: `${TOKEN_SERVICE}-${existing.id}` })
+      set({ hosts })
+      return { id: existing.id, created: false }
+    }
+
+    const id = generateId()
+    const host: SavedHost = { ...hostData, id }
+    const hosts = [...get().hosts, host]
+    saveHosts(hosts)
+    await Keychain.setGenericPassword(id, token, { service: `${TOKEN_SERVICE}-${id}` })
+    set({ hosts })
+    return { id, created: true }
+  },
+
+  updateFingerprint: async (id, fingerprint) => {
+    const normalized = fingerprint.toUpperCase().replace(/[^A-F0-9]/g, '')
+    const hosts = get().hosts.map(h =>
+      h.id === id ? { ...h, fingerprint: normalized, useTLS: true } : h
+    )
+    saveHosts(hosts)
     set({ hosts })
   },
 
@@ -99,6 +139,10 @@ export const useHostStore = create<HostState>((set, get) => ({
   getFingerprint: (id) => {
     const host = get().hosts.find(h => h.id === id)
     return host?.fingerprint ?? null
+  },
+
+  findByAddress: (address, port) => {
+    return get().hosts.find(h => h.address === address && h.port === port) ?? null
   },
 
   setActiveHost: (id) => {

@@ -39,9 +39,10 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
                 val actual = sha256.joinToString("") { "%02X".format(it) }
 
                 if (actual != normalizedFP) {
-                    val colonated = actual.chunked(2).joinToString(":")
+                    val expectedColonated = normalizedFP.chunked(2).joinToString(":")
+                    val actualColonated = actual.chunked(2).joinToString(":")
                     throw javax.net.ssl.SSLException(
-                        "TLS fingerprint mismatch. Expected: $normalizedFP, Got: $colonated"
+                        "TLS fingerprint mismatch. Expected: $expectedColonated, Got: $actualColonated"
                     )
                 }
             }

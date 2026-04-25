@@ -139,13 +139,15 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
     if fingerprint == pinned {
       completionHandler(.useCredential, URLCredential(trust: serverTrust))
     } else {
-      let colonated = stride(from: 0, to: fingerprint.count, by: 2).map {
-        let start = fingerprint.index(fingerprint.startIndex, offsetBy: $0)
-        let end = fingerprint.index(start, offsetBy: 2)
-        return String(fingerprint[start..<end])
-      }.joined(separator: ":")
+      let colonize: (String) -> String = { hex in
+        stride(from: 0, to: hex.count, by: 2).map {
+          let start = hex.index(hex.startIndex, offsetBy: $0)
+          let end = hex.index(start, offsetBy: 2)
+          return String(hex[start..<end])
+        }.joined(separator: ":")
+      }
       emit("TLSWebSocket_onError", [
-        "message": "TLS fingerprint mismatch. Expected: \(pinned), Got: \(colonated)"
+        "message": "TLS fingerprint mismatch. Expected: \(colonize(pinned)), Got: \(colonize(fingerprint))"
       ])
       completionHandler(.cancelAuthenticationChallenge, nil)
     }

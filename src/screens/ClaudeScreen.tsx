@@ -94,6 +94,7 @@ export function ClaudeScreen({ route }: Props) {
   const [resumeLoading, setResumeLoading] = useState(false)
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
+  const sendInFlightRef = useRef(false)
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent'
   const isOpenAIAgent = agentPreset === 'openai-agent'
@@ -180,23 +181,32 @@ export function ClaudeScreen({ route }: Props) {
   }, [terminal?.agentParams])
 
   const handleSend = useCallback(async () => {
+    if (sendInFlightRef.current) return
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
+    sendInFlightRef.current = true
     const text = inputText.trim()
 
     // Handle /new command
     if (text === '/new') {
       setInputText('')
       useClaudeStore.getState().handleSessionReset(sessionId)
-      channels.claude.resetSession(sessionId).catch(e => {
-        console.warn('[Claude] resetSession error:', e)
-      })
+      channels.claude.resetSession(sessionId)
+        .catch(e => {
+          console.warn('[Claude] resetSession error:', e)
+        })
+        .finally(() => {
+          sendInFlightRef.current = false
+        })
       return
     }
 
     // Handle /resume command
     if (text === '/resume') {
       setInputText('')
-      if (!terminal?.cwd) return
+      if (!terminal?.cwd) {
+        sendInFlightRef.current = false
+        return
+      }
       setResumeLoading(true)
       setShowResumeList(true)
       try {
@@ -208,6 +218,7 @@ export function ClaudeScreen({ route }: Props) {
         setResumeSessions([])
       } finally {
         setResumeLoading(false)
+        sendInFlightRef.current = false
       }
       return
     }
@@ -221,16 +232,20 @@ export function ClaudeScreen({ route }: Props) {
     if (text) contentParts.push(text)
 
     useClaudeStore.getState().handleMessage(sessionId, {
-      id: `user-${Date.now()}`,
+      id: `user-local-${Date.now()}`,
       sessionId,
       role: 'user',
       content: contentParts.join(' '),
       timestamp: Date.now(),
     })
 
-    channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined).catch(e => {
-      console.warn('[Claude] sendMessage error:', e)
-    })
+    channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined)
+      .catch(e => {
+        console.warn('[Claude] sendMessage error:', e)
+      })
+      .finally(() => {
+        sendInFlightRef.current = false
+      })
   }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent])
 
   const handleStop = useCallback(async () => {

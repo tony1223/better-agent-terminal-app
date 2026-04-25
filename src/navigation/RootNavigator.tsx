@@ -20,6 +20,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { Text, StyleSheet } from 'react-native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, fontSize } from '@/theme/colors'
+import { MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
 
 // Screens
 import { ConnectScreen } from '@/screens/ConnectScreen'
@@ -109,7 +110,7 @@ function TerminalsStack() {
         component={TerminalScreen}
         options={() => ({
           title: 'Terminal',
-          headerShown: false,
+          headerShown: true,
         })}
       />
       <TerminalsNav.Screen
@@ -126,15 +127,10 @@ function TerminalsStack() {
 function MainTabs() {
   return (
     <Tab.Navigator
-      safeAreaInsets={{ bottom: 0 }}
       detachInactiveScreens={false}
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: appColors.surface,
-          borderTopColor: appColors.border,
-          marginTop: -28,
-        },
+        tabBarStyle: MAIN_TAB_BAR_STYLE,
         tabBarActiveTintColor: appColors.accent,
         tabBarInactiveTintColor: appColors.textSecondary,
         tabBarIcon: ({ focused }) => (

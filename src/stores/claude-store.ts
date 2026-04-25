@@ -43,6 +43,20 @@ function createEmptySession(): SessionState {
   }
 }
 
+function findLocalDuplicateUserMessage(
+  messages: (ClaudeMessage | ClaudeToolCall)[],
+  msg: ClaudeMessage,
+): number {
+  if (msg.role !== 'user') return -1
+  return messages.findIndex(existing =>
+    !('toolName' in existing) &&
+    existing.role === 'user' &&
+    existing.id.startsWith('user-local-') &&
+    existing.content === msg.content &&
+    Math.abs(existing.timestamp - msg.timestamp) < 60_000,
+  )
+}
+
 interface ClaudeState {
   sessions: Record<string, SessionState>
   activeSessionId: string | null
@@ -113,6 +127,26 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // Deduplicate by id
     if (session.messages.some(m => m.id === msg.id)) {
       dlog('CLAUDE_STORE', `handleMessage DEDUPE skip msgId=${msg.id}`)
+      return
+    }
+
+    const localDuplicateIndex = findLocalDuplicateUserMessage(session.messages, msg)
+    if (localDuplicateIndex >= 0) {
+      dlog('CLAUDE_STORE', `handleMessage replace local duplicate with msgId=${msg.id}`)
+      const messages = [...session.messages]
+      messages[localDuplicateIndex] = msg
+      set({
+        sessions: {
+          ...sessions,
+          [sessionId]: {
+            ...session,
+            messages,
+            isStreaming: false,
+            streamingText: '',
+            streamingThinking: '',
+          },
+        },
+      })
       return
     }
 

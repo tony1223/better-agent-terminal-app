@@ -11,6 +11,7 @@ import {
   Alert,
   TouchableOpacity,
   Linking,
+  ActivityIndicator,
 } from 'react-native'
 import {
   Camera,
@@ -36,92 +37,110 @@ export function ScanQRScreen({ navigation }: Props) {
   const [scanStatus, setScanStatus] = useState('Point the camera at the BAT Desktop QR code.')
   const scannedRef = useRef(false)
 
-  const { addHost, setActiveHost } = useHostStore()
+  const { upsertHost, findByAddress, setActiveHost } = useHostStore()
   const { connect } = useConnectionStore()
+  const connectionStatus = useConnectionStore(s => s.status)
+  const connectionError = useConnectionStore(s => s.error)
+  const [connecting, setConnecting] = useState<{ host: string; port: number } | null>(null)
+
+  const closeScanner = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack()
+      return
+    }
+
+    const target = useConnectionStore.getState().status === 'connected' ? 'Main' : 'Connect'
+    navigation.reset({
+      index: 0,
+      routes: [{ name: target }],
+    })
+  }, [navigation])
 
   const handlePayload = useCallback(async (payload: BATQRPayload) => {
     dlog('QR', `parsed OK: ${payload.host}:${payload.port} tls=${payload.useTLS} fp=${payload.fingerprint ? payload.fingerprint.slice(0, 12) + '...' : 'none'} mode=${payload.mode}`)
     setScanStatus(`Found ${payload.host}:${payload.port}.`)
 
+    const existing = findByAddress(payload.host, payload.port)
     const tlsLabel = payload.useTLS ? ' (TLS)' : ''
-    Alert.alert(
-      'BAT Host Found',
-      `Connect to "${payload.name}"${tlsLabel}\n${payload.host}:${payload.port}?`,
-      [
+    const title = existing ? 'Update BAT Host' : 'BAT Host Found'
+    const fingerprintChanged =
+      existing && payload.fingerprint &&
+      existing.fingerprint?.toUpperCase().replace(/:/g, '') !==
+        payload.fingerprint.toUpperCase().replace(/:/g, '')
+    const message = existing
+      ? `Refresh "${existing.name}"${tlsLabel}\n${payload.host}:${payload.port}` +
+        (fingerprintChanged ? '\n\nFingerprint changed — will overwrite the saved one.' : '')
+      : `Connect to "${payload.name}"${tlsLabel}\n${payload.host}:${payload.port}?`
+
+    const doSave = async (): Promise<{ id: string; created: boolean }> => {
+      const result = await upsertHost(
         {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => {
-            dlog('QR', 'user cancelled')
-            scannedRef.current = false
-            setScanned(false)
-            setScanStatus('Point the camera at the BAT Desktop QR code.')
-          },
+          name: existing?.name ?? payload.name,
+          address: payload.host,
+          port: payload.port,
+          fingerprint: payload.fingerprint ?? undefined,
+          useTLS: payload.useTLS,
+          context: payload.context,
         },
-        {
-          text: 'Save Only',
-          onPress: async () => {
-            try {
-              dlog('QR', 'saving host...')
-              await addHost(
-                {
-                  name: payload.name,
-                  address: payload.host,
-                  port: payload.port,
-                  fingerprint: payload.fingerprint ?? undefined,
-                  useTLS: payload.useTLS,
-                  context: payload.context,
-                },
-                payload.token,
-              )
-              dlog('QR', 'saved OK')
-              navigation.goBack()
-            } catch (e) {
-              dlog('QR', `save error: ${e}`)
+        payload.token,
+      )
+      dlog('QR', `${result.created ? 'created' : 'updated'} host ${result.id}`)
+      return result
+    }
+
+    Alert.alert(title, message, [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+        onPress: () => {
+          dlog('QR', 'user cancelled')
+          scannedRef.current = false
+          setScanned(false)
+          setScanStatus('Point the camera at the BAT Desktop QR code.')
+        },
+      },
+      {
+        text: existing ? 'Update Only' : 'Save Only',
+        onPress: async () => {
+          try {
+            await doSave()
+            closeScanner()
+          } catch (e) {
+            dlog('QR', `save error: ${e}`)
+          }
+        },
+      },
+      {
+        text: 'Connect',
+        style: 'default',
+        onPress: async () => {
+          try {
+            const { id } = await doSave()
+            setActiveHost(id)
+            setConnecting({ host: payload.host, port: payload.port })
+            dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
+            const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context)
+            dlog('QR', `connect result: ${ok}`)
+            if (ok) {
+              setConnecting(null)
+              closeScanner()
+            } else {
+              const err = useConnectionStore.getState().error
+              dlog('QR', `connect failed: ${err}`)
+              setConnecting(null)
+              scannedRef.current = false
+              setScanned(false)
+              setScanStatus('Connection failed — try again or scan a new QR code.')
+              Alert.alert('Connection Failed', err || 'Could not connect. Host saved for later.')
             }
-          },
+          } catch (e) {
+            dlog('QR', `connect error: ${e}`)
+            setConnecting(null)
+          }
         },
-        {
-          text: 'Connect',
-          style: 'default',
-          onPress: async () => {
-            try {
-              dlog('QR', 'saving host before connect...')
-              await addHost(
-                {
-                  name: payload.name,
-                  address: payload.host,
-                  port: payload.port,
-                  fingerprint: payload.fingerprint ?? undefined,
-                  useTLS: payload.useTLS,
-                  context: payload.context,
-                },
-                payload.token,
-              )
-              const hosts = useHostStore.getState().hosts
-              const newHost = hosts[hosts.length - 1]
-              if (newHost) {
-                setActiveHost(newHost.id)
-              }
-              dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
-              const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context)
-              dlog('QR', `connect result: ${ok}`)
-              if (ok) {
-                navigation.goBack()
-              } else {
-                const err = useConnectionStore.getState().error
-                dlog('QR', `connect failed: ${err}`)
-                Alert.alert('Connection Failed', err || 'Could not connect. Host saved for later.')
-                navigation.goBack()
-              }
-            } catch (e) {
-              dlog('QR', `connect error: ${e}`)
-            }
-          },
-        },
-      ]
-    )
-  }, [addHost, connect, navigation, setActiveHost])
+      },
+    ])
+  }, [upsertHost, findByAddress, connect, closeScanner, setActiveHost])
 
   const codeScanner = useCodeScanner({
     codeTypes: ['qr'],
@@ -208,6 +227,27 @@ export function ScanQRScreen({ navigation }: Props) {
         </Text>
         <Text style={styles.status}>{scanStatus}</Text>
       </View>
+
+      {connecting && (
+        <View style={styles.connectingOverlay}>
+          <View style={styles.connectingCard}>
+            <ActivityIndicator color={appColors.accent} size="large" />
+            <Text style={styles.connectingTitle}>Connecting\u2026</Text>
+            <Text style={styles.connectingHost}>
+              {connecting.host}:{connecting.port}
+            </Text>
+            <Text style={styles.connectingState}>
+              Status: {connectionStatus}
+            </Text>
+            {connectionError && (
+              <Text style={styles.connectingError}>{connectionError}</Text>
+            )}
+            <Text style={styles.connectingHint}>
+              Auth times out after 10 seconds.
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   )
 }
@@ -271,6 +311,52 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
+  },
+  connectingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xxl,
+  },
+  connectingCard: {
+    backgroundColor: appColors.surface,
+    borderRadius: 12,
+    padding: spacing.xxl,
+    alignItems: 'center',
+    minWidth: 260,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  connectingTitle: {
+    fontSize: fontSize.lg,
+    color: appColors.text,
+    fontWeight: '700',
+    marginTop: spacing.md,
+  },
+  connectingHost: {
+    fontSize: fontSize.sm,
+    color: appColors.textSecondary,
+    fontFamily: 'monospace',
+    marginTop: spacing.xs,
+  },
+  connectingState: {
+    fontSize: fontSize.sm,
+    color: appColors.accent,
+    marginTop: spacing.md,
+    fontWeight: '600',
+  },
+  connectingError: {
+    fontSize: fontSize.xs,
+    color: '#ef4444',
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  connectingHint: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+    marginTop: spacing.md,
+    textAlign: 'center',
   },
   status: {
     fontSize: fontSize.sm,

@@ -25,9 +25,23 @@ type Props = {
   navigation: NativeStackNavigationProp<any>
 }
 
+const FINGERPRINT_MISMATCH_RE = /TLS fingerprint mismatch\.\s*Expected:\s*([0-9A-F:]+),\s*Got:\s*([0-9A-F:]+)/i
+
+function parseFingerprintMismatch(message: string | null): { expected: string; got: string } | null {
+  if (!message) return null
+  const match = message.match(FINGERPRINT_MISMATCH_RE)
+  if (!match) return null
+  return { expected: match[1], got: match[2] }
+}
+
+function formatFingerprint(fp: string): string {
+  const clean = fp.toUpperCase().replace(/[^A-F0-9]/g, '')
+  return clean.match(/.{1,2}/g)?.join(':') ?? clean
+}
+
 export function ConnectScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets()
-  const { hosts, loadFromStorage, removeHost, getToken, getFingerprint, setActiveHost } = useHostStore()
+  const { hosts, loadFromStorage, removeHost, getToken, getFingerprint, updateFingerprint, setActiveHost } = useHostStore()
   const { error, connect } = useConnectionStore()
   const [connectingHostId, setConnectingHostId] = useState<string | null>(null)
 
@@ -35,23 +49,57 @@ export function ConnectScreen({ navigation }: Props) {
     loadFromStorage()
   }, [loadFromStorage])
 
-  const handleConnect = async (host: SavedHost) => {
-    setConnectingHostId(host.id)
+  const performConnect = async (host: SavedHost, fingerprintOverride?: string | null): Promise<boolean> => {
     const token = await getToken(host.id)
     if (!token) {
       Alert.alert('Error', 'No token found for this host')
-      setConnectingHostId(null)
-      return
+      return false
     }
+    const fingerprint = fingerprintOverride !== undefined ? fingerprintOverride : getFingerprint(host.id)
+    return connect(host.address, host.port, token, fingerprint, host.context)
+  }
 
-    const fingerprint = getFingerprint(host.id)
-    const ok = await connect(host.address, host.port, token, fingerprint, host.context)
+  const handleConnect = async (host: SavedHost) => {
+    setConnectingHostId(host.id)
+    const ok = await performConnect(host)
     setConnectingHostId(null)
 
     if (ok) {
       setActiveHost(host.id)
+      return
+    }
+
+    const latestError = useConnectionStore.getState().error || error
+    const mismatch = parseFingerprintMismatch(latestError)
+    if (mismatch) {
+      Alert.alert(
+        'Certificate Changed',
+        `"${host.name}" is presenting a new TLS certificate. This happens after a desktop reinstall or cert regeneration — but can also indicate a man-in-the-middle attack.\n\n` +
+          `Saved:\n${formatFingerprint(mismatch.expected)}\n\n` +
+          `Server now:\n${formatFingerprint(mismatch.got)}\n\n` +
+          `Only trust if you just reconfigured the desktop.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Trust & Connect',
+            style: 'destructive',
+            onPress: async () => {
+              await updateFingerprint(host.id, mismatch.got)
+              setConnectingHostId(host.id)
+              const retry = await performConnect({ ...host, fingerprint: mismatch.got.replace(/:/g, '') })
+              setConnectingHostId(null)
+              if (retry) {
+                setActiveHost(host.id)
+              } else {
+                const err = useConnectionStore.getState().error
+                Alert.alert('Connection Failed', err || 'Could not connect after trusting new fingerprint.')
+              }
+            },
+          },
+        ],
+      )
     } else {
-      Alert.alert('Connection Failed', error || 'Could not connect to host')
+      Alert.alert('Connection Failed', latestError || 'Could not connect to host')
     }
   }
 

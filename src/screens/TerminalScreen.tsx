@@ -6,11 +6,13 @@ import React, { useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar'
 import { terminalHtml } from '@/components/terminal/terminal-html'
+import { HIDDEN_TAB_BAR_STYLE, MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 type Props = NativeStackScreenProps<any, 'Terminal'>
@@ -18,15 +20,19 @@ type Props = NativeStackScreenProps<any, 'Terminal'>
 export function TerminalScreen({ route, navigation }: Props) {
   const terminalId = route.params?.terminalId as string
   const webViewRef = useRef<WebView>(null)
+  const insets = useSafeAreaInsets()
   const channels = useConnectionStore(s => s.channels)
   const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === terminalId))
 
-  // Show Claude button in header for claude-code terminals
+  // Terminal detail needs the full bottom edge for the special-key toolbar.
   useLayoutEffect(() => {
-    if (terminal?.agentPreset === 'claude-code') {
-      navigation.setOptions({
-        headerShown: true,
-        headerRight: () => (
+    const parent = navigation.getParent()
+    parent?.setOptions({ tabBarStyle: HIDDEN_TAB_BAR_STYLE })
+
+    navigation.setOptions({
+      headerShown: true,
+      headerRight: terminal?.agentPreset === 'claude-code'
+        ? () => (
           <TouchableOpacity
             onPress={() => navigation.navigate('Claude', { sessionId: terminalId })}
             style={{ paddingHorizontal: spacing.md }}
@@ -35,11 +41,15 @@ export function TerminalScreen({ route, navigation }: Props) {
               {'\u2726'} Claude
             </Text>
           </TouchableOpacity>
-        ),
-        title: terminal.alias || terminal.title || 'Terminal',
-        headerStyle: { backgroundColor: appColors.surface },
-        headerTintColor: appColors.text,
-      })
+        )
+        : undefined,
+      title: terminal?.alias || terminal?.title || 'Terminal',
+      headerStyle: { backgroundColor: appColors.surface },
+      headerTintColor: appColors.text,
+    })
+
+    return () => {
+      parent?.setOptions({ tabBarStyle: MAIN_TAB_BAR_STYLE })
     }
   }, [navigation, terminal, terminalId])
   const outputBufferRef = useRef('')
@@ -123,7 +133,9 @@ export function TerminalScreen({ route, navigation }: Props) {
         hideKeyboardAccessoryView={false}
         autoManageStatusBarEnabled={false}
       />
-      <TerminalToolbar onKey={handleSpecialKey} />
+      <View style={[styles.toolbarFrame, { paddingBottom: insets.bottom }]}>
+        <TerminalToolbar onKey={handleSpecialKey} />
+      </View>
     </View>
   )
 }
@@ -136,5 +148,8 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     backgroundColor: '#1f1d1a',
+  },
+  toolbarFrame: {
+    backgroundColor: appColors.surface,
   },
 })
