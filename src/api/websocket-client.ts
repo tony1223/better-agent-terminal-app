@@ -7,7 +7,7 @@
  * Implements auth, request-response correlation, event dispatch, and exponential backoff reconnect.
  */
 
-import { PROXIED_EVENTS, type RemoteFrame } from './protocol'
+import { PROXIED_EVENTS, REMOTE_PROTOCOL_LEGACY_V1, type RemoteFrame } from './protocol'
 import { TLSWebSocket } from '@/native/tls-websocket'
 import { dlog } from '@/utils/debug-log'
 
@@ -182,7 +182,8 @@ export class WebSocketClient {
             type: 'auth',
             id: this.nextId(),
             token: this.token,
-            args: [this.label, this.context],
+            protocols: [REMOTE_PROTOCOL_LEGACY_V1],
+            args: this.context ? [this.label, this.context] : [this.label],
           }
           ws.send(JSON.stringify(authFrame))
         },

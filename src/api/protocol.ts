@@ -21,10 +21,14 @@ export interface RemoteFrame {
   id: string
   channel?: string
   args?: unknown[]
+  protocols?: string[]
+  protocol?: string
   result?: unknown
   error?: string
   token?: string
 }
+
+export const REMOTE_PROTOCOL_LEGACY_V1 = 'bat-remote/legacy-v1'
 
 // Channels proxied to remote host (client can invoke)
 export const PROXIED_CHANNELS = new Set([

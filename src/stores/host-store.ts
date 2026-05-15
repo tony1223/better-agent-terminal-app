@@ -63,6 +63,21 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   addHost: async (hostData, token) => {
+    const existing = get().hosts.find(host =>
+      host.address === hostData.address &&
+      host.port === hostData.port
+    )
+
+    if (existing) {
+      const hosts = get().hosts.map(host =>
+        host.id === existing.id ? { ...host, ...hostData } : host
+      )
+      saveHosts(hosts)
+      await Keychain.setGenericPassword(existing.id, token, { service: `${TOKEN_SERVICE}-${existing.id}` })
+      set({ hosts })
+      return
+    }
+
     const id = generateId()
     const host: SavedHost = { ...hostData, id }
     const hosts = [...get().hosts, host]
