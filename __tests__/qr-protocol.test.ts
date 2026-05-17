@@ -90,4 +90,18 @@ describe('parseBATQR', () => {
       fingerprint: 'AA:BB:CC',
     })
   })
+
+  it('parses bat links as wss replacement links', () => {
+    const payload = parseBATQR('bat://100.96.14.49:9876?token=token-123&fp=AA%3ABB%3ACC&mode=tailscale&windowId=win-1')
+
+    expect(payload).toMatchObject({
+      host: '100.96.14.49',
+      port: 9876,
+      token: 'token-123',
+      fingerprint: 'AA:BB:CC',
+      mode: 'tailscale',
+      useTLS: true,
+      context: { windowId: 'win-1' },
+    })
+  })
 })

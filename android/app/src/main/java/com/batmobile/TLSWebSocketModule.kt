@@ -23,10 +23,11 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun connect(url: String, fingerprint: String?) {
+    fun connect(url: String, fingerprint: String?, connectionId: String?) {
         close(1000, "reconnect")
 
         val normalizedFP = fingerprint?.uppercase()?.replace(":", "")
+        val currentConnectionId = connectionId ?: ""
 
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -67,11 +68,14 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
         webSocket = client!!.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                emit("TLSWebSocket_onOpen", Arguments.createMap())
+                emit("TLSWebSocket_onOpen", Arguments.createMap().apply {
+                    putString("connectionId", currentConnectionId)
+                })
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 emit("TLSWebSocket_onMessage", Arguments.createMap().apply {
+                    putString("connectionId", currentConnectionId)
                     putString("data", text)
                 })
             }
@@ -82,6 +86,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 emit("TLSWebSocket_onClose", Arguments.createMap().apply {
+                    putString("connectionId", currentConnectionId)
                     putInt("code", code)
                     putString("reason", reason)
                 })
@@ -89,6 +94,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 emit("TLSWebSocket_onError", Arguments.createMap().apply {
+                    putString("connectionId", currentConnectionId)
                     putString("message", t.message ?: "WebSocket failure")
                 })
             }

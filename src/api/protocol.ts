@@ -33,7 +33,9 @@ export const REMOTE_PROTOCOL_LEGACY_V1 = 'bat-remote/legacy-v1'
 // Channels proxied to remote host (client can invoke)
 export const PROXIED_CHANNELS = new Set([
   // PTY
-  'pty:create', 'pty:write', 'pty:resize', 'pty:kill', 'pty:restart', 'pty:get-cwd',
+  'pty:create', 'pty:write', 'pty:read-buffer', 'pty:resize',
+  'pty:get-viewport-state', 'pty:set-viewport-mode', 'pty:set-viewport-size',
+  'pty:kill', 'pty:restart', 'pty:get-cwd',
   // Claude
   'claude:start-session', 'claude:send-message', 'claude:stop-session', 'claude:abort-session',
   'claude:set-permission-mode', 'claude:set-codex-sandbox-mode', 'claude:set-codex-approval-policy', 'claude:set-model', 'claude:set-effort', 'claude:reset-session',
@@ -77,12 +79,12 @@ export const PROXIED_CHANNELS = new Set([
 
 // Events pushed from host to remote clients
 export const PROXIED_EVENTS = new Set([
-  'pty:output', 'pty:exit',
+  'pty:output', 'pty:exit', 'pty:viewport-state',
   'claude:message', 'claude:tool-use', 'claude:tool-result',
   'claude:stream', 'claude:result', 'claude:turn-end', 'claude:error',
   'claude:status', 'claude:permission-request', 'claude:permission-resolved', 'claude:ask-user', 'claude:ask-user-resolved',
   'claude:modeChange', 'claude:history', 'claude:prompt-suggestion', 'claude:session-reset', 'claude:worktree-info', 'claude:rate-limit',
   'fs:changed',
-  'workspace:detached', 'workspace:reattached',
+  'workspace:detached', 'workspace:reattached', 'workspace:reload',
   'system:resume',
 ])

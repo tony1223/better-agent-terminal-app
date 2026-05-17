@@ -18,6 +18,7 @@ export class TLSWebSocket {
   private subs: Array<{ remove: () => void }> = []
   private _readyState: TLSSocketState = 'CLOSED'
   private callbacks: TLSWebSocketCallbacks = {}
+  private connectionId = ''
 
   get readyState(): TLSSocketState {
     return this._readyState
@@ -30,6 +31,7 @@ export class TLSWebSocket {
   connect(url: string, fingerprint: string | null, callbacks: TLSWebSocketCallbacks): void {
     this.cleanup()
     this.callbacks = callbacks
+    this.connectionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     if (!NativeTLS || !emitter) {
       dlog('TLS', 'native module unavailable, falling back to plain WebSocket')
@@ -40,26 +42,30 @@ export class TLSWebSocket {
     this._readyState = 'CONNECTING'
 
     this.subs.push(
-      emitter.addListener('TLSWebSocket_onOpen', () => {
+      emitter.addListener('TLSWebSocket_onOpen', (event: { connectionId?: string }) => {
+        if (event.connectionId !== this.connectionId) return
         dlog('TLS', 'connected (native TLS)')
         this._readyState = 'OPEN'
         callbacks.onOpen?.()
       }),
-      emitter.addListener('TLSWebSocket_onMessage', (event: { data: string }) => {
+      emitter.addListener('TLSWebSocket_onMessage', (event: { connectionId?: string; data: string }) => {
+        if (event.connectionId !== this.connectionId) return
         callbacks.onMessage?.(event.data)
       }),
-      emitter.addListener('TLSWebSocket_onClose', (event: { code: number; reason: string }) => {
+      emitter.addListener('TLSWebSocket_onClose', (event: { connectionId?: string; code: number; reason: string }) => {
+        if (event.connectionId !== this.connectionId) return
         dlog('TLS', `closed: code=${event.code} reason=${event.reason}`)
         this._readyState = 'CLOSED'
         callbacks.onClose?.(event.code, event.reason)
       }),
-      emitter.addListener('TLSWebSocket_onError', (event: { message: string }) => {
+      emitter.addListener('TLSWebSocket_onError', (event: { connectionId?: string; message: string }) => {
+        if (event.connectionId !== this.connectionId) return
         dlog('TLS', `error: ${event.message}`)
         callbacks.onError?.(event.message)
       }),
     )
 
-    NativeTLS.connect(url, fingerprint || null)
+    NativeTLS.connect(url, fingerprint || null, this.connectionId)
   }
 
   send(data: string): void {

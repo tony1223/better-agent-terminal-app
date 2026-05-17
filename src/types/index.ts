@@ -133,6 +133,23 @@ export interface PtyExit {
   exitCode: number
 }
 
+export type TerminalViewportMode = 'desktop' | 'mobile'
+export type TerminalViewportSource = 'desktop' | 'mobile'
+
+export interface TerminalViewportState {
+  mode: TerminalViewportMode
+  cols: number
+  rows: number
+  updatedBy: TerminalViewportSource
+  updatedAt: number
+}
+
+export interface SetViewportModeOptions {
+  cols?: number
+  rows?: number
+  source: TerminalViewportSource
+}
+
 // ============================================
 //   Claude Agent Types
 // ============================================

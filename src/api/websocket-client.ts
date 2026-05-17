@@ -3,7 +3,7 @@
  * Reference: BAT Desktop electron/remote/remote-client.ts
  *
  * Supports wss:// with SHA-256 certificate fingerprint pinning via native TLS module.
- * Falls back to plain ws:// when no fingerprint is provided.
+ * Falls back to plain ws:// when TLS is not requested.
  * Implements auth, request-response correlation, event dispatch, and exponential backoff reconnect.
  */
 
@@ -52,6 +52,7 @@ export class WebSocketClient {
   private port = 0
   private token = ''
   private fingerprint: string | null = null
+  private useTLS = false
   private label = ''
   private context: RemoteClientContext | null = null
   private shouldReconnect = false
@@ -76,7 +77,7 @@ export class WebSocketClient {
 
   get connectionInfo(): { host: string; port: number; tls: boolean } | null {
     if (!this.isConnected) return null
-    return { host: this.host, port: this.port, tls: !!this.fingerprint }
+    return { host: this.host, port: this.port, tls: this.useTLS }
   }
 
   // ============================================
@@ -107,6 +108,7 @@ export class WebSocketClient {
     label?: string,
     fingerprint?: string | null,
     context?: RemoteClientContext | null,
+    useTLS?: boolean,
   ): Promise<boolean> {
     if (this.ws) this.disconnect()
 
@@ -114,6 +116,7 @@ export class WebSocketClient {
     this.port = port
     this.token = token
     this.fingerprint = fingerprint ?? null
+    this.useTLS = useTLS ?? !!this.fingerprint
     this.label = label || `BAT-Mobile-${Date.now()}`
     this.context = context ?? null
     this.shouldReconnect = true
@@ -155,9 +158,9 @@ export class WebSocketClient {
       const gen = this.generation
       this.setStatus('connecting')
 
-      const scheme = this.fingerprint ? 'wss' : 'ws'
+      const scheme = this.useTLS ? 'wss' : 'ws'
       const url = `${scheme}://${this.host}:${this.port}`
-      dlog('WS', `connecting to ${url} (TLS=${!!this.fingerprint})`)
+      dlog('WS', `connecting to ${url} (TLS=${this.useTLS}, pin=${!!this.fingerprint})`)
 
       const ws = new TLSWebSocket()
       this.ws = ws

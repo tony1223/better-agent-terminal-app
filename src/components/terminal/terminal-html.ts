@@ -27,6 +27,13 @@ export const terminalHtml = `
     #terminal {
       width: 100%;
       height: 100%;
+      overflow: hidden;
+    }
+    body.desktop-layout #terminal {
+      overflow-x: auto;
+    }
+    body.desktop-layout .xterm {
+      min-width: var(--terminal-width, 100%);
     }
     .xterm {
       padding: 4px;
@@ -58,6 +65,7 @@ export const terminalHtml = `
 
       var fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
+      var viewportState = { mode: 'desktop', cols: 100, rows: 30 };
 
       var container = document.getElementById('terminal');
       term.open(container);
@@ -81,10 +89,39 @@ export const terminalHtml = `
         term.write(data);
       };
 
+      // ---- RN → WebView: keep xterm cursor focus in sync with native keyboard proxy ----
+      window.focusTerminal = function() {
+        term.focus();
+      };
+
       // ---- RN → WebView: trigger resize ----
       window.handleResize = function() {
         fitAddon.fit();
         sendResize();
+      };
+
+      // ---- RN → WebView: shared desktop/mobile terminal viewport state ----
+      window.handleViewportState = function(state) {
+        if (!state) return;
+        viewportState = {
+          mode: state.mode || 'desktop',
+          cols: state.cols || term.cols,
+          rows: state.rows || term.rows
+        };
+        document.body.classList.toggle('mobile-layout', viewportState.mode === 'mobile');
+        document.body.classList.toggle('desktop-layout', viewportState.mode !== 'mobile');
+        if (viewportState.mode === 'mobile') {
+          container.style.setProperty('--terminal-width', '100%');
+          term.resize(viewportState.cols, viewportState.rows);
+          term.refresh(0, Math.max(0, term.rows - 1));
+          return;
+        }
+        var approxCellWidth = Math.max(7, Math.ceil((term.options.fontSize || 13) * 0.62));
+        container.style.setProperty('--terminal-width', ((viewportState.cols * approxCellWidth) + 16) + 'px');
+        if (viewportState.cols > 0 && viewportState.rows > 0) {
+          term.resize(viewportState.cols, viewportState.rows);
+          term.refresh(0, Math.max(0, term.rows - 1));
+        }
       };
 
       // ---- RN → WebView: change theme ----
@@ -95,7 +132,11 @@ export const terminalHtml = `
       // ---- RN → WebView: set font size ----
       window.handleFontSize = function(size) {
         term.options.fontSize = size;
-        fitAddon.fit();
+        if (viewportState.mode === 'mobile') {
+          term.resize(viewportState.cols, viewportState.rows);
+        } else {
+          fitAddon.fit();
+        }
         sendResize();
       };
 
@@ -109,7 +150,9 @@ export const terminalHtml = `
       }
 
       var ro = new ResizeObserver(function() {
-        fitAddon.fit();
+        if (viewportState.mode !== 'mobile') {
+          fitAddon.fit();
+        }
         sendResize();
       });
       ro.observe(container);

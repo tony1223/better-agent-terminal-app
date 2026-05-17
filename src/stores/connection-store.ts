@@ -17,7 +17,7 @@ interface ConnectionState {
   client: WebSocketClient | null
   channels: Channels | null
 
-  connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null) => Promise<boolean>
+  connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => Promise<boolean>
   disconnect: () => void
 }
 
@@ -30,8 +30,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   client: null,
   channels: null,
 
-  connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null) => {
-    dlog('CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
+  connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => {
+    const tls = useTLS ?? !!fingerprint
+    dlog('CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., tls=${tls}, fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
     const { client: existing } = get()
     if (existing) {
       dlog('CONN', 'disconnecting existing client')
@@ -48,15 +49,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       })
     })
 
-    set({ client, host, port, tls: !!fingerprint, status: 'connecting', error: null })
+    set({ client, host, port, tls, status: 'connecting', error: null })
 
     try {
-      const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint, context)
+      const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint, context, tls)
       dlog('CONN', `client.connect returned: ${ok}`)
 
       if (ok) {
         const channels = createChannels(client)
-        set({ channels, status: 'connected', error: null, tls: !!fingerprint })
+        set({ channels, status: 'connected', error: null, tls })
         return true
       } else {
         dlog('CONN', `connect failed, error: ${client.error}`)

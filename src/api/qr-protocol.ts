@@ -106,10 +106,14 @@ function parseConnectionUrlPayload(raw: string): BATQRPayload | null {
   if (!parsed) return null
 
   const isWs = parsed.protocol === 'ws' || parsed.protocol === 'wss'
-  const host = isWs
+  const usesAuthorityHost = isWs || (
+    (parsed.protocol === 'bat' || parsed.protocol === 'batmobile' || parsed.protocol === 'better-terminal') &&
+    parsed.host !== 'connect'
+  )
+  const host = usesAuthorityHost
     ? parsed.host
     : parsed.params.host || parsed.params.address || ''
-  const port = isWs
+  const port = usesAuthorityHost
     ? parsed.port ?? 9876
     : getNumber(parsed.params.port) ?? 9876
   const token = parsed.params.token || ''
@@ -125,7 +129,7 @@ function parseConnectionUrlPayload(raw: string): BATQRPayload | null {
     token,
     fingerprint,
     mode,
-    useTLS: parsed.protocol === 'wss' || !!fingerprint,
+    useTLS: parsed.protocol === 'wss' || parsed.protocol === 'bat' || !!fingerprint,
     context: windowId ? { windowId } : undefined,
   }
 }

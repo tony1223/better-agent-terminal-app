@@ -6,7 +6,7 @@ import type { WebSocketClient } from '../websocket-client'
 
 export function createGithubChannel(ws: WebSocketClient) {
   return {
-    checkCli: () => ws.invoke<boolean>('github:check-cli'),
+    checkCli: () => ws.invoke<{ installed: boolean; authenticated: boolean }>('github:check-cli'),
     prList: (cwd: string) => ws.invoke('github:pr-list', cwd),
     issueList: (cwd: string) => ws.invoke('github:issue-list', cwd),
     prView: (cwd: string, number: number) => ws.invoke('github:pr-view', cwd, number),

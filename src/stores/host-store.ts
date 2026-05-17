@@ -17,7 +17,8 @@ const TOKEN_SERVICE = 'bat-mobile-token'
 function loadHosts(): SavedHost[] {
   try {
     const raw = storage.getString(HOSTS_KEY)
-    return raw ? JSON.parse(raw) : []
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.map(normalizeHost) : []
   } catch {
     return []
   }
@@ -29,6 +30,28 @@ function saveHosts(hosts: SavedHost[]) {
 
 function generateId(): string {
   return `host-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
+}
+
+function normalizeFingerprint(fingerprint?: string): string | undefined {
+  if (!fingerprint) return undefined
+  const normalized = fingerprint.toUpperCase().replace(/[^A-F0-9]/g, '')
+  return normalized || undefined
+}
+
+function normalizeHost<T extends Partial<SavedHost>>(host: T): T {
+  const next = { ...host }
+  const hasFingerprint = Object.prototype.hasOwnProperty.call(host, 'fingerprint')
+  const hasUseTLS = Object.prototype.hasOwnProperty.call(host, 'useTLS')
+
+  if (hasFingerprint) {
+    next.fingerprint = normalizeFingerprint(host.fingerprint)
+  }
+
+  if (hasFingerprint || hasUseTLS) {
+    next.useTLS = host.useTLS || !!next.fingerprint
+  }
+
+  return next
 }
 
 interface HostState {
@@ -63,14 +86,15 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   addHost: async (hostData, token) => {
+    const normalizedHostData = normalizeHost(hostData)
     const existing = get().hosts.find(host =>
-      host.address === hostData.address &&
-      host.port === hostData.port
+      host.address === normalizedHostData.address &&
+      host.port === normalizedHostData.port
     )
 
     if (existing) {
       const hosts = get().hosts.map(host =>
-        host.id === existing.id ? { ...host, ...hostData } : host
+        host.id === existing.id ? { ...host, ...normalizedHostData } : host
       )
       saveHosts(hosts)
       await Keychain.setGenericPassword(existing.id, token, { service: `${TOKEN_SERVICE}-${existing.id}` })
@@ -79,7 +103,7 @@ export const useHostStore = create<HostState>((set, get) => ({
     }
 
     const id = generateId()
-    const host: SavedHost = { ...hostData, id }
+    const host: SavedHost = { ...normalizedHostData, id }
     const hosts = [...get().hosts, host]
     saveHosts(hosts)
 
@@ -89,11 +113,12 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   upsertHost: async (hostData, token) => {
+    const normalizedHostData = normalizeHost(hostData)
     const existing = get().hosts.find(
-      h => h.address === hostData.address && h.port === hostData.port,
+      h => h.address === normalizedHostData.address && h.port === normalizedHostData.port,
     )
     if (existing) {
-      const merged: SavedHost = { ...existing, ...hostData, id: existing.id, name: existing.name }
+      const merged: SavedHost = { ...existing, ...normalizedHostData, id: existing.id, name: existing.name }
       const hosts = get().hosts.map(h => (h.id === existing.id ? merged : h))
       saveHosts(hosts)
       await Keychain.setGenericPassword(existing.id, token, { service: `${TOKEN_SERVICE}-${existing.id}` })
@@ -102,7 +127,7 @@ export const useHostStore = create<HostState>((set, get) => ({
     }
 
     const id = generateId()
-    const host: SavedHost = { ...hostData, id }
+    const host: SavedHost = { ...normalizedHostData, id }
     const hosts = [...get().hosts, host]
     saveHosts(hosts)
     await Keychain.setGenericPassword(id, token, { service: `${TOKEN_SERVICE}-${id}` })
@@ -111,7 +136,7 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   updateFingerprint: async (id, fingerprint) => {
-    const normalized = fingerprint.toUpperCase().replace(/[^A-F0-9]/g, '')
+    const normalized = normalizeFingerprint(fingerprint)
     const hosts = get().hosts.map(h =>
       h.id === id ? { ...h, fingerprint: normalized, useTLS: true } : h
     )
@@ -130,8 +155,9 @@ export const useHostStore = create<HostState>((set, get) => ({
   },
 
   updateHost: async (id, updates, token) => {
+    const normalizedUpdates = normalizeHost(updates)
     const hosts = get().hosts.map(h =>
-      h.id === id ? { ...h, ...updates } : h
+      h.id === id ? { ...h, ...normalizedUpdates } : h
     )
     saveHosts(hosts)
 

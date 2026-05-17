@@ -6,10 +6,16 @@
 import type { WebSocketClient } from '../websocket-client'
 import type { ProfileEntry } from '@/types'
 
+export interface ProfileListResult {
+  profiles: ProfileEntry[]
+  activeProfileId?: string | null
+  activeProfileIds?: string[]
+}
+
 export function createProfileChannel(ws: WebSocketClient) {
   return {
     list: () =>
-      ws.invoke<{ profiles: ProfileEntry[]; activeProfileId: string }>('profile:list'),
+      ws.invoke<ProfileListResult>('profile:list'),
     load: (profileId: string) =>
       ws.invoke('profile:load', profileId),
     loadSnapshot: (profileId: string) =>

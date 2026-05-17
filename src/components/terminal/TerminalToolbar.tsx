@@ -15,6 +15,8 @@ import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
   onKey: (data: string) => void
+  onKeyboardPress?: () => void
+  keyboardActive?: boolean
 }
 
 interface KeyDef {
@@ -39,7 +41,7 @@ const KEYS: KeyDef[] = [
   { label: '/', data: '/' },
 ]
 
-export function TerminalToolbar({ onKey }: Props) {
+export function TerminalToolbar({ onKey, onKeyboardPress, keyboardActive = false }: Props) {
   const [ctrlActive, setCtrlActive] = useState(false)
   const [altActive, setAltActive] = useState(false)
 
@@ -79,6 +81,17 @@ export function TerminalToolbar({ onKey }: Props) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
+        {onKeyboardPress && (
+          <TouchableOpacity
+            style={[styles.key, styles.keyboardKey, keyboardActive && styles.keyActive]}
+            onPress={onKeyboardPress}
+            accessibilityLabel="Show keyboard"
+          >
+            <Text style={[styles.keyText, keyboardActive && styles.keyTextActive]}>
+              {'\u2328'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {KEYS.map((key, i) => {
           const isActive =
             (key.toggle === 'ctrl' && ctrlActive) ||
@@ -119,6 +132,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
     minWidth: 36,
     alignItems: 'center',
+  },
+  keyboardKey: {
+    borderWidth: 1,
+    borderColor: appColors.accent,
   },
   keyActive: {
     backgroundColor: appColors.accent,

@@ -26,6 +26,7 @@ import { MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
 import { ConnectScreen } from '@/screens/ConnectScreen'
 import { AddHostScreen } from '@/screens/AddHostScreen'
 import { WorkspaceListScreen } from '@/screens/WorkspaceListScreen'
+import { WorkspaceDetailScreen } from '@/screens/WorkspaceDetailScreen'
 import { TerminalListScreen } from '@/screens/TerminalListScreen'
 import { TerminalScreen } from '@/screens/TerminalScreen'
 import { ClaudeScreen } from '@/screens/ClaudeScreen'
@@ -86,6 +87,11 @@ function WorkspacesStack() {
         name="WorkspaceList"
         component={WorkspaceListScreen}
         options={{ title: 'Workspaces' }}
+      />
+      <WorkspacesNav.Screen
+        name="WorkspaceDetail"
+        component={WorkspaceDetailScreen}
+        options={{ title: 'Workspace' }}
       />
     </WorkspacesNav.Navigator>
   )

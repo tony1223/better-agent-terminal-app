@@ -56,7 +56,7 @@ export function ConnectScreen({ navigation }: Props) {
       return false
     }
     const fingerprint = fingerprintOverride !== undefined ? fingerprintOverride : getFingerprint(host.id)
-    return connect(host.address, host.port, token, fingerprint, host.context)
+    return connect(host.address, host.port, token, fingerprint, host.context, host.useTLS || !!fingerprint)
   }
 
   const handleConnect = async (host: SavedHost) => {
@@ -116,7 +116,7 @@ export function ConnectScreen({ navigation }: Props) {
 
   const renderHost = ({ item }: { item: SavedHost }) => {
     const isConnecting = connectingHostId === item.id
-    const hasTLS = !!item.fingerprint
+    const hasTLS = item.useTLS || !!item.fingerprint
     return (
       <TouchableOpacity
         style={styles.hostCard}

@@ -42,8 +42,7 @@ export function WorkspaceListScreen() {
         style={[styles.card, isActive && styles.cardActive]}
         onPress={() => {
           switchWorkspace(item.id)
-          navigation.getParent?.()?.navigate('Terminals', { screen: 'TerminalList' })
-            ?? navigation.navigate('Terminals', { screen: 'TerminalList' })
+          navigation.navigate('WorkspaceDetail', { workspaceId: item.id })
         }}
       >
         <View style={styles.cardHeader}>

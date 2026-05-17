@@ -119,7 +119,7 @@ export function ScanQRScreen({ navigation }: Props) {
             setActiveHost(id)
             setConnecting({ host: payload.host, port: payload.port })
             dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
-            const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context)
+            const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context, payload.useTLS)
             dlog('QR', `connect result: ${ok}`)
             if (ok) {
               setConnecting(null)

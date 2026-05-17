@@ -2,7 +2,7 @@
  * ClaudeScreen - Claude agent chat interface
  */
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react'
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ import { appColors, spacing, fontSize } from '@/theme/colors'
 import { MessageBubble } from '@/components/claude/MessageBubble'
 import { ToolCallCard } from '@/components/claude/ToolCallCard'
 import { StreamingText } from '@/components/claude/StreamingText'
+import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { dlog } from '@/utils/debug-log'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import { isToolCall } from '@/types'
@@ -70,12 +71,17 @@ interface SessionSummary {
   summary?: string
 }
 
-export function ClaudeScreen({ route }: Props) {
+export function ClaudeScreen({ route, navigation }: Props) {
   const sessionId = route.params?.sessionId as string
   const channels = useConnectionStore(s => s.channels)
   const session = useClaudeStore(s => s.sessions[sessionId] || EMPTY_SESSION)
   const promptSuggestions = useClaudeStore(s => s.promptSuggestions)
   const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === sessionId))
+  const workspace = useWorkspaceStore(s => {
+    const term = s.terminals.find(t => t.id === sessionId)
+    return term ? s.workspaces.find(w => w.id === term.workspaceId) : undefined
+  })
+  const loadStatus = useWorkspaceStore(s => s.loadStatus)
 
   const [inputText, setInputText] = useState('')
   const [loading, setLoading] = useState(true)
@@ -98,6 +104,28 @@ export function ClaudeScreen({ route }: Props) {
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent'
   const isOpenAIAgent = agentPreset === 'openai-agent'
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {workspace?.alias || workspace?.name || 'Workspace'}
+          </Text>
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {terminal?.alias || terminal?.title || 'Claude'}
+          </Text>
+        </View>
+      ),
+    })
+  }, [navigation, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name])
+
+  useEffect(() => {
+    if ((loadStatus === 'ok' || loadStatus === 'empty') && !terminal) {
+      useClaudeStore.getState().setActiveSession(null)
+      navigation.goBack()
+    }
+  }, [loadStatus, navigation, terminal])
 
   // Init session in store and load history
   useEffect(() => {
@@ -131,11 +159,33 @@ export function ClaudeScreen({ route }: Props) {
             )
           } else {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
+            let metaLoaded = false
             try {
               const meta = await channels.claude.getSessionMeta(sessionId)
-              if (meta) useClaudeStore.getState().handleStatus(sessionId, meta)
+              if (meta) {
+                metaLoaded = true
+                useClaudeStore.getState().handleStatus(sessionId, meta)
+              }
             } catch (e) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
+            }
+            if (!metaLoaded) {
+              dlog('CLAUDE_SCREEN', 'no existing backend session, starting fresh')
+              const sandbox = terminal.agentParams?.sandboxMode
+              const approval = terminal.agentParams?.approvalPolicy
+              await channels.claude.startSession(sessionId, {
+                cwd: terminal.cwd,
+                permissionMode,
+                model: terminal.model,
+                effort: effortLevel,
+                agentPreset: terminal.agentPreset,
+                codexSandboxMode: sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
+                  ? sandbox
+                  : undefined,
+                codexApprovalPolicy: approval === 'untrusted' || approval === 'on-request' || approval === 'never'
+                  ? approval
+                  : undefined,
+              })
             }
           }
         } catch (e) {
@@ -228,14 +278,14 @@ export function ClaudeScreen({ route }: Props) {
     setAttachedImages([])
 
     const contentParts: string[] = []
-    if (images.length > 0) contentParts.push(`[${images.length} image(s)]`)
     if (text) contentParts.push(text)
+    if (images.length > 0) contentParts.push(`[${images.length} image${images.length > 1 ? 's' : ''} attached]`)
 
     useClaudeStore.getState().handleMessage(sessionId, {
       id: `user-local-${Date.now()}`,
       sessionId,
       role: 'user',
-      content: contentParts.join(' '),
+      content: contentParts.join('\n'),
       timestamp: Date.now(),
     })
 
@@ -414,6 +464,10 @@ export function ClaudeScreen({ route }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
+      <SessionContextBar
+        workspaceId={terminal?.workspaceId}
+        detail={terminal?.cwd}
+      />
       {/* Message list */}
       <View style={styles.listContainer}>
         {loading ? (
@@ -685,6 +739,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: appColors.background,
+  },
+  headerTitleWrap: {
+    minWidth: 0,
+  },
+  headerTitle: {
+    color: appColors.text,
+    fontSize: fontSize.md,
+    fontWeight: '700',
+  },
+  headerSubtitle: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontFamily: 'monospace',
   },
   // ---- Status bar (top) ----
   statusBar: {

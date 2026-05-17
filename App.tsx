@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef } from 'react'
-import { StatusBar, View, StyleSheet } from 'react-native'
+import { Linking, StatusBar, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 
@@ -13,11 +13,13 @@ import { AskUserDialog } from '@/components/claude/AskUserDialog'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
+import { openConnectionLink } from '@/utils/connection-link'
 
 function App() {
   const status = useConnectionStore(s => s.status)
   const channels = useConnectionStore(s => s.channels)
   const unsubRef = useRef<(() => void) | null>(null)
+  const lastLinkRef = useRef<string | null>(null)
 
   // When connection is established: load workspace state + subscribe to Claude events
   useEffect(() => {
@@ -25,8 +27,15 @@ function App() {
       // Load workspace data
       useWorkspaceStore.getState().load()
 
-      // Subscribe to Claude events
-      unsubRef.current = subscribeClaudeEvents(channels.claude)
+      // Subscribe to remote events
+      const unsubscribeClaude = subscribeClaudeEvents(channels.claude)
+      const unsubscribeWorkspaceReload = channels.workspace.onReload((snapshot) => {
+        useWorkspaceStore.getState().applySnapshot(snapshot)
+      })
+      unsubRef.current = () => {
+        unsubscribeClaude()
+        unsubscribeWorkspaceReload()
+      }
     }
 
     return () => {
@@ -36,6 +45,18 @@ function App() {
       }
     }
   }, [status, channels])
+
+  useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      if (!url || lastLinkRef.current === url) return
+      lastLinkRef.current = url
+      openConnectionLink(url)
+    }
+
+    Linking.getInitialURL().then(handleUrl).catch(() => {})
+    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url))
+    return () => subscription.remove()
+  }, [])
 
   return (
     <GestureHandlerRootView style={styles.root}>
