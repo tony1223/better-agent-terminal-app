@@ -1,4 +1,4 @@
-package com.batmobile
+package com.tonyq.betteragentterminal
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

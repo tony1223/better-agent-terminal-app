@@ -1,4 +1,4 @@
-package com.batmobile
+package com.tonyq.betteragentterminal
 
 import android.app.Application
 import com.facebook.react.PackageList

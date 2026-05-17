@@ -89,9 +89,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.batmobile"
+    namespace "com.tonyq.betteragentterminal"
     defaultConfig {
-        applicationId "com.batmobile"
+        applicationId "com.tonyq.betteragentterminal"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
