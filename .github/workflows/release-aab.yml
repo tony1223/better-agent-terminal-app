@@ -21,10 +21,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: yarn
 
       - name: Enable corepack
         run: corepack enable
