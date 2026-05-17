@@ -37,6 +37,10 @@ local.properties
 keystore.properties
 .keystore-credentials
 
+# Playwright MCP artifacts (local debug only)
+.playwright-mcp/
+play-console-*.png
+
 # node.js
 #
 node_modules/
