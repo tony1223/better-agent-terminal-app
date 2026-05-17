@@ -15,6 +15,36 @@ import type {
   AskUserRequest,
 } from '@/types'
 
+type ClaudeHistoryItem = ClaudeMessage | ClaudeToolCall
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function normalizeHistoryEvent(args: unknown[]): { sessionId: string; items: ClaudeHistoryItem[] } | null {
+  const [first, second] = args
+  if (typeof first === 'string') {
+    const secondRecord = asRecord(second)
+    const items = Array.isArray(second)
+      ? second
+      : Array.isArray(secondRecord?.items) ? secondRecord.items
+        : Array.isArray(secondRecord?.payload) ? secondRecord.payload : []
+    return { sessionId: first, items: items as ClaudeHistoryItem[] }
+  }
+
+  const payload = asRecord(first)
+  if (typeof payload?.sessionId === 'string') {
+    const items = Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.payload) ? payload.payload : []
+    return { sessionId: payload.sessionId, items: items as ClaudeHistoryItem[] }
+  }
+
+  return null
+}
+
 export function createClaudeChannel(ws: WebSocketClient) {
   return {
     // ---- Session Lifecycle ----
@@ -216,7 +246,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.on('claude:modeChange', cb as (...args: unknown[]) => void),
 
     onHistory: (cb: (sessionId: string, items: (ClaudeMessage | ClaudeToolCall)[]) => void) =>
-      ws.on('claude:history', cb as (...args: unknown[]) => void),
+      ws.on('claude:history', (...args: unknown[]) => {
+        const event = normalizeHistoryEvent(args)
+        if (event) cb(event.sessionId, event.items)
+      }),
 
     onPromptSuggestion: (cb: (sessionId: string, suggestion: string) => void) =>
       ws.on('claude:prompt-suggestion', cb as (...args: unknown[]) => void),

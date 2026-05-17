@@ -101,9 +101,17 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const isAtBottomRef = useRef(true)
   const listRef = useRef<any>(null)
   const sendInFlightRef = useRef(false)
+  const loadSeqRef = useRef(0)
+  const loadedSessionKeyRef = useRef<string | null>(null)
+  const inFlightSessionKeyRef = useRef<string | null>(null)
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent'
   const isOpenAIAgent = agentPreset === 'openai-agent'
+  const terminalCwd = terminal?.cwd
+  const terminalSdkSessionId = terminal?.sdkSessionId
+  const terminalModel = terminal?.model
+  const terminalSandboxMode = terminal?.agentParams?.sandboxMode
+  const terminalApprovalPolicy = terminal?.agentParams?.approvalPolicy
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -130,33 +138,70 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // Init session in store and load history
   useEffect(() => {
     dlog('CLAUDE_SCREEN', `mount sessionId=${sessionId}`)
-    dlog('CLAUDE_SCREEN', `terminal found: ${!!terminal}, sdkSessionId=${terminal?.sdkSessionId}, agentPreset=${terminal?.agentPreset}`)
+    dlog('CLAUDE_SCREEN', `terminal found: ${!!terminalCwd}, sdkSessionId=${terminalSdkSessionId}, agentPreset=${agentPreset}`)
 
     useClaudeStore.getState().initSession(sessionId)
     useClaudeStore.getState().setActiveSession(sessionId)
 
-    if (channels && terminal) {
+    const seq = ++loadSeqRef.current
+    let cancelled = false
+    const finishLoading = () => {
+      if (!cancelled && seq === loadSeqRef.current) {
+        setLoading(false)
+      }
+    }
+
+    if (channels && terminalCwd) {
+      setLoading(true)
+      const sandbox = terminalSandboxMode
+      const approval = terminalApprovalPolicy
+      const codexSandboxMode = sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
+        ? sandbox
+        : undefined
+      const codexApprovalPolicy = approval === 'untrusted' || approval === 'on-request' || approval === 'never'
+        ? approval
+        : undefined
+      const buildLoadKey = (sdkSessionIdToResume: string | null) => JSON.stringify({
+        sessionId,
+        cwd: terminalCwd,
+        sdkSessionId: sdkSessionIdToResume,
+        model: terminalModel ?? null,
+        agentPreset: agentPreset ?? null,
+        codexSandboxMode: codexSandboxMode ?? null,
+        codexApprovalPolicy: codexApprovalPolicy ?? null,
+      })
+      const resumeWithSdkSessionId = async (sdkSessionIdToResume: string) => {
+        const loadKey = buildLoadKey(sdkSessionIdToResume)
+        if (loadedSessionKeyRef.current === loadKey || inFlightSessionKeyRef.current === loadKey) {
+          dlog('CLAUDE_SCREEN', `skip duplicate history load sdkSessionId=${sdkSessionIdToResume}`)
+          return
+        }
+        dlog('CLAUDE_SCREEN', `resuming session sdkSessionId=${sdkSessionIdToResume}`)
+        inFlightSessionKeyRef.current = loadKey
+        try {
+          await channels.claude.resumeSession(
+            sessionId,
+            sdkSessionIdToResume,
+            terminalCwd,
+            terminalModel,
+            {
+              agentPreset,
+              codexSandboxMode,
+              codexApprovalPolicy,
+            },
+          )
+          loadedSessionKeyRef.current = loadKey
+        } finally {
+          if (inFlightSessionKeyRef.current === loadKey) {
+            inFlightSessionKeyRef.current = null
+          }
+        }
+      }
+
       const loadHistory = async () => {
         try {
-          if (terminal.sdkSessionId) {
-            dlog('CLAUDE_SCREEN', `resuming session sdkSessionId=${terminal.sdkSessionId}`)
-            const sandbox = terminal.agentParams?.sandboxMode
-            const approval = terminal.agentParams?.approvalPolicy
-            await channels.claude.resumeSession(
-              sessionId,
-              terminal.sdkSessionId,
-              terminal.cwd,
-              terminal.model,
-              {
-                agentPreset: terminal.agentPreset,
-                codexSandboxMode: sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
-                  ? sandbox
-                  : undefined,
-                codexApprovalPolicy: approval === 'untrusted' || approval === 'on-request' || approval === 'never'
-                  ? approval
-                  : undefined,
-              },
-            )
+          if (terminalSdkSessionId) {
+            await resumeWithSdkSessionId(terminalSdkSessionId)
           } else {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
             let metaLoaded = false
@@ -165,39 +210,63 @@ export function ClaudeScreen({ route, navigation }: Props) {
               if (meta) {
                 metaLoaded = true
                 useClaudeStore.getState().handleStatus(sessionId, meta)
+                if (meta.sdkSessionId) {
+                  await resumeWithSdkSessionId(meta.sdkSessionId)
+                  return
+                }
               }
             } catch (e) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
             }
             if (!metaLoaded) {
               dlog('CLAUDE_SCREEN', 'no existing backend session, starting fresh')
-              const sandbox = terminal.agentParams?.sandboxMode
-              const approval = terminal.agentParams?.approvalPolicy
-              await channels.claude.startSession(sessionId, {
-                cwd: terminal.cwd,
-                permissionMode,
-                model: terminal.model,
-                effort: effortLevel,
-                agentPreset: terminal.agentPreset,
-                codexSandboxMode: sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
-                  ? sandbox
-                  : undefined,
-                codexApprovalPolicy: approval === 'untrusted' || approval === 'on-request' || approval === 'never'
-                  ? approval
-                  : undefined,
-              })
+              const loadKey = buildLoadKey(null)
+              if (loadedSessionKeyRef.current !== loadKey && inFlightSessionKeyRef.current !== loadKey) {
+                inFlightSessionKeyRef.current = loadKey
+                try {
+                  await channels.claude.startSession(sessionId, {
+                    cwd: terminalCwd,
+                    permissionMode,
+                    model: terminalModel,
+                    effort: effortLevel,
+                    agentPreset,
+                    codexSandboxMode,
+                    codexApprovalPolicy,
+                  })
+                  loadedSessionKeyRef.current = loadKey
+                } finally {
+                  if (inFlightSessionKeyRef.current === loadKey) {
+                    inFlightSessionKeyRef.current = null
+                  }
+                }
+              }
             }
           }
         } catch (e) {
           dlog('CLAUDE_SCREEN', `loadHistory error: ${e}`)
+        } finally {
+          finishLoading()
         }
-        setLoading(false)
       }
       loadHistory()
     } else {
-      setLoading(false)
+      finishLoading()
     }
-  }, [channels, sessionId, terminal])
+    return () => {
+      cancelled = true
+    }
+  }, [
+    channels,
+    sessionId,
+    terminalCwd,
+    terminalSdkSessionId,
+    terminalModel,
+    terminalSandboxMode,
+    terminalApprovalPolicy,
+    agentPreset,
+    permissionMode,
+    effortLevel,
+  ])
 
   // Fetch usage on mount and poll every 60s
   useEffect(() => {
