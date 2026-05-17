@@ -40,14 +40,16 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload.keystore
           ls -la android/app/upload.keystore
 
-      - name: Override versionCode / versionName
-        if: ${{ inputs.versionCode != '' || inputs.versionName != '' }}
+      - name: Set versionCode / versionName
+        env:
+          INPUT_VERSION_CODE: ${{ inputs.versionCode }}
+          INPUT_VERSION_NAME: ${{ inputs.versionName }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          if [ -n "${{ inputs.versionCode }}" ]; then
-            sed -i "s/versionCode [0-9]\+/versionCode ${{ inputs.versionCode }}/" android/app/build.gradle
-          fi
-          if [ -n "${{ inputs.versionName }}" ]; then
-            sed -i "s/versionName \"[^\"]*\"/versionName \"${{ inputs.versionName }}\"/" android/app/build.gradle
+          VC="${INPUT_VERSION_CODE:-$RUN_NUMBER}"
+          sed -i "s/versionCode [0-9]\+/versionCode $VC/" android/app/build.gradle
+          if [ -n "$INPUT_VERSION_NAME" ]; then
+            sed -i "s/versionName \"[^\"]*\"/versionName \"$INPUT_VERSION_NAME\"/" android/app/build.gradle
           fi
           grep -E "versionCode|versionName" android/app/build.gradle
 
