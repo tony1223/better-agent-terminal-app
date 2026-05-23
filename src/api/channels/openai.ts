@@ -7,7 +7,7 @@ import type { WebSocketClient } from '../websocket-client'
 export function createOpenAIChannel(ws: WebSocketClient) {
   return {
     listSessions: (cwd: string) =>
-      ws.invoke('openai:list-sessions', cwd),
+      ws.invoke<unknown[]>('openai:list-sessions', cwd),
     getApiKeyStatus: () =>
       ws.invoke<{ hasKey: boolean }>('openai:get-api-key-status'),
     setApiKey: (key: string) =>

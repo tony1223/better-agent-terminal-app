@@ -172,13 +172,16 @@ async function loadFromActiveProfileSnapshot(
 ): Promise<boolean> {
   try {
     const list = await channels.profile.list()
+    const profiles = normalizeProfiles(list.profiles)
+    const profilesById = new Map(profiles.map((profile: ProfileEntry) => [profile.id, profile]))
     const activeIds = Array.isArray(list.activeProfileIds)
-      ? list.activeProfileIds
-      : list.activeProfileId ? [list.activeProfileId] : []
-    const fallbackIds = (list.profiles || [])
+      ? list.activeProfileIds.map(id => String(id)).filter(Boolean)
+      : list.activeProfileId ? [String(list.activeProfileId)] : []
+    const activeLocalIds = activeIds.filter(id => profilesById.get(id)?.type !== 'remote')
+    const fallbackIds = profiles
       .filter((profile: ProfileEntry) => profile.type !== 'remote')
       .map(profile => profile.id)
-    const ids = [...new Set([...activeIds, ...fallbackIds])]
+    const ids = [...new Set([...activeLocalIds, ...fallbackIds])]
 
     for (const id of ids) {
       const snapshot = await channels.profile.loadSnapshot(id)
@@ -201,15 +204,30 @@ async function loadProfileSummary(
   try {
     const list = await channels.profile.list()
     const activeProfileIds = Array.isArray(list.activeProfileIds)
-      ? list.activeProfileIds
-      : list.activeProfileId ? [list.activeProfileId] : []
-    const profiles = Array.isArray(list.profiles)
-      ? list.profiles
-      : []
+      ? list.activeProfileIds.map(id => String(id)).filter(Boolean)
+      : list.activeProfileId ? [String(list.activeProfileId)] : []
+    const profiles = normalizeProfiles(list.profiles)
     apply({ profiles, activeProfileIds })
   } catch {
     apply({ profiles: [], activeProfileIds: [] })
   }
+}
+
+function normalizeProfiles(value: unknown): ProfileEntry[] {
+  return Array.isArray(value)
+    ? value
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .map(item => {
+        const id = String(item.id ?? '')
+        const type: ProfileEntry['type'] = item.type === 'remote' ? 'remote' : 'local'
+        return {
+          id,
+          name: String(item.name ?? id),
+          type,
+        }
+      })
+      .filter(profile => profile.id)
+    : []
 }
 
 function stateFromProfileSnapshot(snapshot: unknown): AppState | null {

@@ -15,6 +15,12 @@ import { useClaudeStore } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
+function textValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return fallback
+}
+
 export function AskUserDialog() {
   const pending = useClaudeStore(s => s.pendingAskUser)
   const clearAskUser = useClaudeStore(s => s.clearAskUser)
@@ -25,6 +31,8 @@ export function AskUserDialog() {
 
   if (!pending) return null
 
+  const questions = Array.isArray(pending.questions) ? pending.questions : []
+
   const handleSelect = (question: string, value: string) => {
     setAnswers(prev => ({ ...prev, [question]: value }))
   }
@@ -34,8 +42,8 @@ export function AskUserDialog() {
 
     // Use custom text as the answer for first question if provided
     const finalAnswers = { ...answers }
-    if (customText.trim() && pending.questions.length > 0) {
-      const firstQ = pending.questions[0].question
+    if (customText.trim() && questions.length > 0) {
+      const firstQ = textValue(questions[0].question, 'question')
       if (!finalAnswers[firstQ]) {
         finalAnswers[firstQ] = customText.trim()
       }
@@ -53,28 +61,38 @@ export function AskUserDialog() {
         <Text style={styles.title}>Claude is asking</Text>
 
         <ScrollView style={styles.scroll}>
-          {pending.questions.map((q, qi) => (
-            <View key={qi} style={styles.questionBlock}>
-              <Text style={styles.header}>{q.header}</Text>
-              <Text style={styles.question}>{q.question}</Text>
+          {questions.map((q, qi) => {
+            const question = textValue(q.question, `question-${qi}`)
+            const header = textValue(q.header, 'Question')
+            const options = Array.isArray(q.options) ? q.options : []
 
-              {q.options.map((opt, oi) => {
-                const selected = answers[q.question] === opt.label
-                return (
-                  <TouchableOpacity
-                    key={oi}
-                    style={[styles.option, selected && styles.optionSelected]}
-                    onPress={() => handleSelect(q.question, opt.label)}
-                  >
-                    <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>
-                      {opt.label}
-                    </Text>
-                    <Text style={styles.optionDesc}>{opt.description}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          ))}
+            return (
+              <View key={qi} style={styles.questionBlock}>
+                <Text style={styles.header}>{header}</Text>
+                <Text style={styles.question}>{question}</Text>
+
+                {options.map((opt, oi) => {
+                  const label = textValue(opt.label, `Option ${oi + 1}`)
+                  const description = textValue(opt.description)
+                  const selected = answers[question] === label
+                  return (
+                    <TouchableOpacity
+                      key={oi}
+                      style={[styles.option, selected && styles.optionSelected]}
+                      onPress={() => handleSelect(question, label)}
+                    >
+                      <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>
+                        {label}
+                      </Text>
+                      {!!description && (
+                        <Text style={styles.optionDesc}>{description}</Text>
+                      )}
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )
+          })}
 
           <TextInput
             style={styles.customInput}
