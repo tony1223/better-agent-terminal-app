@@ -43,7 +43,7 @@ interface GitHubItem {
   updatedAt?: string
 }
 
-const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'openai-agent'])
+const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const TABS: Array<{ id: DetailTab; label: string }> = [
   { id: 'sessions', label: 'Sessions' },

@@ -3,13 +3,23 @@ package com.tonyq.betteragentterminal
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import okhttp3.*
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import javax.net.ssl.*
 
 class TLSWebSocketModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
+
+    companion object {
+        private val BAT_GZIP_MAGIC = "BATGZIP1\u0000".toByteArray(Charsets.US_ASCII)
+    }
 
     override fun getName() = "TLSWebSocket"
 
@@ -80,6 +90,21 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
                 })
             }
 
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                try {
+                    val text = decodeBatGzipFrame(bytes.toByteArray())
+                    emit("TLSWebSocket_onMessage", Arguments.createMap().apply {
+                        putString("connectionId", currentConnectionId)
+                        putString("data", text)
+                    })
+                } catch (error: Exception) {
+                    emit("TLSWebSocket_onError", Arguments.createMap().apply {
+                        putString("connectionId", currentConnectionId)
+                        putString("message", error.message ?: "Invalid binary WebSocket frame")
+                    })
+                }
+            }
+
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(code, reason)
             }
@@ -107,6 +132,17 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun sendGzip(message: String) {
+        try {
+            webSocket?.send(encodeBatGzipFrame(message))
+        } catch (error: Exception) {
+            emit("TLSWebSocket_onError", Arguments.createMap().apply {
+                putString("message", error.message ?: "Gzip WebSocket send failed")
+            })
+        }
+    }
+
+    @ReactMethod
     fun close(code: Int, reason: String?) {
         try {
             webSocket?.close(code, reason)
@@ -121,4 +157,25 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun removeListeners(count: Int) {}
+
+    private fun encodeBatGzipFrame(message: String): ByteString {
+        val compressed = ByteArrayOutputStream()
+        GZIPOutputStream(compressed).use { gzip ->
+            gzip.write(message.toByteArray(Charsets.UTF_8))
+        }
+        val payload = BAT_GZIP_MAGIC + compressed.toByteArray()
+        return payload.toByteString()
+    }
+
+    private fun decodeBatGzipFrame(payload: ByteArray): String {
+        if (payload.size < BAT_GZIP_MAGIC.size || !payload.copyOfRange(0, BAT_GZIP_MAGIC.size).contentEquals(BAT_GZIP_MAGIC)) {
+            throw IllegalArgumentException("BAT gzip frame has unsupported envelope")
+        }
+        val compressed = payload.copyOfRange(BAT_GZIP_MAGIC.size, payload.size)
+        val output = ByteArrayOutputStream()
+        GZIPInputStream(ByteArrayInputStream(compressed)).use { gzip ->
+            gzip.copyTo(output)
+        }
+        return output.toString(Charsets.UTF_8.name())
+    }
 }

@@ -24,6 +24,7 @@ export interface RemoteFrame {
   params?: unknown
   protocols?: string[]
   protocol?: string
+  compression?: string | string[]
   result?: unknown
   error?: string
   token?: string
@@ -31,6 +32,8 @@ export interface RemoteFrame {
 
 export const REMOTE_PROTOCOL_V2 = 'bat-remote/v2'
 export const REMOTE_PROTOCOL_LEGACY_V1 = 'bat-remote/legacy-v1'
+export const REMOTE_COMPRESSION_GZIP = 'gzip'
+export const REMOTE_COMPRESSION_NONE = 'none'
 
 // Channels proxied to remote host (client can invoke)
 export const PROXIED_CHANNELS = new Set([

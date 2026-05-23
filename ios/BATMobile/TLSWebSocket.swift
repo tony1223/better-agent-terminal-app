@@ -1,13 +1,16 @@
 import Foundation
 import CryptoKit
 import React
+import zlib
 
 @objc(TLSWebSocket)
 class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDelegate {
 
+  private let batGzipMagic = Data("BATGZIP1\0".utf8)
   private var webSocketTask: URLSessionWebSocketTask?
   private var session: URLSession?
   private var pinnedFingerprint: String?
+  private var connectionId: String?
   private var hasListeners = false
 
   override init() {
@@ -30,16 +33,17 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
 
   // MARK: - Public API
 
-  @objc(connect:fingerprint:)
-  func connect(_ url: String, fingerprint: String?) {
+  @objc(connect:fingerprint:connectionId:)
+  func connect(_ url: String, fingerprint: String?, connectionId: String?) {
     close(1000, reason: "reconnect")
 
     guard let wsURL = URL(string: url) else {
-      emit("TLSWebSocket_onError", ["message": "Invalid URL: \(url)"])
+      emit("TLSWebSocket_onError", ["connectionId": connectionId ?? "", "message": "Invalid URL: \(url)"])
       return
     }
 
     pinnedFingerprint = fingerprint?.uppercased().replacingOccurrences(of: ":", with: "")
+    self.connectionId = connectionId
 
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 15
@@ -54,8 +58,33 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
   func send(_ message: String) {
     webSocketTask?.send(.string(message)) { [weak self] error in
       if let error = error {
-        self?.emit("TLSWebSocket_onError", ["message": "Send failed: \(error.localizedDescription)"])
+        self?.emit("TLSWebSocket_onError", [
+          "connectionId": self?.connectionId ?? "",
+          "message": "Send failed: \(error.localizedDescription)"
+        ])
       }
+    }
+  }
+
+  @objc(sendGzip:)
+  func sendGzip(_ message: String) {
+    do {
+      let compressed = try gzipEncode(Data(message.utf8))
+      var payload = batGzipMagic
+      payload.append(compressed)
+      webSocketTask?.send(.data(payload)) { [weak self] error in
+        if let error = error {
+          self?.emit("TLSWebSocket_onError", [
+            "connectionId": self?.connectionId ?? "",
+            "message": "Gzip send failed: \(error.localizedDescription)"
+          ])
+        }
+      }
+    } catch {
+      emit("TLSWebSocket_onError", [
+        "connectionId": connectionId ?? "",
+        "message": "Gzip encode failed: \(error.localizedDescription)"
+      ])
     }
   }
 
@@ -68,6 +97,7 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
     webSocketTask = nil
     session?.invalidateAndCancel()
     session = nil
+    connectionId = nil
   }
 
   // MARK: - Message Loop
@@ -79,10 +109,16 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
       case .success(let message):
         switch message {
         case .string(let text):
-          self.emit("TLSWebSocket_onMessage", ["data": text])
+          self.emit("TLSWebSocket_onMessage", ["connectionId": self.connectionId ?? "", "data": text])
         case .data(let data):
-          if let text = String(data: data, encoding: .utf8) {
-            self.emit("TLSWebSocket_onMessage", ["data": text])
+          do {
+            let text = try self.decodeBatGzipFrame(data)
+            self.emit("TLSWebSocket_onMessage", ["connectionId": self.connectionId ?? "", "data": text])
+          } catch {
+            self.emit("TLSWebSocket_onError", [
+              "connectionId": self.connectionId ?? "",
+              "message": error.localizedDescription
+            ])
           }
         @unknown default:
           break
@@ -91,9 +127,104 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
       case .failure(let error):
         let nsError = error as NSError
         if nsError.code != 57 && nsError.code != 89 {
-          self.emit("TLSWebSocket_onError", ["message": error.localizedDescription])
+          self.emit("TLSWebSocket_onError", [
+            "connectionId": self.connectionId ?? "",
+            "message": error.localizedDescription
+          ])
         }
       }
+    }
+  }
+
+  private func decodeBatGzipFrame(_ payload: Data) throws -> String {
+    guard payload.starts(with: batGzipMagic) else {
+      throw NSError(domain: "BATMobile", code: 1, userInfo: [
+        NSLocalizedDescriptionKey: "BAT gzip frame has unsupported envelope"
+      ])
+    }
+    let compressed = payload.dropFirst(batGzipMagic.count)
+    let decompressed = try gzipDecode(Data(compressed))
+    guard let text = String(data: decompressed, encoding: .utf8) else {
+      throw NSError(domain: "BATMobile", code: 2, userInfo: [
+        NSLocalizedDescriptionKey: "BAT gzip frame is not valid UTF-8"
+      ])
+    }
+    return text
+  }
+
+  private func gzipEncode(_ data: Data) throws -> Data {
+    try withZlibStream(data, operation: "deflate") { stream in
+      deflateInit2_(
+        &stream,
+        Z_DEFAULT_COMPRESSION,
+        Z_DEFLATED,
+        MAX_WBITS + 16,
+        8,
+        Z_DEFAULT_STRATEGY,
+        ZLIB_VERSION,
+        Int32(MemoryLayout<z_stream>.size)
+      )
+    } process: { stream, flush in
+      deflate(&stream, flush)
+    } end: { stream in
+      deflateEnd(&stream)
+    }
+  }
+
+  private func gzipDecode(_ data: Data) throws -> Data {
+    try withZlibStream(data, operation: "inflate") { stream in
+      inflateInit2_(&stream, MAX_WBITS + 16, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+    } process: { stream, flush in
+      inflate(&stream, flush)
+    } end: { stream in
+      inflateEnd(&stream)
+    }
+  }
+
+  private func withZlibStream(
+    _ data: Data,
+    operation: String,
+    start: (inout z_stream) -> Int32,
+    process: (inout z_stream, Int32) -> Int32,
+    end: (inout z_stream) -> Int32
+  ) throws -> Data {
+    var stream = z_stream()
+    guard start(&stream) == Z_OK else {
+      throw NSError(domain: "BATMobile", code: 3, userInfo: [
+        NSLocalizedDescriptionKey: "\(operation) init failed"
+      ])
+    }
+    defer { _ = end(&stream) }
+
+    return try data.withUnsafeBytes { inputBuffer in
+      guard let input = inputBuffer.bindMemory(to: Bytef.self).baseAddress else {
+        return Data()
+      }
+      stream.next_in = UnsafeMutablePointer<Bytef>(mutating: input)
+      stream.avail_in = uInt(data.count)
+
+      var output = Data()
+      var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+      var status: Int32 = Z_OK
+
+      repeat {
+        status = buffer.withUnsafeMutableBytes { outputBuffer in
+          stream.next_out = outputBuffer.bindMemory(to: Bytef.self).baseAddress
+          stream.avail_out = uInt(buffer.count)
+          return process(&stream, Z_FINISH)
+        }
+        let produced = buffer.count - Int(stream.avail_out)
+        if produced > 0 {
+          output.append(buffer, count: produced)
+        }
+      } while status == Z_OK
+
+      guard status == Z_STREAM_END else {
+        throw NSError(domain: "BATMobile", code: 4, userInfo: [
+          NSLocalizedDescriptionKey: "\(operation) failed with status \(status)"
+        ])
+      }
+      return output
     }
   }
 
@@ -126,7 +257,10 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
     }
 
     guard let leafCert = cert else {
-      emit("TLSWebSocket_onError", ["message": "TLS error: no server certificate"])
+      emit("TLSWebSocket_onError", [
+        "connectionId": connectionId ?? "",
+        "message": "TLS error: no server certificate"
+      ])
       completionHandler(.cancelAuthenticationChallenge, nil)
       return
     }
@@ -147,6 +281,7 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
         }.joined(separator: ":")
       }
       emit("TLSWebSocket_onError", [
+        "connectionId": connectionId ?? "",
         "message": "TLS fingerprint mismatch. Expected: \(colonize(pinned)), Got: \(colonize(fingerprint))"
       ])
       completionHandler(.cancelAuthenticationChallenge, nil)
@@ -158,7 +293,7 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
   func urlSession(_ session: URLSession,
                   webSocketTask: URLSessionWebSocketTask,
                   didOpenWithProtocol protocol: String?) {
-    emit("TLSWebSocket_onOpen", [:])
+    emit("TLSWebSocket_onOpen", ["connectionId": connectionId ?? ""])
   }
 
   func urlSession(_ session: URLSession,
@@ -166,7 +301,11 @@ class TLSWebSocket: RCTEventEmitter, URLSessionDelegate, URLSessionWebSocketDele
                   didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
                   reason: Data?) {
     let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    emit("TLSWebSocket_onClose", ["code": closeCode.rawValue, "reason": reasonStr])
+    emit("TLSWebSocket_onClose", [
+      "connectionId": connectionId ?? "",
+      "code": closeCode.rawValue,
+      "reason": reasonStr
+    ])
   }
 
   // MARK: - SHA-256

@@ -8,6 +8,7 @@ import type {
   ClaudeMessage,
   ClaudeToolCall,
   SessionMeta,
+  SessionStateSnapshot,
   PermissionRequest,
   AskUserRequest,
   ClaudeStreamData,
@@ -190,6 +191,7 @@ interface ClaudeState {
   handleTurnEnd: (sessionId: string) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
+  handleSessionState: (sessionId: string, snapshot: SessionStateSnapshot | null | undefined) => void
   handlePermissionRequest: (sessionId: string, data: PermissionRequest) => void
   handleAskUser: (sessionId: string, data: AskUserRequest) => void
   handleHistory: (sessionId: string, items: (ClaudeMessage | ClaudeToolCall)[]) => void
@@ -457,6 +459,32 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         useWorkspaceStore.setState({ terminals })
       }
     }
+  },
+
+  handleSessionState: (sessionId, snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return
+    const { sessions } = get()
+    const session = sessions[sessionId] || createEmptySession()
+    const rawMessages = Array.isArray(snapshot.messages) ? snapshot.messages : null
+    const nextMessages = rawMessages
+      ? rawMessages.map(item => normalizeHistoryItem(sessionId, item))
+      : session.messages
+    const shouldReplaceMessages = rawMessages !== null && (nextMessages.length > 0 || session.messages.length === 0)
+    dlog('CLAUDE_STORE', `handleSessionState sid=${sessionId} messages=${rawMessages?.length ?? 'n/a'} streaming=${snapshot.isStreaming === true}`)
+
+    set({
+      sessions: {
+        ...sessions,
+        [sessionId]: {
+          ...session,
+          messages: shouldReplaceMessages ? nextMessages : session.messages,
+          isStreaming: snapshot.isStreaming ?? session.isStreaming,
+          streamingText: snapshot.streamingText ?? session.streamingText,
+          streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
+          meta: snapshot.meta ?? session.meta,
+        },
+      },
+    })
   },
 
   handlePermissionRequest: (sessionId, data) => {

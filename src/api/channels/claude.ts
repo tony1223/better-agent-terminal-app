@@ -10,6 +10,7 @@ import type {
   ClaudeStreamData,
   ClaudeResult,
   SessionMeta,
+  SessionStateSnapshot,
   PermissionRequest,
   PermissionResult,
   AskUserRequest,
@@ -126,8 +127,12 @@ export function createClaudeChannel(ws: WebSocketClient) {
     isResting: (sessionId: string) =>
       ws.invoke<boolean>('claude:is-resting', sessionId),
 
-    listSessions: (cwd: string) =>
-      ws.invoke<unknown[]>('claude:list-sessions', cwd),
+    listSessions: (cwd: string, agentKind?: 'claude' | 'codex') =>
+      ws.invokeParams<unknown[]>(
+        'claude:list-sessions',
+        agentKind ? { cwd, agentKind } : { cwd },
+        agentKind ? [cwd, agentKind] : [cwd],
+      ),
 
     // ---- Settings ----
     setPermissionMode: (sessionId: string, mode: string) =>
@@ -173,6 +178,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
     getSessionMeta: (sessionId: string) =>
       ws.invokeParams<SessionMeta>('agent:get-session-meta', { sessionId }, [sessionId]),
 
+    getSessionState: (sessionId: string) =>
+      ws.invokeParams<SessionStateSnapshot | null>('agent:get-session-state', { sessionId }, [sessionId]),
+
     getSupportedCommands: (sessionId: string) =>
       ws.invokeParams<unknown[]>('agent:get-supported-commands', { sessionId }, [sessionId]),
 
@@ -203,8 +211,8 @@ export function createClaudeChannel(ws: WebSocketClient) {
     archiveMessages: (sessionId: string, messages: unknown[]) =>
       ws.invoke('claude:archive-messages', sessionId, messages),
 
-    loadArchived: (sessionId: string) =>
-      ws.invoke('claude:load-archived', sessionId),
+    loadArchived: (sessionId: string, offset = 0, limit = 300) =>
+      ws.invoke<{ messages: unknown[]; total: number; hasMore: boolean }>('claude:load-archived', sessionId, offset, limit),
 
     clearArchive: (sessionId: string) =>
       ws.invoke('claude:clear-archive', sessionId),

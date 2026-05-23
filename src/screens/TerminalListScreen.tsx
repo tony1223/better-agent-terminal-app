@@ -20,7 +20,7 @@ type Props = {
   navigation: NativeStackNavigationProp<any>
 }
 
-const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'openai-agent'])
+const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 
 export function TerminalListScreen({ navigation }: Props) {
   const { activeWorkspaceId, workspaces, terminals, setActiveTerminal } = useWorkspaceStore()

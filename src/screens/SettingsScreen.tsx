@@ -101,8 +101,8 @@ export function SettingsScreen() {
           </View>
           <Text style={styles.switchHint}>
             {debugEnabled
-              ? 'Logging enabled — all dlog() calls write to MMKV & logcat'
-              : 'Only errors are logged. Enable for full diagnostics.'}
+              ? 'Logging enabled. Remote invokes, fallback retries, session state counts, and history counts are written to MMKV and logcat.'
+              : 'Only errors are logged. Enable this before reproducing a remote/session issue.'}
           </Text>
 
           <TouchableOpacity

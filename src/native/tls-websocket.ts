@@ -28,6 +28,10 @@ export class TLSWebSocket {
     return this._readyState === 'OPEN'
   }
 
+  get supportsGzip(): boolean {
+    return !!NativeTLS?.sendGzip
+  }
+
   connect(url: string, fingerprint: string | null, callbacks: TLSWebSocketCallbacks): void {
     this.cleanup()
     this.callbacks = callbacks
@@ -74,6 +78,15 @@ export class TLSWebSocket {
     NativeTLS.send(data)
   }
 
+  sendGzip(data: string): void {
+    if (!NativeTLS?.sendGzip) {
+      this.send(data)
+      return
+    }
+    if (this._readyState !== 'OPEN') return
+    NativeTLS.sendGzip(data)
+  }
+
   close(code = 1000, reason?: string): void {
     if (!NativeTLS) return
     this._readyState = 'CLOSING'
@@ -107,6 +120,9 @@ export class TLSWebSocket {
     }
 
     this.send = (data: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data)
+    }
+    this.sendGzip = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data)
     }
     this.close = (code = 1000, reason?: string) => {

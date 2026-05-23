@@ -61,6 +61,12 @@ const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const
 const MAX_IMAGES = 5
 const INITIAL_LOAD_UI_TIMEOUT_MS = 6_000
 
+function selectedTint(color: string): string {
+  if (color === appColors.agentCodex) return 'rgba(16, 163, 127, 0.18)'
+  if (color === appColors.info) return 'rgba(59, 130, 246, 0.18)'
+  return 'rgba(217, 119, 6, 0.18)'
+}
+
 interface SessionSummary {
   sdkSessionId: string
   timestamp: number
@@ -188,8 +194,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const loadedSessionKeyRef = useRef<string | null>(null)
   const inFlightSessionKeyRef = useRef<string | null>(null)
   const agentPreset = terminal?.agentPreset
-  const isCodexAgent = agentPreset === 'codex-agent'
+  const isCodexAgent = agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree'
+  const isClaudeCodeAgent = agentPreset === 'claude-code' || agentPreset === 'claude-code-v2' || agentPreset === 'claude-code-worktree'
   const isOpenAIAgent = agentPreset === 'openai-agent'
+  const agentColor = isCodexAgent
+    ? appColors.agentCodex
+    : isOpenAIAgent ? appColors.info : appColors.agentClaudeCode
+  const agentSelectedBg = selectedTint(agentColor)
   const fallbackEffortOptions = useMemo(
     () => isCodexAgent ? [...CODEX_EFFORT_LEVELS] : [...CLAUDE_EFFORT_LEVELS],
     [isCodexAgent],
@@ -214,14 +225,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
+      headerLeft: () => (
         <TouchableOpacity
-          style={styles.headerButton}
+          style={styles.headerBackButton}
           onPress={() => navigation.navigate('TerminalList')}
         >
-          <Text style={styles.headerButtonText}>Sessions</Text>
+          <Text style={styles.headerBackText}>{'\u2190'}</Text>
         </TouchableOpacity>
       ),
+      headerRight: undefined,
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -305,6 +317,39 @@ export function ClaudeScreen({ route, navigation }: Props) {
         codexSandboxMode: codexSandboxMode ?? null,
         codexApprovalPolicy: codexApprovalPolicy ?? null,
       })
+      const loadSessionState = async () => {
+        try {
+          const state = await timedLoadStep(
+            `getSessionState sessionId=${sessionId}`,
+            () => channels.claude.getSessionState(sessionId),
+          )
+          if (!state) {
+            dlog('CLAUDE_SCREEN', `getSessionState returned null sessionId=${sessionId}`)
+            return false
+          }
+          const stateMessageCount = Array.isArray(state.messages) ? state.messages.length : 0
+          dlog('CLAUDE_SCREEN', `getSessionState messages=${stateMessageCount} streaming=${state.isStreaming === true}`)
+          useClaudeStore.getState().handleSessionState(sessionId, state)
+          if (state.meta) {
+            useClaudeStore.getState().handleStatus(sessionId, state.meta)
+          }
+          if (stateMessageCount === 0) {
+            const archived = await channels.claude.loadArchived(sessionId).catch(e => {
+              dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
+              return null
+            })
+            const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
+            dlog('CLAUDE_SCREEN', `loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
+            if (archivedMessages.length > 0) {
+              useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
+            }
+          }
+          return true
+        } catch (e) {
+          dlog('CLAUDE_SCREEN', `getSessionState error: ${e}`)
+          return false
+        }
+      }
       const resumeWithSdkSessionId = async (sdkSessionIdToResume: string) => {
         const loadKey = buildLoadKey(sdkSessionIdToResume)
         if (loadedSessionKeyRef.current === loadKey || inFlightSessionKeyRef.current === loadKey) {
@@ -323,11 +368,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
               terminalModel,
               {
                 agentPreset,
+                ...(isClaudeCodeAgent ? { permissionMode } : {}),
                 codexSandboxMode,
                 codexApprovalPolicy,
               },
             ),
           )
+          await loadSessionState()
           loadedSessionKeyRef.current = loadKey
         } finally {
           if (inFlightSessionKeyRef.current === loadKey) {
@@ -339,10 +386,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
       const loadHistory = async () => {
         try {
           if (terminalSdkSessionId) {
-            await resumeWithSdkSessionId(terminalSdkSessionId)
+            const stateLoaded = await loadSessionState()
+            if (stateLoaded) {
+              dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId}`)
+            } else {
+              await resumeWithSdkSessionId(terminalSdkSessionId)
+            }
           } else {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
             let metaLoaded = false
+            let stateLoaded = false
             try {
               const meta = await timedLoadStep(
                 `getSessionMeta sessionId=${sessionId}`,
@@ -359,7 +412,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
             } catch (e) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
             }
-            if (!metaLoaded) {
+            stateLoaded = await loadSessionState()
+            if (!metaLoaded && !stateLoaded) {
               dlog('CLAUDE_SCREEN', 'no existing backend session, starting fresh')
               const loadKey = buildLoadKey(null)
               if (loadedSessionKeyRef.current !== loadKey && inFlightSessionKeyRef.current !== loadKey) {
@@ -369,7 +423,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                     `startSession sessionId=${sessionId}`,
                     () => channels.claude.startSession(sessionId, {
                       cwd: terminalCwd,
-                      permissionMode,
+                      ...(isClaudeCodeAgent ? { permissionMode } : {}),
                       model: terminalModel,
                       effort: effortLevel,
                       agentPreset,
@@ -413,6 +467,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     terminalSandboxMode,
     terminalApprovalPolicy,
     agentPreset,
+    isClaudeCodeAgent,
     permissionMode,
     effortLevel,
   ])
@@ -534,7 +589,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       try {
         const sessions = isOpenAIAgent
           ? await channels.openai.listSessions(terminal.cwd)
-          : await channels.claude.listSessions(terminal.cwd)
+          : await channels.claude.listSessions(terminal.cwd, isCodexAgent ? 'codex' : undefined)
         setResumeSessions(normalizeSessionSummaries(sessions))
       } catch {
         setResumeSessions([])
@@ -568,7 +623,24 @@ export function ClaudeScreen({ route, navigation }: Props) {
       .finally(() => {
         sendInFlightRef.current = false
       })
-  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent])
+  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent, isCodexAgent])
+
+  const openResumeList = useCallback(async () => {
+    if (!channels || !terminal?.cwd) return
+    setResumeLoading(true)
+    setShowResumeList(true)
+    try {
+      const sessions = isOpenAIAgent
+        ? await channels.openai.listSessions(terminal.cwd)
+        : await channels.claude.listSessions(terminal.cwd, isCodexAgent ? 'codex' : undefined)
+      setResumeSessions(normalizeSessionSummaries(sessions))
+    } catch (e) {
+      dlog('CLAUDE_SCREEN', `listSessions error: ${e}`)
+      setResumeSessions([])
+    } finally {
+      setResumeLoading(false)
+    }
+  }, [channels, terminal?.cwd, isOpenAIAgent, isCodexAgent])
 
   const handleStop = useCallback(async () => {
     if (!channels) return
@@ -647,21 +719,48 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setResumeSessions([])
     // Clear UI immediately
     useClaudeStore.getState().handleSessionReset(sessionId)
+    setHistoryLoadingInBackground(true)
     // Resume the selected session
     await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
       agentPreset,
-      permissionMode,
+      ...(isClaudeCodeAgent ? { permissionMode } : {}),
       effort: effortLevel,
       codexSandboxMode,
       codexApprovalPolicy,
     })
+    try {
+      const state = await channels.claude.getSessionState(sessionId)
+      const stateMessageCount = Array.isArray(state?.messages) ? state.messages.length : 0
+      dlog('CLAUDE_SCREEN', `resumeSelect getSessionState messages=${stateMessageCount} sdkSessionId=${sdkSessionId}`)
+      if (state) {
+        useClaudeStore.getState().handleSessionState(sessionId, state)
+        if (state.meta) {
+          useClaudeStore.getState().handleStatus(sessionId, state.meta)
+        }
+      }
+      if (stateMessageCount === 0) {
+        const archived = await channels.claude.loadArchived(sessionId).catch(e => {
+          dlog('CLAUDE_SCREEN', `resumeSelect loadArchived error: ${e}`)
+          return null
+        })
+        const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
+        dlog('CLAUDE_SCREEN', `resumeSelect loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
+        if (archivedMessages.length > 0) {
+          useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
+        }
+      }
+    } catch (e) {
+      dlog('CLAUDE_SCREEN', `resumeSelect getSessionState error: ${e}`)
+    } finally {
+      setHistoryLoadingInBackground(false)
+    }
     // Persist new sdkSessionId
     const wsStore = useWorkspaceStore.getState()
     const terminals = wsStore.terminals.map(t =>
       t.id === sessionId ? { ...t, sdkSessionId } : t
     )
     useWorkspaceStore.setState({ terminals })
-  }, [channels, sessionId, terminal, agentPreset, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy])
+  }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy])
 
   const handleUpload = useCallback(() => {
     if (attachedImages.length >= MAX_IMAGES) {
@@ -747,12 +846,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <View style={styles.listContainer}>
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={appColors.accent} />
+            <ActivityIndicator size="large" color={agentColor} />
             <Text style={styles.loadingText}>Loading session...</Text>
           </View>
         ) : invertedItems.length === 0 && !showStreaming ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>{'\u2726'}</Text>
+            <Text style={[styles.emptyIcon, { color: agentColor }]}>{isCodexAgent ? '\u2B21' : '\u2726'}</Text>
             <Text style={styles.emptyText}>
               {historyLoadingInBackground ? 'Syncing history...' : 'No messages yet'}
             </Text>
@@ -779,7 +878,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         )}
         {/* Scroll to bottom FAB */}
         {showFab && invertedItems.length > 0 && (
-          <TouchableOpacity style={styles.scrollFab} onPress={handleScrollToBottomPress} activeOpacity={0.8}>
+          <TouchableOpacity style={[styles.scrollFab, { backgroundColor: agentColor }]} onPress={handleScrollToBottomPress} activeOpacity={0.8}>
             <Text style={styles.scrollFabText}>{'\u2193'}</Text>
           </TouchableOpacity>
         )}
@@ -825,7 +924,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             style={styles.input}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Message Claude..."
+            placeholder={isCodexAgent ? 'Message Codex...' : 'Message Claude...'}
             placeholderTextColor={appColors.textMuted}
             multiline
             maxLength={100000}
@@ -834,7 +933,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, (!inputText.trim() && attachedImages.length === 0) && styles.sendDisabled]}
+            style={[styles.sendButton, { backgroundColor: agentColor }, (!inputText.trim() && attachedImages.length === 0) && styles.sendDisabled]}
             onPress={handleSend}
             disabled={!inputText.trim() && attachedImages.length === 0}
           >
@@ -849,11 +948,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
           style={styles.controlsScroll}
           contentContainerStyle={styles.controlsContent}
         >
-          <TouchableOpacity style={styles.controlBtn} onPress={handlePermissionCycle}>
-            <Text style={[styles.controlText, { color: modeColor }]}>
-              {PERMISSION_LABELS[permissionMode] || permissionMode}
-            </Text>
-          </TouchableOpacity>
+          {isClaudeCodeAgent && (
+            <TouchableOpacity style={styles.controlBtn} onPress={handlePermissionCycle}>
+              <Text style={[styles.controlText, { color: modeColor }]}>
+                {PERMISSION_LABELS[permissionMode] || permissionMode}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {session.meta?.model && (
             <TouchableOpacity style={styles.controlBtn} onPress={handleModelPress}>
@@ -924,7 +1025,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
             </Text>
           )}
           {sdkSessionShort && (
-            <Text style={styles.infoText}>sid:{sdkSessionShort}</Text>
+            <TouchableOpacity style={styles.infoChip} onPress={openResumeList}>
+              <Text style={[styles.infoText, styles.infoTextClickable]}>sid:{sdkSessionShort}</Text>
+            </TouchableOpacity>
           )}
           {terminal?.cwd && (
             <Text style={styles.infoText} numberOfLines={1}>
@@ -944,11 +1047,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
               keyExtractor={(item) => item.value}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modelItem, item.value === session.meta?.model && styles.modelItemActive]}
+                  style={[styles.modelItem, item.value === session.meta?.model && { backgroundColor: agentSelectedBg }]}
                   onPress={() => handleModelSelect(item)}
                 >
                   <View style={styles.modelLabelWrap}>
-                    <Text style={[styles.modelItemText, item.value === session.meta?.model && styles.modelItemTextActive]}>
+                    <Text style={[styles.modelItemText, item.value === session.meta?.model && { color: agentColor }]}>
                       {item.displayName}
                     </Text>
                     <Text style={styles.modelValueText}>{item.value}</Text>
@@ -957,7 +1060,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                     ) : null}
                   </View>
                   {item.value === session.meta?.model && (
-                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                    <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -976,14 +1079,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modelItem, item === effortLevel && styles.modelItemActive]}
+                  style={[styles.modelItem, item === effortLevel && { backgroundColor: agentSelectedBg }]}
                   onPress={() => handleEffortSelect(item)}
                 >
-                  <Text style={[styles.modelItemText, item === effortLevel && styles.modelItemTextActive]}>
+                  <Text style={[styles.modelItemText, item === effortLevel && { color: agentColor }]}>
                     {isCodexAgent ? `thinking: ${item}` : `effort: ${item}`}
                   </Text>
                   {item === effortLevel && (
-                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                    <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -1002,14 +1105,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modelItem, item === codexSandboxMode && styles.modelItemActive]}
+                  style={[styles.modelItem, item === codexSandboxMode && { backgroundColor: agentSelectedBg }]}
                   onPress={() => handleCodexSandboxSelect(item)}
                 >
-                  <Text style={[styles.modelItemText, item === codexSandboxMode && styles.modelItemTextActive]}>
+                  <Text style={[styles.modelItemText, item === codexSandboxMode && { color: agentColor }]}>
                     sandbox: {item}
                   </Text>
                   {item === codexSandboxMode && (
-                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                    <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -1028,14 +1131,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modelItem, item === codexApprovalPolicy && styles.modelItemActive]}
+                  style={[styles.modelItem, item === codexApprovalPolicy && { backgroundColor: agentSelectedBg }]}
                   onPress={() => handleCodexApprovalSelect(item)}
                 >
-                  <Text style={[styles.modelItemText, item === codexApprovalPolicy && styles.modelItemTextActive]}>
+                  <Text style={[styles.modelItemText, item === codexApprovalPolicy && { color: agentColor }]}>
                     approval: {item}
                   </Text>
                   {item === codexApprovalPolicy && (
-                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                    <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -1109,6 +1212,17 @@ const styles = StyleSheet.create({
   },
   headerTitleWrap: {
     minWidth: 0,
+  },
+  headerBackButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBackText: {
+    color: appColors.text,
+    fontSize: 28,
+    lineHeight: 32,
   },
   headerTitle: {
     color: appColors.text,
@@ -1369,11 +1483,18 @@ const styles = StyleSheet.create({
   infoContent: {
     paddingHorizontal: spacing.md,
   },
+  infoChip: {
+    marginRight: spacing.md,
+  },
   infoText: {
     fontSize: fontSize.xs,
     color: appColors.textSecondary,
     fontFamily: 'monospace',
     marginRight: spacing.md,
+  },
+  infoTextClickable: {
+    color: appColors.agentCodex,
+    fontWeight: '700',
   },
   usageHigh: {
     color: appColors.error,

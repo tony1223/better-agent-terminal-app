@@ -17,6 +17,7 @@ export type AgentPresetId =
   | 'claude-cli'
   | 'claude-cli-worktree'
   | 'codex-agent'
+  | 'codex-agent-worktree'
   | 'codex-cli'
   | 'openai-agent'
   | 'gemini-cli'
@@ -38,6 +39,7 @@ export const AGENT_PRESETS: AgentPreset[] = [
   { id: 'claude-cli', name: 'Claude CLI', icon: '\u25B6', color: '#d97706' },
   { id: 'claude-cli-worktree', name: 'Claude CLI (Worktree)', icon: '\u25B6', color: '#22c55e' },
   { id: 'codex-agent', name: 'Codex Agent', icon: '\u2B21', color: '#10a37f' },
+  { id: 'codex-agent-worktree', name: 'Codex Agent (Worktree)', icon: '\u2B21', color: '#10a37f' },
   { id: 'openai-agent', name: 'OpenAI (Direct)', icon: '\u25EF', color: '#0ea5e9' },
   { id: 'gemini-cli', name: 'Gemini CLI', icon: '\u25C7', color: '#4285f4', command: 'gemini' },
   { id: 'codex-cli', name: 'Codex', icon: '\u2B21', color: '#10a37f', command: 'codex' },
@@ -197,6 +199,15 @@ export interface SessionMeta {
   numTurns: number
   contextWindow: number
   permissionMode?: string
+}
+
+export interface SessionStateSnapshot {
+  sessionId?: string
+  messages?: (ClaudeMessage | ClaudeToolCall)[]
+  isStreaming?: boolean
+  streamingText?: string
+  streamingThinking?: string
+  meta?: SessionMeta
 }
 
 // ============================================

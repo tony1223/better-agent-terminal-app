@@ -9,6 +9,8 @@
 
 import {
   PROXIED_EVENTS,
+  REMOTE_COMPRESSION_GZIP,
+  REMOTE_COMPRESSION_NONE,
   REMOTE_PROTOCOL_LEGACY_V1,
   REMOTE_PROTOCOL_V2,
   type RemoteFrame,
@@ -33,6 +35,7 @@ interface PendingInvoke {
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
 type RemoteProtocol = typeof REMOTE_PROTOCOL_V2 | typeof REMOTE_PROTOCOL_LEGACY_V1
+type RemoteCompression = typeof REMOTE_COMPRESSION_GZIP | typeof REMOTE_COMPRESSION_NONE
 
 export interface RemoteClientContext {
   windowId?: string | null
@@ -64,6 +67,21 @@ function remoteAgentChannel(channel: string): string {
 
 function valueAt(record: Record<string, unknown>, key: string): unknown {
   return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : null
+}
+
+function summarizeRemoteValue(value: unknown): string {
+  if (Array.isArray(value)) return `array(${value.length})`
+  const record = asRecord(value)
+  if (!record) return value == null ? String(value) : typeof value
+  const parts = Object.keys(record).slice(0, 8).map(key => {
+    const field = record[key]
+    return Array.isArray(field) ? `${key}:array(${field.length})` : `${key}:${field == null ? String(field) : typeof field}`
+  })
+  return `{${parts.join(',')}}`
+}
+
+function isRemoteMethodNotFound(error: Error): boolean {
+  return /method not found/i.test(error.message)
 }
 
 function eventParamsToArgs(channel: string, params: unknown): unknown[] {
@@ -141,6 +159,7 @@ export class WebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
   private generation = 0
+  private compression: RemoteCompression = REMOTE_COMPRESSION_NONE
 
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -157,9 +176,9 @@ export class WebSocketClient {
     return this._status === 'connected' && this.ws?.isOpen === true
   }
 
-  get connectionInfo(): { host: string; port: number; tls: boolean } | null {
+  get connectionInfo(): { host: string; port: number; tls: boolean; compression: RemoteCompression } | null {
     if (!this.isConnected) return null
-    return { host: this.host, port: this.port, tls: this.useTLS }
+    return { host: this.host, port: this.port, tls: this.useTLS, compression: this.compression }
   }
 
   // ============================================
@@ -204,6 +223,7 @@ export class WebSocketClient {
     this.shouldReconnect = true
     this.reconnectAttempt = 0
     this.protocol = REMOTE_PROTOCOL_LEGACY_V1
+    this.compression = REMOTE_COMPRESSION_NONE
     this.generation++
 
     return this.doConnect()
@@ -269,6 +289,7 @@ export class WebSocketClient {
             id: this.nextId(),
             token: this.token,
             protocols: [REMOTE_PROTOCOL_V2, REMOTE_PROTOCOL_LEGACY_V1],
+            compression: ws.supportsGzip ? [REMOTE_COMPRESSION_GZIP] : [],
             args: this.context ? [this.label, this.context] : [this.label],
           }
           ws.send(JSON.stringify(authFrame))
@@ -295,7 +316,10 @@ export class WebSocketClient {
                 this.protocol = frame.protocol === REMOTE_PROTOCOL_V2
                   ? REMOTE_PROTOCOL_V2
                   : REMOTE_PROTOCOL_LEGACY_V1
-                dlog('WS', `auth success, connected! protocol=${this.protocol}`)
+                this.compression = frame.compression === REMOTE_COMPRESSION_GZIP
+                  ? REMOTE_COMPRESSION_GZIP
+                  : REMOTE_COMPRESSION_NONE
+                dlog('WS', `auth success, connected! protocol=${this.protocol} compression=${this.compression}`)
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -431,7 +455,7 @@ export class WebSocketClient {
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected) {
         const frame: RemoteFrame = { type: 'ping', id: this.nextId() }
-        this.ws!.send(JSON.stringify(frame))
+        this.sendFrame(frame)
       }
     }, HEARTBEAT_MS)
   }
@@ -454,20 +478,28 @@ export class WebSocketClient {
 
     const id = this.nextId()
     const frame: RemoteFrame = { type: 'invoke', id, channel, args }
+    dlog('WS_INVOKE', `send ${channel} id=${id} args=${args.length}`)
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
+        dlog('!WS_INVOKE', `timeout ${channel} id=${id}`)
         reject(new Error(`Remote invoke timeout: ${channel}`))
       }, INVOKE_TIMEOUT_MS)
 
       this.pending.set(id, {
-        resolve: resolve as (result: unknown) => void,
-        reject,
+        resolve: (result: unknown) => {
+          dlog('WS_INVOKE', `result ${channel} id=${id} ${summarizeRemoteValue(result)}`)
+          resolve(result as T)
+        },
+        reject: (error: Error) => {
+          dlog('!WS_INVOKE', `error ${channel} id=${id}: ${error.message}`)
+          reject(error)
+        },
         timer,
       })
 
-      this.ws!.send(JSON.stringify(frame))
+      this.sendFrame(frame)
     })
   }
 
@@ -480,36 +512,56 @@ export class WebSocketClient {
       return Promise.reject(new Error('Not connected to remote server'))
     }
 
-    const id = this.nextId()
-    const frame: RemoteFrame = this.protocol === REMOTE_PROTOCOL_V2
+    const makeFrame = (frameChannel: string): RemoteFrame => this.protocol === REMOTE_PROTOCOL_V2
       ? {
         type: 'invoke',
-        id,
-        channel: remoteAgentChannel(channel),
+        id: this.nextId(),
+        channel: frameChannel,
         params,
         args: legacyArgs,
       }
       : {
         type: 'invoke',
-        id,
-        channel: canonicalRemoteChannel(channel),
+        id: this.nextId(),
+        channel: frameChannel,
         args: legacyArgs,
       }
+    const initialChannel = this.protocol === REMOTE_PROTOCOL_V2
+      ? remoteAgentChannel(channel)
+      : canonicalRemoteChannel(channel)
+    const sendFrame = (frame: RemoteFrame, allowAgentFallback: boolean): Promise<T> => {
+      dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} protocol=${this.protocol} params=${summarizeRemoteValue(params)}`)
 
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`Remote invoke timeout: ${channel}`))
-      }, INVOKE_TIMEOUT_MS)
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(frame.id)
+          dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
+          reject(new Error(`Remote invoke timeout: ${channel}`))
+        }, INVOKE_TIMEOUT_MS)
 
-      this.pending.set(id, {
-        resolve: resolve as (result: unknown) => void,
-        reject,
-        timer,
+        this.pending.set(frame.id, {
+          resolve: (result: unknown) => {
+            dlog('WS_INVOKE', `result ${frame.channel} id=${frame.id} ${summarizeRemoteValue(result)}`)
+            resolve(result as T)
+          },
+          reject: (error: Error) => {
+            dlog('!WS_INVOKE', `error ${frame.channel} id=${frame.id}: ${error.message}`)
+            if (allowAgentFallback && frame.channel?.startsWith('agent:') && isRemoteMethodNotFound(error)) {
+              const fallbackChannel = canonicalRemoteChannel(frame.channel)
+              dlog('WS_INVOKE', `fallback ${frame.channel} -> ${fallbackChannel}`)
+              sendFrame(makeFrame(fallbackChannel), false).then(resolve, reject)
+              return
+            }
+            reject(error)
+          },
+          timer,
+        })
+
+        this.sendFrame(frame)
       })
+    }
 
-      this.ws!.send(JSON.stringify(frame))
-    })
+    return sendFrame(makeFrame(initialChannel), this.protocol === REMOTE_PROTOCOL_V2)
   }
 
   // ============================================
@@ -543,5 +595,14 @@ export class WebSocketClient {
 
   private nextId(): string {
     return `${Date.now()}-${++this._counter}`
+  }
+
+  private sendFrame(frame: RemoteFrame): void {
+    const payload = JSON.stringify(frame)
+    if (this.compression === REMOTE_COMPRESSION_GZIP) {
+      this.ws!.sendGzip(payload)
+    } else {
+      this.ws!.send(payload)
+    }
   }
 }
