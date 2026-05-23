@@ -16,7 +16,7 @@ export function createWorkspaceChannel(ws: WebSocketClient) {
       ws.on('workspace:detached', cb as (...args: unknown[]) => void),
     onReattached: (cb: (workspaceId: string) => void) =>
       ws.on('workspace:reattached', cb as (...args: unknown[]) => void),
-    onReload: (cb: (snapshot: string) => void) =>
+    onReload: (cb: (payload: unknown) => void) =>
       ws.on('workspace:reload', cb as (...args: unknown[]) => void),
   }
 }

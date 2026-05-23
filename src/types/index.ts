@@ -286,6 +286,8 @@ export interface ProfileEntry {
   id: string
   name: string
   type?: 'local' | 'remote'
+  createdAt?: number
+  updatedAt?: number
 }
 
 // ============================================

@@ -44,7 +44,9 @@ interface WorkspaceState {
   // Actions
   load: () => Promise<void>
   applySnapshot: (raw: string) => void
+  applyReload: (payload: unknown) => void
   applyState: (state: AppState) => void
+  applyProfileChanged: (payload: unknown) => void
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
 
@@ -107,6 +109,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  applyReload: (payload: unknown) => {
+    if (typeof payload === 'string') {
+      get().applySnapshot(payload)
+      return
+    }
+
+    if (payload && typeof payload === 'object') {
+      const record = payload as Record<string, unknown>
+      const snapshot = record.snapshot ?? record.data ?? record.workspace
+      if (typeof snapshot === 'string') {
+        get().applySnapshot(snapshot)
+        return
+      }
+      if (Array.isArray(record.workspaces) || Array.isArray(record.terminals)) {
+        get().applyState(record as unknown as AppState)
+        return
+      }
+    }
+
+    set({
+      loadStatus: 'parse-error',
+      loadError: 'Invalid workspace reload payload',
+    })
+  },
+
   applyState: (state: AppState) => {
     const workspaces = state.workspaces || []
     const terminals = (state.terminals || []).map(t => ({
@@ -131,6 +158,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       loadStatus: workspaces.length > 0 ? 'ok' : 'empty',
       loadError: null,
     })
+  },
+
+  applyProfileChanged: (payload: unknown) => {
+    const summary = profileSummaryFromPayload(payload)
+    if (!summary) return
+    set(summary)
   },
 
   switchWorkspace: (id: string) => {
@@ -203,14 +236,21 @@ async function loadProfileSummary(
 ): Promise<void> {
   try {
     const list = await channels.profile.list()
-    const activeProfileIds = Array.isArray(list.activeProfileIds)
-      ? list.activeProfileIds.map(id => String(id)).filter(Boolean)
-      : list.activeProfileId ? [String(list.activeProfileId)] : []
-    const profiles = normalizeProfiles(list.profiles)
-    apply({ profiles, activeProfileIds })
+    const summary = profileSummaryFromPayload(list)
+    apply(summary ?? { profiles: [], activeProfileIds: [] })
   } catch {
     apply({ profiles: [], activeProfileIds: [] })
   }
+}
+
+function profileSummaryFromPayload(payload: unknown): { profiles: ProfileEntry[]; activeProfileIds: string[] } | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const record = payload as Record<string, unknown>
+  const profiles = normalizeProfiles(record.profiles)
+  const activeProfileIds = Array.isArray(record.activeProfileIds)
+    ? record.activeProfileIds.map(id => String(id)).filter(Boolean)
+    : record.activeProfileId ? [String(record.activeProfileId)] : []
+  return { profiles, activeProfileIds }
 }
 
 function normalizeProfiles(value: unknown): ProfileEntry[] {
@@ -224,6 +264,8 @@ function normalizeProfiles(value: unknown): ProfileEntry[] {
           id,
           name: String(item.name ?? id),
           type,
+          createdAt: typeof item.createdAt === 'number' ? item.createdAt : undefined,
+          updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : undefined,
         }
       })
       .filter(profile => profile.id)

@@ -15,7 +15,6 @@ import type {
   ClaudeResult,
 } from '@/types'
 import type { ClaudeChannel } from '@/api/channels/claude'
-import { useWorkspaceStore } from './workspace-store'
 import { dlog } from '@/utils/debug-log'
 
 interface SessionState {
@@ -448,17 +447,6 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       },
     })
 
-    // Persist sdkSessionId to workspace store so auto-resume works
-    if (meta.sdkSessionId) {
-      const wsStore = useWorkspaceStore.getState()
-      const terminal = wsStore.terminals.find(t => t.id === sessionId)
-      if (terminal && terminal.sdkSessionId !== meta.sdkSessionId) {
-        const terminals = wsStore.terminals.map(t =>
-          t.id === sessionId ? { ...t, sdkSessionId: meta.sdkSessionId } : t
-        )
-        useWorkspaceStore.setState({ terminals })
-      }
-    }
   },
 
   handleSessionState: (sessionId, snapshot) => {
@@ -541,12 +529,6 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       },
       promptSuggestions: [],
     })
-    // Clear stale sdkSessionId in workspace store
-    const wsStore = useWorkspaceStore.getState()
-    const terminals = wsStore.terminals.map(t =>
-      t.id === sessionId ? { ...t, sdkSessionId: undefined } : t
-    )
-    useWorkspaceStore.setState({ terminals })
   },
 
   // ---- UI Actions ----

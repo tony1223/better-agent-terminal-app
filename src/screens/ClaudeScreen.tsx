@@ -577,9 +577,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
     // Handle /new command
     if (text === '/new') {
       setInputText('')
-      useChatFilterStore.getState().clearSession(sessionId)
-      useClaudeStore.getState().handleSessionReset(sessionId)
       channels.claude.resetSession(sessionId)
+        .then(() => {
+          useChatFilterStore.getState().clearSession(sessionId)
+        })
         .catch(e => {
           console.warn('[Claude] resetSession error:', e)
         })
@@ -663,29 +664,45 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels) return
     const idx = PERMISSION_MODES.indexOf(permissionMode as typeof PERMISSION_MODES[number])
     const next = PERMISSION_MODES[(idx + 1) % PERMISSION_MODES.length]
-    setPermissionMode(next)
-    await channels.claude.setPermissionMode(sessionId, next)
+    try {
+      await channels.claude.setPermissionMode(sessionId, next)
+      setPermissionMode(next)
+    } catch (e) {
+      Alert.alert('Unable to switch permission mode', String(e))
+    }
   }, [channels, sessionId, permissionMode])
 
   const handleEffortSelect = useCallback(async (effort: string) => {
     if (!channels) return
     setShowEffortPicker(false)
-    setEffortLevel(effort)
-    await channels.claude.setEffort(sessionId, effort)
+    try {
+      await channels.claude.setEffort(sessionId, effort)
+      setEffortLevel(effort)
+    } catch (e) {
+      Alert.alert('Unable to switch effort', String(e))
+    }
   }, [channels, sessionId])
 
   const handleCodexSandboxSelect = useCallback(async (mode: string) => {
     if (!channels) return
     setShowSandboxPicker(false)
-    setCodexSandboxMode(mode)
-    await channels.claude.setCodexSandboxMode(sessionId, mode)
+    try {
+      await channels.claude.setCodexSandboxMode(sessionId, mode)
+      setCodexSandboxMode(mode)
+    } catch (e) {
+      Alert.alert('Unable to switch sandbox mode', String(e))
+    }
   }, [channels, sessionId])
 
   const handleCodexApprovalSelect = useCallback(async (policy: string) => {
     if (!channels) return
     setShowApprovalPicker(false)
-    setCodexApprovalPolicy(policy)
-    await channels.claude.setCodexApprovalPolicy(sessionId, policy)
+    try {
+      await channels.claude.setCodexApprovalPolicy(sessionId, policy)
+      setCodexApprovalPolicy(policy)
+    } catch (e) {
+      Alert.alert('Unable to switch approval policy', String(e))
+    }
   }, [channels, sessionId])
 
   const handleCompact = useCallback(async () => {
@@ -719,8 +736,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const handleFork = useCallback(async () => {
     if (!channels) return
     try {
-      useChatFilterStore.getState().clearSession(sessionId)
       await channels.claude.forkSession(sessionId)
+      useChatFilterStore.getState().clearSession(sessionId)
     } catch (e) {
       console.warn('[Claude] fork error:', e)
     }
@@ -730,18 +747,21 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels || !terminal) return
     setShowResumeList(false)
     setResumeSessions([])
-    // Clear UI immediately
-    useChatFilterStore.getState().clearSession(sessionId)
-    useClaudeStore.getState().handleSessionReset(sessionId)
     setHistoryLoadingInBackground(true)
-    // Resume the selected session
-    await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
-      agentPreset,
-      ...(isClaudeCodeAgent ? { permissionMode } : {}),
-      effort: effortLevel,
-      codexSandboxMode,
-      codexApprovalPolicy,
-    })
+    try {
+      await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
+        agentPreset,
+        ...(isClaudeCodeAgent ? { permissionMode } : {}),
+        effort: effortLevel,
+        codexSandboxMode,
+        codexApprovalPolicy,
+      })
+      useChatFilterStore.getState().clearSession(sessionId)
+    } catch (e) {
+      setHistoryLoadingInBackground(false)
+      Alert.alert('Unable to resume session', String(e))
+      return
+    }
     try {
       const state = await channels.claude.getSessionState(sessionId)
       const stateMessageCount = Array.isArray(state?.messages) ? state.messages.length : 0
@@ -768,12 +788,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
     } finally {
       setHistoryLoadingInBackground(false)
     }
-    // Persist new sdkSessionId
-    const wsStore = useWorkspaceStore.getState()
-    const terminals = wsStore.terminals.map(t =>
-      t.id === sessionId ? { ...t, sdkSessionId } : t
-    )
-    useWorkspaceStore.setState({ terminals })
   }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy])
 
   const handleUpload = useCallback(() => {

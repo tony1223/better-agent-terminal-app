@@ -29,12 +29,18 @@ function App() {
 
       // Subscribe to remote events
       const unsubscribeClaude = subscribeClaudeEvents(channels.claude)
-      const unsubscribeWorkspaceReload = channels.workspace.onReload((snapshot) => {
-        useWorkspaceStore.getState().applySnapshot(snapshot)
+      const unsubscribeWorkspaceReload = channels.workspace.onReload((payload) => {
+        useWorkspaceStore.getState().applyReload(payload)
+      })
+      const unsubscribeProfileChanged = channels.profile.onChanged((payload) => {
+        const workspaceStore = useWorkspaceStore.getState()
+        workspaceStore.applyProfileChanged(payload)
+        workspaceStore.load().catch(() => {})
       })
       unsubRef.current = () => {
         unsubscribeClaude()
         unsubscribeWorkspaceReload()
+        unsubscribeProfileChanged()
       }
     }
 

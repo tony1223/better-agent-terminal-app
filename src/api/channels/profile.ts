@@ -12,6 +12,8 @@ export interface ProfileListResult {
   activeProfileIds?: string[]
 }
 
+export type ProfileChangedPayload = ProfileListResult
+
 export function createProfileChannel(ws: WebSocketClient) {
   return {
     list: () =>
@@ -26,6 +28,10 @@ export function createProfileChannel(ws: WebSocketClient) {
       ws.invoke('profile:activate', profileId),
     deactivate: (profileId: string) =>
       ws.invoke('profile:deactivate', profileId),
+
+    // Events
+    onChanged: (cb: (payload: ProfileChangedPayload) => void) =>
+      ws.on('profile:changed', cb as (...args: unknown[]) => void),
   }
 }
 

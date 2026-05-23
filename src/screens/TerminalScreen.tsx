@@ -45,6 +45,7 @@ export function TerminalScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets()
   const channels = useConnectionStore(s => s.channels)
   const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === terminalId))
+  const loadStatus = useWorkspaceStore(s => s.loadStatus)
   const workspace = useWorkspaceStore(s => {
     const term = s.terminals.find(t => t.id === terminalId)
     return term ? s.workspaces.find(w => w.id === term.workspaceId) : undefined
@@ -107,6 +108,12 @@ export function TerminalScreen({ route, navigation }: Props) {
   }, [navigation, terminal, terminalId, workspace])
   const outputBufferRef = useRef('')
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if ((loadStatus === 'ok' || loadStatus === 'empty') && !terminal) {
+      navigation.goBack()
+    }
+  }, [loadStatus, navigation, terminal])
 
   // Batch output for performance (flush every 16ms)
   const flushOutput = useCallback(() => {
@@ -233,7 +240,7 @@ export function TerminalScreen({ route, navigation }: Props) {
 
   // Handle messages from WebView
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
-    if (!channels) return
+    if (!channels || !terminal) return
 
     try {
       const msg = JSON.parse(event.nativeEvent.data)
@@ -259,7 +266,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     } catch {
       // ignore
     }
-  }, [applyViewportState, channels, terminalId, ensurePty, writeToTerminal])
+  }, [applyViewportState, channels, terminal, terminalId, ensurePty, writeToTerminal])
 
   useEffect(() => {
     ensurePty()
@@ -267,19 +274,19 @@ export function TerminalScreen({ route, navigation }: Props) {
 
   // Send special key from toolbar
   const handleSpecialKey = useCallback((data: string) => {
-    if (!channels) return
+    if (!channels || !terminal) return
     channels.pty.write(terminalId, data)
       .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
     if (keyboardFocused) {
       setTimeout(() => keyboardInputRef.current?.focus(), 0)
     }
-  }, [channels, keyboardFocused, terminalId, writeToTerminal])
+  }, [channels, keyboardFocused, terminal, terminalId, writeToTerminal])
 
   const sendKeyboardInput = useCallback((data: string) => {
-    if (!channels || !data) return
+    if (!channels || !terminal || !data) return
     channels.pty.write(terminalId, data)
       .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
-  }, [channels, terminalId, writeToTerminal])
+  }, [channels, terminal, terminalId, writeToTerminal])
 
   const handleKeyboardText = useCallback((text: string) => {
     if (!text) {
@@ -302,7 +309,7 @@ export function TerminalScreen({ route, navigation }: Props) {
   }, [])
 
   const handleViewportToggle = useCallback(async () => {
-    if (!channels) return
+    if (!channels || !terminal) return
     try {
       if (viewportStateRef.current.mode === 'mobile') {
         const next = await channels.pty.setViewportMode(terminalId, 'desktop', { source: 'mobile' })
@@ -318,7 +325,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     } catch (e) {
       writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`)
     }
-  }, [applyViewportState, channels, terminalId, writeToTerminal])
+  }, [applyViewportState, channels, terminal, terminalId, writeToTerminal])
 
   const isMobileLayout = viewportState.mode === 'mobile'
 
