@@ -19,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useHostStore } from '@/stores/host-store'
 import { WebSocketClient } from '@/api/websocket-client'
+import { parseBATQR, type BATQRPayload } from '@/api/qr-protocol'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
@@ -35,11 +36,15 @@ export function AddHostScreen({ navigation }: Props) {
   const [port, setPort] = useState('9876')
   const [token, setToken] = useState('')
   const [fingerprint, setFingerprint] = useState('')
+  const [connectionString, setConnectionString] = useState('')
+  const [useTLS, setUseTLS] = useState(false)
+  const [context, setContext] = useState<BATQRPayload['context']>(undefined)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const isValid = name.trim() && address.trim() && port.trim() && token.trim()
-  const hasTLS = fingerprint.trim().length > 0
+  const hasFingerprint = fingerprint.trim().length > 0
+  const hasTLS = useTLS || hasFingerprint
 
   const normalizeFingerprint = (fp: string): string => {
     return fp.trim().toUpperCase().replace(/[^A-F0-9]/g, '')
@@ -50,27 +55,57 @@ export function AddHostScreen({ navigation }: Props) {
     return clean.match(/.{1,2}/g)?.join(':') ?? clean
   }
 
+  const applyPayload = (payload: BATQRPayload) => {
+    setName(payload.name)
+    setAddress(payload.host)
+    setPort(String(payload.port))
+    setToken(payload.token)
+    setFingerprint(payload.fingerprint ? formatFingerprint(payload.fingerprint) : '')
+    setUseTLS(payload.useTLS)
+    setContext(payload.context)
+  }
+
+  const handleConnectionStringChange = (value: string) => {
+    setConnectionString(value)
+    const payload = parseBATQR(value)
+    if (payload) applyPayload(payload)
+  }
+
+  const handleApplyConnectionString = () => {
+    const payload = parseBATQR(connectionString)
+    if (!payload) {
+      Alert.alert('Invalid Connection String', 'Paste a BAT link, ws/wss URL, or BAT Desktop QR JSON payload.')
+      return
+    }
+    applyPayload(payload)
+  }
+
   const handleTest = async () => {
     if (!isValid) return
     setTesting(true)
 
-    const client = new WebSocketClient()
-    const fp = hasTLS ? normalizeFingerprint(fingerprint) : null
-    const ok = await client.connect(
-      address.trim(),
-      parseInt(port, 10),
-      token.trim(),
-      'BAT-Mobile-Test',
-      fp,
-    )
-    client.disconnect()
+    try {
+      const client = new WebSocketClient()
+      const fp = hasFingerprint ? normalizeFingerprint(fingerprint) : null
+      const ok = await client.connect(
+        address.trim(),
+        parseInt(port, 10),
+        token.trim(),
+        'BAT-Mobile-Test',
+        fp,
+        context,
+        hasTLS,
+      )
+      client.disconnect()
 
-    setTesting(false)
-    if (ok) {
-      Alert.alert('Success', `Connection successful!${hasTLS ? ' (TLS verified)' : ''}`)
-    } else {
-      const err = client.error
-      Alert.alert('Failed', err || 'Could not connect. Check address, port, token, and fingerprint.')
+      if (ok) {
+        Alert.alert('Success', `Connection successful!${hasTLS ? ' (TLS)' : ''}`)
+      } else {
+        const err = client.error
+        Alert.alert('Failed', err || 'Could not connect. Check address, port, token, and fingerprint.')
+      }
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -78,7 +113,7 @@ export function AddHostScreen({ navigation }: Props) {
     if (!isValid) return
     setSaving(true)
 
-    const fp = hasTLS ? normalizeFingerprint(fingerprint) : undefined
+    const fp = hasFingerprint ? normalizeFingerprint(fingerprint) : undefined
 
     await addHost(
       {
@@ -87,6 +122,7 @@ export function AddHostScreen({ navigation }: Props) {
         port: parseInt(port, 10),
         fingerprint: fp,
         useTLS: hasTLS,
+        context,
       },
       token.trim()
     )
@@ -101,6 +137,25 @@ export function AddHostScreen({ navigation }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scroll}>
+        <Text style={styles.label}>Connection String</Text>
+        <TextInput
+          style={[styles.input, styles.connectionInput]}
+          value={connectionString}
+          onChangeText={handleConnectionStringChange}
+          placeholder="Paste BAT link, ws/wss URL, or QR JSON"
+          placeholderTextColor={appColors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          multiline
+        />
+        <TouchableOpacity
+          style={[styles.applyButton, !connectionString.trim() && styles.buttonDisabled]}
+          onPress={handleApplyConnectionString}
+          disabled={!connectionString.trim()}
+        >
+          <Text style={styles.applyButtonText}>Apply Connection String</Text>
+        </TouchableOpacity>
+
         <Text style={styles.label}>Name</Text>
         <TextInput
           style={styles.input}
@@ -152,7 +207,12 @@ export function AddHostScreen({ navigation }: Props) {
         <TextInput
           style={[styles.input, styles.fingerprintInput]}
           value={fingerprint}
-          onChangeText={setFingerprint}
+          onChangeText={(value) => {
+            setFingerprint(value)
+            if (value.trim()) {
+              setUseTLS(true)
+            }
+          }}
           onBlur={() => { if (fingerprint) setFingerprint(formatFingerprint(fingerprint)) }}
           placeholder="AB:CD:EF:... (SHA-256)"
           placeholderTextColor={appColors.textMuted}
@@ -162,7 +222,9 @@ export function AddHostScreen({ navigation }: Props) {
         />
         {hasTLS && (
           <View style={styles.tlsBadge}>
-            <Text style={styles.tlsBadgeText}>TLS Pinning Enabled</Text>
+            <Text style={styles.tlsBadgeText}>
+              {hasFingerprint ? 'TLS Pinning Enabled' : 'TLS Enabled'}
+            </Text>
           </View>
         )}
 
@@ -224,6 +286,26 @@ const styles = StyleSheet.create({
     color: appColors.text,
     borderWidth: 1,
     borderColor: appColors.border,
+  },
+  connectionInput: {
+    minHeight: 86,
+    textAlignVertical: 'top',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: fontSize.sm,
+  },
+  applyButton: {
+    backgroundColor: appColors.surfaceHover,
+    borderRadius: 10,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  applyButtonText: {
+    fontSize: fontSize.sm,
+    color: appColors.text,
+    fontWeight: '700',
   },
   fingerprintInput: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

@@ -67,18 +67,26 @@ export function TerminalScreen({ route, navigation }: Props) {
 
     navigation.setOptions({
       headerShown: true,
-      headerRight: terminal?.agentPreset === 'claude-code'
-        ? () => (
+      headerRight: () => (
+        <View style={styles.headerActions}>
           <TouchableOpacity
-            onPress={() => navigation.navigate('Claude', { sessionId: terminalId })}
-            style={{ paddingHorizontal: spacing.md }}
+            onPress={() => navigation.navigate('TerminalList')}
+            style={styles.headerButton}
           >
-            <Text style={{ color: appColors.accent, fontSize: fontSize.md, fontWeight: '700' }}>
-              {'\u2726'} Claude
-            </Text>
+            <Text style={styles.headerButtonText}>Sessions</Text>
           </TouchableOpacity>
-        )
-        : undefined,
+          {terminal?.agentPreset === 'claude-code' && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Claude', { sessionId: terminalId })}
+              style={styles.headerButton}
+            >
+              <Text style={styles.headerButtonText}>
+                {'\u2726'} Claude
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ),
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -251,7 +259,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     } catch {
       // ignore
     }
-  }, [channels, terminalId, ensurePty, writeToTerminal])
+  }, [applyViewportState, channels, terminalId, ensurePty, writeToTerminal])
 
   useEffect(() => {
     ensurePty()
@@ -423,5 +431,25 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontSize: fontSize.xs,
     fontFamily: 'monospace',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  headerButton: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    backgroundColor: appColors.surfaceHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  headerButtonText: {
+    color: appColors.accent,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
   },
 })

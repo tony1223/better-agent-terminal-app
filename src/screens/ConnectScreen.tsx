@@ -13,6 +13,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   StatusBar,
+  Modal,
+  TextInput,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -41,9 +43,11 @@ function formatFingerprint(fp: string): string {
 
 export function ConnectScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets()
-  const { hosts, loadFromStorage, removeHost, getToken, getFingerprint, updateFingerprint, setActiveHost } = useHostStore()
+  const { hosts, loadFromStorage, removeHost, updateHost, getToken, getFingerprint, updateFingerprint, setActiveHost } = useHostStore()
   const { error, connect } = useConnectionStore()
   const [connectingHostId, setConnectingHostId] = useState<string | null>(null)
+  const [renamingHost, setRenamingHost] = useState<SavedHost | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   useEffect(() => {
     loadFromStorage()
@@ -103,6 +107,23 @@ export function ConnectScreen({ navigation }: Props) {
     }
   }
 
+  const openRename = (host: SavedHost) => {
+    setRenamingHost(host)
+    setRenameValue(host.name)
+  }
+
+  const saveRename = async () => {
+    if (!renamingHost) return
+    const name = renameValue.trim()
+    if (!name) {
+      Alert.alert('Name Required', 'Enter a name for this BAT host.')
+      return
+    }
+    await updateHost(renamingHost.id, { name })
+    setRenamingHost(null)
+    setRenameValue('')
+  }
+
   const handleDelete = (host: SavedHost) => {
     Alert.alert(
       'Delete Host',
@@ -114,17 +135,31 @@ export function ConnectScreen({ navigation }: Props) {
     )
   }
 
+  const handleHostActions = (host: SavedHost) => {
+    Alert.alert(
+      host.name,
+      `${host.address}:${host.port}`,
+      [
+        { text: 'Rename', onPress: () => openRename(host) },
+        { text: 'Delete', style: 'destructive', onPress: () => handleDelete(host) },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    )
+  }
+
   const renderHost = ({ item }: { item: SavedHost }) => {
     const isConnecting = connectingHostId === item.id
     const hasTLS = item.useTLS || !!item.fingerprint
     return (
-      <TouchableOpacity
+      <View
         style={styles.hostCard}
-        onPress={() => handleConnect(item)}
-        onLongPress={() => handleDelete(item)}
-        disabled={isConnecting}
       >
-        <View style={styles.hostInfo}>
+        <TouchableOpacity
+          style={styles.hostPressArea}
+          onPress={() => handleConnect(item)}
+          onLongPress={() => handleHostActions(item)}
+          disabled={isConnecting}
+        >
           <View style={styles.hostNameRow}>
             <Text style={styles.hostName}>{item.name}</Text>
             {hasTLS && (
@@ -141,13 +176,20 @@ export function ConnectScreen({ navigation }: Props) {
               {item.fingerprint.match(/.{1,2}/g)?.join(':').slice(0, 23)}...
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.hostMenuButton}
+          onPress={() => handleHostActions(item)}
+          disabled={isConnecting}
+        >
+          <Text style={styles.hostMenuButtonText}>...</Text>
+        </TouchableOpacity>
         {isConnecting ? (
           <ActivityIndicator color={appColors.accent} />
         ) : (
           <View style={[styles.statusDot, { backgroundColor: hasTLS ? '#22c55e' : appColors.textMuted }]} />
         )}
-      </TouchableOpacity>
+      </View>
     )
   }
 
@@ -185,6 +227,41 @@ export function ConnectScreen({ navigation }: Props) {
           <Text style={styles.addButtonText}>+ Add Host Manually</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={!!renamingHost}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenamingHost(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.renameDialog}>
+            <Text style={styles.renameTitle}>Rename BAT Host</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              autoFocus
+              selectTextOnFocus
+              placeholder="Host name"
+              placeholderTextColor={appColors.textMuted}
+              returnKeyType="done"
+              onSubmitEditing={saveRename}
+            />
+            <View style={styles.renameActions}>
+              <TouchableOpacity
+                style={styles.renameSecondaryButton}
+                onPress={() => setRenamingHost(null)}
+              >
+                <Text style={styles.renameSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.renamePrimaryButton} onPress={saveRename}>
+                <Text style={styles.renamePrimaryText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -228,8 +305,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: appColors.border,
   },
-  hostInfo: {
+  hostPressArea: {
     flex: 1,
+    minWidth: 0,
   },
   hostNameRow: {
     flexDirection: 'row',
@@ -264,6 +342,23 @@ const styles = StyleSheet.create({
     color: appColors.textMuted,
     fontFamily: 'monospace',
     marginTop: 2,
+  },
+  hostMenuButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: spacing.sm,
+    backgroundColor: appColors.surfaceHover,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  hostMenuButtonText: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.md,
+    fontWeight: '800',
+    lineHeight: fontSize.md,
   },
   statusDot: {
     width: 12,
@@ -304,5 +399,64 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: appColors.text,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+  },
+  renameDialog: {
+    backgroundColor: appColors.surface,
+    borderRadius: 12,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  renameTitle: {
+    color: appColors.text,
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    marginBottom: spacing.md,
+  },
+  renameInput: {
+    color: appColors.text,
+    backgroundColor: appColors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: fontSize.md,
+  },
+  renameActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  renameSecondaryButton: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: appColors.surfaceHover,
+  },
+  renameSecondaryText: {
+    color: appColors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  renamePrimaryButton: {
+    borderRadius: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: appColors.accent,
+  },
+  renamePrimaryText: {
+    color: '#ffffff',
+    fontSize: fontSize.sm,
+    fontWeight: '700',
   },
 })

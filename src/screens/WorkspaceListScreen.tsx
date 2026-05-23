@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Modal,
   ActivityIndicator,
+  TextInput,
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
@@ -36,6 +37,7 @@ export function WorkspaceListScreen() {
   const [profileModalVisible, setProfileModalVisible] = React.useState(false)
   const [switchingProfileId, setSwitchingProfileId] = React.useState<string | null>(null)
   const [profileError, setProfileError] = React.useState<string | null>(null)
+  const [query, setQuery] = React.useState('')
   const channels = useConnectionStore(s => s.channels)
 
   useEffect(() => {
@@ -55,6 +57,24 @@ export function WorkspaceListScreen() {
     const first = activeProfiles[0].name || activeProfiles[0].id
     return `${first} +${activeProfiles.length - 1}`
   }, [activeProfiles])
+
+  const filteredWorkspaces = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return workspaces
+    return workspaces.filter(workspace => {
+      const haystack = [
+        workspace.alias,
+        workspace.name,
+        workspace.folderPath,
+        workspace.group,
+        workspace.defaultAgent,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(needle)
+    })
+  }, [query, workspaces])
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -134,10 +154,24 @@ export function WorkspaceListScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={workspaces}
+        data={filteredWorkspaces}
         keyExtractor={(item) => item.id}
         renderItem={renderWorkspace}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          workspaces.length > 0 ? (
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search workspaces"
+              placeholderTextColor={appColors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+            />
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -145,7 +179,11 @@ export function WorkspaceListScreen() {
             tintColor={appColors.accent}
           />
         }
-        ListEmptyComponent={<EmptyState status={loadStatus} error={loadError} navigation={navigation} />}
+        ListEmptyComponent={
+          query.trim()
+            ? <Text style={styles.empty}>No workspaces match "{query.trim()}".</Text>
+            : <EmptyState status={loadStatus} error={loadError} navigation={navigation} />
+        }
       />
       <ProfileModal
         visible={profileModalVisible}
@@ -350,6 +388,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: appColors.border,
+  },
+  searchInput: {
+    color: appColors.text,
+    backgroundColor: appColors.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: fontSize.md,
+    marginBottom: spacing.md,
   },
   cardActive: {
     borderColor: appColors.accent,

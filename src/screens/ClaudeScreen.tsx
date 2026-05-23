@@ -54,10 +54,12 @@ const PERMISSION_LABELS: Record<string, string> = {
   plan: '\uD83D\uDCCB Plan',
 }
 
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
+const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
 const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const
 const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const
 const MAX_IMAGES = 5
+const INITIAL_LOAD_UI_TIMEOUT_MS = 6_000
 
 interface SessionSummary {
   sdkSessionId: string
@@ -69,6 +71,75 @@ interface SessionSummary {
   gitBranch?: string
   createdAt?: number
   summary?: string
+}
+
+interface ModelOption {
+  value: string
+  displayName: string
+  description?: string
+}
+
+function normalizeModelOptions(raw: unknown): ModelOption[] {
+  if (!Array.isArray(raw)) return []
+
+  return raw.flatMap((item): ModelOption[] => {
+    if (typeof item === 'string') {
+      return [{ value: item, displayName: item }]
+    }
+    if (!item || typeof item !== 'object') return []
+
+    const record = item as Record<string, unknown>
+    const value = typeof record.value === 'string'
+      ? record.value
+      : typeof record.id === 'string' ? record.id
+        : typeof record.name === 'string' ? record.name : null
+    if (!value) return []
+
+    return [{
+      value,
+      displayName: typeof record.displayName === 'string' ? record.displayName : value,
+      description: typeof record.description === 'string' ? record.description : undefined,
+    }]
+  })
+}
+
+function optionalText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return undefined
+}
+
+function numericValue(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return fallback
+}
+
+function normalizeSessionSummaries(raw: unknown): SessionSummary[] {
+  if (!Array.isArray(raw)) return []
+
+  return raw.flatMap((item): SessionSummary[] => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const sdkSessionId = optionalText(record.sdkSessionId ?? record.sessionId ?? record.id)
+    if (!sdkSessionId) return []
+
+    const timestamp = numericValue(record.timestamp ?? record.createdAt, Date.now())
+    return [{
+      sdkSessionId,
+      timestamp,
+      preview: optionalText(record.preview) ?? '',
+      messageCount: numericValue(record.messageCount, 0),
+      customTitle: optionalText(record.customTitle),
+      firstPrompt: optionalText(record.firstPrompt),
+      gitBranch: optionalText(record.gitBranch),
+      createdAt: record.createdAt == null ? undefined : numericValue(record.createdAt, timestamp),
+      summary: optionalText(record.summary),
+    }]
+  })
 }
 
 export function ClaudeScreen({ route, navigation }: Props) {
@@ -91,9 +162,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [codexApprovalPolicy, setCodexApprovalPolicy] = useState<typeof CODEX_APPROVAL_POLICIES[number]>('on-request')
   const [showFab, setShowFab] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
-  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [showEffortPicker, setShowEffortPicker] = useState(false)
+  const [showSandboxPicker, setShowSandboxPicker] = useState(false)
+  const [showApprovalPicker, setShowApprovalPicker] = useState(false)
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
+  const [historyLoadingInBackground, setHistoryLoadingInBackground] = useState(false)
   const [usage, setUsage] = useState<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null>(null)
   const [showResumeList, setShowResumeList] = useState(false)
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
@@ -107,6 +182,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent'
   const isOpenAIAgent = agentPreset === 'openai-agent'
+  const effortOptions = isCodexAgent ? CODEX_EFFORT_LEVELS : CLAUDE_EFFORT_LEVELS
   const terminalCwd = terminal?.cwd
   const terminalSdkSessionId = terminal?.sdkSessionId
   const terminalModel = terminal?.model
@@ -115,6 +191,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => navigation.navigate('TerminalList')}
+        >
+          <Text style={styles.headerButtonText}>Sessions</Text>
+        </TouchableOpacity>
+      ),
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -145,14 +229,42 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
     const seq = ++loadSeqRef.current
     let cancelled = false
+    let loadDeadlineTimer: ReturnType<typeof setTimeout> | null = null
     const finishLoading = () => {
       if (!cancelled && seq === loadSeqRef.current) {
+        if (loadDeadlineTimer) {
+          clearTimeout(loadDeadlineTimer)
+          loadDeadlineTimer = null
+        }
         setLoading(false)
+      }
+    }
+    const setBackgroundHistoryLoading = (value: boolean) => {
+      if (!cancelled && seq === loadSeqRef.current) {
+        setHistoryLoadingInBackground(value)
+      }
+    }
+    const timedLoadStep = async <T,>(label: string, run: () => Promise<T>): Promise<T> => {
+      const startedAt = Date.now()
+      dlog('CLAUDE_TIMING', `${label} started`)
+      try {
+        const result = await run()
+        dlog('CLAUDE_TIMING', `${label} completed in ${Date.now() - startedAt}ms`)
+        return result
+      } catch (e) {
+        dlog('!CLAUDE_TIMING', `${label} failed after ${Date.now() - startedAt}ms: ${e}`)
+        throw e
       }
     }
 
     if (channels && terminalCwd) {
       setLoading(true)
+      setBackgroundHistoryLoading(false)
+      loadDeadlineTimer = setTimeout(() => {
+        dlog('CLAUDE_SCREEN', `initial history load still pending after ${INITIAL_LOAD_UI_TIMEOUT_MS}ms; showing session UI`)
+        setBackgroundHistoryLoading(true)
+        finishLoading()
+      }, INITIAL_LOAD_UI_TIMEOUT_MS)
       const sandbox = terminalSandboxMode
       const approval = terminalApprovalPolicy
       const codexSandboxMode = sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
@@ -179,16 +291,19 @@ export function ClaudeScreen({ route, navigation }: Props) {
         dlog('CLAUDE_SCREEN', `resuming session sdkSessionId=${sdkSessionIdToResume}`)
         inFlightSessionKeyRef.current = loadKey
         try {
-          await channels.claude.resumeSession(
-            sessionId,
-            sdkSessionIdToResume,
-            terminalCwd,
-            terminalModel,
-            {
-              agentPreset,
-              codexSandboxMode,
-              codexApprovalPolicy,
-            },
+          await timedLoadStep(
+            `resumeSession sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
+            () => channels.claude.resumeSession(
+              sessionId,
+              sdkSessionIdToResume,
+              terminalCwd,
+              terminalModel,
+              {
+                agentPreset,
+                codexSandboxMode,
+                codexApprovalPolicy,
+              },
+            ),
           )
           loadedSessionKeyRef.current = loadKey
         } finally {
@@ -206,7 +321,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
             let metaLoaded = false
             try {
-              const meta = await channels.claude.getSessionMeta(sessionId)
+              const meta = await timedLoadStep(
+                `getSessionMeta sessionId=${sessionId}`,
+                () => channels.claude.getSessionMeta(sessionId),
+              )
               if (meta) {
                 metaLoaded = true
                 useClaudeStore.getState().handleStatus(sessionId, meta)
@@ -224,15 +342,18 @@ export function ClaudeScreen({ route, navigation }: Props) {
               if (loadedSessionKeyRef.current !== loadKey && inFlightSessionKeyRef.current !== loadKey) {
                 inFlightSessionKeyRef.current = loadKey
                 try {
-                  await channels.claude.startSession(sessionId, {
-                    cwd: terminalCwd,
-                    permissionMode,
-                    model: terminalModel,
-                    effort: effortLevel,
-                    agentPreset,
-                    codexSandboxMode,
-                    codexApprovalPolicy,
-                  })
+                  await timedLoadStep(
+                    `startSession sessionId=${sessionId}`,
+                    () => channels.claude.startSession(sessionId, {
+                      cwd: terminalCwd,
+                      permissionMode,
+                      model: terminalModel,
+                      effort: effortLevel,
+                      agentPreset,
+                      codexSandboxMode,
+                      codexApprovalPolicy,
+                    }),
+                  )
                   loadedSessionKeyRef.current = loadKey
                 } finally {
                   if (inFlightSessionKeyRef.current === loadKey) {
@@ -245,15 +366,20 @@ export function ClaudeScreen({ route, navigation }: Props) {
         } catch (e) {
           dlog('CLAUDE_SCREEN', `loadHistory error: ${e}`)
         } finally {
+          setBackgroundHistoryLoading(false)
           finishLoading()
         }
       }
       loadHistory()
     } else {
+      setBackgroundHistoryLoading(false)
       finishLoading()
     }
     return () => {
       cancelled = true
+      if (loadDeadlineTimer) {
+        clearTimeout(loadDeadlineTimer)
+      }
     }
   }, [
     channels,
@@ -287,6 +413,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
       setPermissionMode(session.meta.permissionMode)
     }
   }, [session.meta?.permissionMode])
+
+  useEffect(() => {
+    if (!(effortOptions as readonly string[]).includes(effortLevel)) {
+      setEffortLevel('high')
+    }
+  }, [effortLevel, effortOptions])
 
   useEffect(() => {
     const sandbox = terminal?.agentParams?.sandboxMode
@@ -330,9 +462,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       setShowResumeList(true)
       try {
         const sessions = isOpenAIAgent
-          ? await channels.openai.listSessions(terminal.cwd) as SessionSummary[] | null
-          : await channels.claude.listSessions(terminal.cwd) as SessionSummary[] | null
-        setResumeSessions(sessions || [])
+          ? await channels.openai.listSessions(terminal.cwd)
+          : await channels.claude.listSessions(terminal.cwd)
+        setResumeSessions(normalizeSessionSummaries(sessions))
       } catch {
         setResumeSessions([])
       } finally {
@@ -380,29 +512,26 @@ export function ClaudeScreen({ route, navigation }: Props) {
     await channels.claude.setPermissionMode(sessionId, next)
   }, [channels, sessionId, permissionMode])
 
-  const handleEffortCycle = useCallback(async () => {
+  const handleEffortSelect = useCallback(async (effort: string) => {
     if (!channels) return
-    const idx = EFFORT_LEVELS.indexOf(effortLevel as typeof EFFORT_LEVELS[number])
-    const next = EFFORT_LEVELS[(idx + 1) % EFFORT_LEVELS.length]
-    setEffortLevel(next)
-    await channels.claude.setEffort(sessionId, next)
-  }, [channels, sessionId, effortLevel])
+    setShowEffortPicker(false)
+    setEffortLevel(effort)
+    await channels.claude.setEffort(sessionId, effort)
+  }, [channels, sessionId])
 
-  const handleCodexSandboxCycle = useCallback(async () => {
+  const handleCodexSandboxSelect = useCallback(async (mode: typeof CODEX_SANDBOX_MODES[number]) => {
     if (!channels) return
-    const idx = CODEX_SANDBOX_MODES.indexOf(codexSandboxMode)
-    const next = CODEX_SANDBOX_MODES[(idx + 1) % CODEX_SANDBOX_MODES.length]
-    setCodexSandboxMode(next)
-    await channels.claude.setCodexSandboxMode(sessionId, next)
-  }, [channels, sessionId, codexSandboxMode])
+    setShowSandboxPicker(false)
+    setCodexSandboxMode(mode)
+    await channels.claude.setCodexSandboxMode(sessionId, mode)
+  }, [channels, sessionId])
 
-  const handleCodexApprovalCycle = useCallback(async () => {
+  const handleCodexApprovalSelect = useCallback(async (policy: typeof CODEX_APPROVAL_POLICIES[number]) => {
     if (!channels) return
-    const idx = CODEX_APPROVAL_POLICIES.indexOf(codexApprovalPolicy)
-    const next = CODEX_APPROVAL_POLICIES[(idx + 1) % CODEX_APPROVAL_POLICIES.length]
-    setCodexApprovalPolicy(next)
-    await channels.claude.setCodexApprovalPolicy(sessionId, next)
-  }, [channels, sessionId, codexApprovalPolicy])
+    setShowApprovalPicker(false)
+    setCodexApprovalPolicy(policy)
+    await channels.claude.setCodexApprovalPolicy(sessionId, policy)
+  }, [channels, sessionId])
 
   const handleCompact = useCallback(async () => {
     if (!channels) return
@@ -413,17 +542,23 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels) return
     try {
       const models = await channels.claude.getSupportedModels(sessionId)
-      setAvailableModels(models || [])
+      setAvailableModels(normalizeModelOptions(models))
       setShowModelPicker(true)
     } catch (e) {
       console.warn('[Claude] getSupportedModels error:', e)
+      Alert.alert('Unable to load models', String(e))
     }
   }, [channels, sessionId])
 
-  const handleModelSelect = useCallback(async (model: string) => {
+  const handleModelSelect = useCallback(async (model: ModelOption) => {
     if (!channels) return
     setShowModelPicker(false)
-    await channels.claude.setModel(sessionId, model)
+    try {
+      await channels.claude.setModel(sessionId, model.value)
+    } catch (e) {
+      console.warn('[Claude] setModel error:', e)
+      Alert.alert('Unable to switch model', String(e))
+    }
   }, [channels, sessionId])
 
   const handleFork = useCallback(async () => {
@@ -547,8 +682,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
         ) : invertedItems.length === 0 && !showStreaming ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>{'\u2726'}</Text>
-            <Text style={styles.emptyText}>No messages yet</Text>
-            <Text style={styles.emptySubtext}>Send a message to start a conversation with Claude</Text>
+            <Text style={styles.emptyText}>
+              {historyLoadingInBackground ? 'Syncing history...' : 'No messages yet'}
+            </Text>
+            <Text style={styles.emptySubtext}>
+              {historyLoadingInBackground
+                ? 'History is still loading in the background.'
+                : 'Send a message to start a conversation with Claude'}
+            </Text>
           </View>
         ) : (
           <FlatList
@@ -649,16 +790,18 @@ export function ClaudeScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.controlBtn} onPress={handleEffortCycle}>
-            <Text style={styles.controlText}>{effortLevel}</Text>
+          <TouchableOpacity style={styles.controlBtn} onPress={() => setShowEffortPicker(true)}>
+            <Text style={styles.controlText}>
+              {isCodexAgent ? `thinking:${effortLevel}` : `effort:${effortLevel}`}
+            </Text>
           </TouchableOpacity>
 
           {isCodexAgent && (
             <>
-              <TouchableOpacity style={styles.controlBtn} onPress={handleCodexSandboxCycle}>
+              <TouchableOpacity style={styles.controlBtn} onPress={() => setShowSandboxPicker(true)}>
                 <Text style={styles.controlText}>sandbox:{codexSandboxMode}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.controlBtn} onPress={handleCodexApprovalCycle}>
+              <TouchableOpacity style={styles.controlBtn} onPress={() => setShowApprovalPicker(true)}>
                 <Text style={styles.controlText}>approval:{codexApprovalPolicy}</Text>
               </TouchableOpacity>
             </>
@@ -727,16 +870,100 @@ export function ClaudeScreen({ route, navigation }: Props) {
             <Text style={styles.modalTitle}>Select Model</Text>
             <FlatList
               data={availableModels}
+              keyExtractor={(item) => item.value}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modelItem, item.value === session.meta?.model && styles.modelItemActive]}
+                  onPress={() => handleModelSelect(item)}
+                >
+                  <View style={styles.modelLabelWrap}>
+                    <Text style={[styles.modelItemText, item.value === session.meta?.model && styles.modelItemTextActive]}>
+                      {item.displayName}
+                    </Text>
+                    <Text style={styles.modelValueText}>{item.value}</Text>
+                    {item.description ? (
+                      <Text style={styles.modelDescriptionText}>{item.description}</Text>
+                    ) : null}
+                  </View>
+                  {item.value === session.meta?.model && (
+                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Effort / thinking picker modal */}
+      <Modal visible={showEffortPicker} transparent animationType="fade" onRequestClose={() => setShowEffortPicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowEffortPicker(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{isCodexAgent ? 'Select Thinking' : 'Select Effort'}</Text>
+            <FlatList
+              data={[...effortOptions]}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[styles.modelItem, item === session.meta?.model && styles.modelItemActive]}
-                  onPress={() => handleModelSelect(item)}
+                  style={[styles.modelItem, item === effortLevel && styles.modelItemActive]}
+                  onPress={() => handleEffortSelect(item)}
                 >
-                  <Text style={[styles.modelItemText, item === session.meta?.model && styles.modelItemTextActive]}>
-                    {item}
+                  <Text style={[styles.modelItemText, item === effortLevel && styles.modelItemTextActive]}>
+                    {isCodexAgent ? `thinking: ${item}` : `effort: ${item}`}
                   </Text>
-                  {item === session.meta?.model && (
+                  {item === effortLevel && (
+                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Codex sandbox picker modal */}
+      <Modal visible={showSandboxPicker} transparent animationType="fade" onRequestClose={() => setShowSandboxPicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSandboxPicker(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Sandbox</Text>
+            <FlatList
+              data={[...CODEX_SANDBOX_MODES]}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modelItem, item === codexSandboxMode && styles.modelItemActive]}
+                  onPress={() => handleCodexSandboxSelect(item)}
+                >
+                  <Text style={[styles.modelItemText, item === codexSandboxMode && styles.modelItemTextActive]}>
+                    sandbox: {item}
+                  </Text>
+                  {item === codexSandboxMode && (
+                    <Text style={styles.modelCheck}>{'\u2713'}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Codex approval picker modal */}
+      <Modal visible={showApprovalPicker} transparent animationType="fade" onRequestClose={() => setShowApprovalPicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowApprovalPicker(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Approval</Text>
+            <FlatList
+              data={[...CODEX_APPROVAL_POLICIES]}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modelItem, item === codexApprovalPolicy && styles.modelItemActive]}
+                  onPress={() => handleCodexApprovalSelect(item)}
+                >
+                  <Text style={[styles.modelItemText, item === codexApprovalPolicy && styles.modelItemTextActive]}>
+                    approval: {item}
+                  </Text>
+                  {item === codexApprovalPolicy && (
                     <Text style={styles.modelCheck}>{'\u2713'}</Text>
                   )}
                 </TouchableOpacity>
@@ -821,6 +1048,21 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontSize: fontSize.xs,
     fontFamily: 'monospace',
+  },
+  headerButton: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    backgroundColor: appColors.surfaceHover,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  headerButtonText: {
+    color: appColors.accent,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
   },
   // ---- Status bar (top) ----
   statusBar: {
@@ -1157,15 +1399,29 @@ const styles = StyleSheet.create({
   modelItemActive: {
     backgroundColor: appColors.accentDim,
   },
-  modelItemText: {
+  modelLabelWrap: {
     flex: 1,
+    paddingRight: spacing.md,
+  },
+  modelItemText: {
     fontSize: fontSize.sm,
     color: appColors.text,
-    fontFamily: 'monospace',
+    fontWeight: '600',
   },
   modelItemTextActive: {
     color: appColors.accent,
     fontWeight: '600',
+  },
+  modelValueText: {
+    marginTop: 2,
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontFamily: 'monospace',
+  },
+  modelDescriptionText: {
+    marginTop: 2,
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
   },
   modelCheck: {
     fontSize: fontSize.md,
