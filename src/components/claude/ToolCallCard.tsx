@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
 import { LinkedText } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeToolCall } from '@/types'
@@ -12,6 +12,8 @@ import type { ClaudeToolCall } from '@/types'
 interface Props {
   tool: ClaudeToolCall
 }
+
+const TOOL_RESULT_MAX_HEIGHT = 220
 
 /** Compact one-line summary of tool input (matches desktop toolInputSummary) */
 function toolInputSummary(input: Record<string, unknown>): string {
@@ -37,19 +39,19 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
   const summary = desc || toolInputSummary(tool.input)
 
   return (
-    <TouchableOpacity
-      style={styles.container}
-      onPress={() => setExpanded(!expanded)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <TouchableOpacity
+        style={styles.header}
+        onPress={() => setExpanded(!expanded)}
+        activeOpacity={0.7}
+      >
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <Text style={styles.toolName}>{tool.toolName}</Text>
         {summary ? (
           <LinkedText text={summary} style={styles.summary} />
         ) : null}
         <Text style={styles.expand}>{expanded ? '\u25BC' : '\u25B6'}</Text>
-      </View>
+      </TouchableOpacity>
 
       {expanded && (
         <View style={styles.details}>
@@ -61,12 +63,18 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
           {tool.result && (
             <>
               <Text style={styles.detailLabel}>Result:</Text>
-              <LinkedText text={tool.result} style={styles.detailCode} />
+              <ScrollView
+                style={styles.resultScroll}
+                contentContainerStyle={styles.resultContent}
+                nestedScrollEnabled
+              >
+                <LinkedText text={tool.result} style={styles.resultText} />
+              </ScrollView>
             </>
           )}
         </View>
       )}
-    </TouchableOpacity>
+    </View>
   )
 })
 
@@ -125,5 +133,18 @@ const styles = StyleSheet.create({
     backgroundColor: appColors.background,
     borderRadius: 6,
     padding: spacing.sm,
+  },
+  resultScroll: {
+    maxHeight: TOOL_RESULT_MAX_HEIGHT,
+    backgroundColor: appColors.background,
+    borderRadius: 6,
+  },
+  resultContent: {
+    padding: spacing.sm,
+  },
+  resultText: {
+    fontSize: fontSize.xs,
+    color: appColors.text,
+    fontFamily: 'monospace',
   },
 })
