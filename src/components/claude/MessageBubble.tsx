@@ -13,6 +13,20 @@ interface Props {
   message: ClaudeMessage
 }
 
+function fmtTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function tint(hex: string, opacity: number): string {
+  const value = hex.replace('#', '')
+  const normalized = value.length === 3 ? value.split('').map(char => char + char).join('') : value
+  const r = parseInt(normalized.slice(0, 2), 16)
+  const g = parseInt(normalized.slice(2, 4), 16)
+  const b = parseInt(normalized.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`
+}
+
 export const MessageBubble = React.memo(function MessageBubble({ message }: Props) {
   const [showThinking, setShowThinking] = useState(false)
 
@@ -25,9 +39,32 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
   }
 
   const isUser = message.role === 'user'
+  const isThinkingOnly = message.role === 'assistant' && !!message.thinking && !message.content.trim()
+  const kindLabel = isUser ? 'YOU' : isThinkingOnly ? 'THINKING' : 'MESSAGE'
+  const kindColor = isUser ? appColors.info : isThinkingOnly ? appColors.warning : appColors.textSecondary
+  const timestamp = fmtTime(message.timestamp)
 
   return (
-    <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
+    <View
+      style={[
+        styles.container,
+        isUser
+          ? styles.userContainer
+          : [
+            styles.assistantContainer,
+            {
+              backgroundColor: tint(kindColor, isThinkingOnly ? 0.12 : 0.08),
+              borderLeftColor: kindColor,
+            },
+          ],
+      ]}
+    >
+      <View style={[styles.kindHeader, isUser && styles.kindHeaderUser]}>
+        <View style={[styles.kindDot, { backgroundColor: kindColor }]} />
+        <Text style={styles.kindLabel}>{kindLabel}</Text>
+        {timestamp ? <Text style={styles.kindTime}>{timestamp}</Text> : null}
+      </View>
+
       {/* Thinking toggle */}
       {message.thinking && (
         <TouchableOpacity
@@ -48,11 +85,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
       {/* Content */}
       {isUser ? (
         <Text style={styles.userText} selectable>{message.content}</Text>
-      ) : (
+      ) : message.content.trim() ? (
         <Markdown style={markdownStyles} rules={pathLinkerRules}>
           {message.content}
         </Markdown>
-      )}
+      ) : null}
     </View>
   )
 })
@@ -74,6 +111,8 @@ const styles = StyleSheet.create({
     backgroundColor: appColors.messageBubble,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
+    borderLeftWidth: 4,
+    borderLeftColor: appColors.textSecondary,
     padding: spacing.md,
     width: '95%',
   },
@@ -85,6 +124,32 @@ const styles = StyleSheet.create({
   userText: {
     fontSize: fontSize.md,
     color: appColors.text,
+  },
+  kindHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  kindHeaderUser: {
+    justifyContent: 'flex-end',
+  },
+  kindDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  kindLabel: {
+    fontFamily: 'monospace',
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  kindTime: {
+    fontFamily: 'monospace',
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
   },
   systemText: {
     fontSize: fontSize.xs,

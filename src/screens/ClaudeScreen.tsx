@@ -26,8 +26,13 @@ import { appColors, spacing, fontSize } from '@/theme/colors'
 import { MessageBubble } from '@/components/claude/MessageBubble'
 import { ToolCallCard } from '@/components/claude/ToolCallCard'
 import { StreamingText } from '@/components/claude/StreamingText'
+import { ChatFilterButton } from '@/components/claude/ChatFilterButton'
+import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
+import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
+import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
+import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import { isToolCall } from '@/types'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
@@ -84,6 +89,10 @@ interface ModelOption {
   displayName: string
   description?: string
 }
+
+type ListEntry =
+  | { kind: 'item'; data: ClaudeMessage | ClaudeToolCall }
+  | { kind: 'placeholder'; itemKind: ChatItemKind; count: number; id: string }
 
 function normalizeModelOptions(raw: unknown): ModelOption[] {
   if (!Array.isArray(raw)) return []
@@ -157,6 +166,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const sessionId = route.params?.sessionId as string
   const channels = useConnectionStore(s => s.channels)
   const session = useClaudeStore(s => s.sessions[sessionId] || EMPTY_SESSION)
+  const chatFilters = useChatFilterStore(s => s.getFilter(sessionId))
+  const setChatFilterKind = useChatFilterStore(s => s.setKind)
   const promptSuggestions = useClaudeStore(s => s.promptSuggestions)
   const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === sessionId))
   const workspace = useWorkspaceStore(s => {
@@ -233,7 +244,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           <Text style={styles.headerBackText}>{'\u2190'}</Text>
         </TouchableOpacity>
       ),
-      headerRight: undefined,
+      headerRight: () => <ChatFilterButton sessionId={sessionId} />,
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -245,7 +256,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name])
+  }, [navigation, sessionId, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name])
 
   useEffect(() => {
     if ((loadStatus === 'ok' || loadStatus === 'empty') && !terminal) {
@@ -566,6 +577,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     // Handle /new command
     if (text === '/new') {
       setInputText('')
+      useChatFilterStore.getState().clearSession(sessionId)
       useClaudeStore.getState().handleSessionReset(sessionId)
       channels.claude.resetSession(sessionId)
         .catch(e => {
@@ -707,6 +719,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const handleFork = useCallback(async () => {
     if (!channels) return
     try {
+      useChatFilterStore.getState().clearSession(sessionId)
       await channels.claude.forkSession(sessionId)
     } catch (e) {
       console.warn('[Claude] fork error:', e)
@@ -718,6 +731,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setShowResumeList(false)
     setResumeSessions([])
     // Clear UI immediately
+    useChatFilterStore.getState().clearSession(sessionId)
     useClaudeStore.getState().handleSessionReset(sessionId)
     setHistoryLoadingInBackground(true)
     // Resume the selected session
@@ -799,17 +813,68 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setAttachedImages(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  const renderItem = useCallback(({ item }: { item: ClaudeMessage | ClaudeToolCall }) => {
-    if (isToolCall(item)) {
-      return <ToolCallCard tool={item} />
+  const kindCounts = useMemo(() => {
+    const counts: Record<ChatItemKind, number> = { you: 0, message: 0, tool: 0, thinking: 0 }
+    for (const item of session.messages) {
+      const kind = classifyChatItem(item)
+      if (kind) counts[kind]++
     }
-    return <MessageBubble message={item} />
-  }, [])
+    return counts
+  }, [session.messages])
+
+  const filteredEntries = useMemo<ListEntry[]>(() => {
+    const out: ListEntry[] = []
+    let pending: { itemKind: ChatItemKind; count: number; firstId: string } | null = null
+
+    const flush = () => {
+      if (!pending) return
+      out.push({
+        kind: 'placeholder',
+        itemKind: pending.itemKind,
+        count: pending.count,
+        id: `ph-${pending.itemKind}-${pending.firstId}`,
+      })
+      pending = null
+    }
+
+    for (const item of session.messages) {
+      const itemKind = classifyChatItem(item)
+      if (itemKind && !chatFilters[itemKind]) {
+        if (pending !== null && pending.itemKind === itemKind) {
+          pending.count++
+        } else {
+          flush()
+          pending = { itemKind, count: 1, firstId: item.id }
+        }
+      } else {
+        flush()
+        out.push({ kind: 'item', data: item })
+      }
+    }
+    flush()
+    return out
+  }, [chatFilters, session.messages])
+
+  const renderItem = useCallback(({ item }: { item: ListEntry }) => {
+    if (item.kind === 'placeholder') {
+      return (
+        <HiddenBlocksPlaceholder
+          kind={item.itemKind}
+          count={item.count}
+          onPress={() => setChatFilterKind(sessionId, item.itemKind, true)}
+        />
+      )
+    }
+    if (isToolCall(item.data)) {
+      return <ToolCallCard tool={item.data} />
+    }
+    return <MessageBubble message={item.data} />
+  }, [sessionId, setChatFilterKind])
 
   const showStreaming = session.isStreaming && (session.streamingText || session.streamingThinking)
 
   // Inverted FlatList: data is reversed so newest = index 0 = visible at bottom
-  const invertedItems = useMemo(() => [...session.messages].reverse(), [session.messages])
+  const invertedItems = useMemo(() => [...filteredEntries].reverse(), [filteredEntries])
 
   const handleScrollToBottomPress = useCallback(() => {
     isAtBottomRef.current = true
@@ -842,6 +907,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
       />
+      <ChatFilterStrip sessionId={sessionId} counts={kindCounts} />
       {/* Message list */}
       <View style={styles.listContainer}>
         {loading ? (
@@ -868,7 +934,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             renderItem={renderItem}
             inverted
             contentContainerStyle={styles.listContent}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(entry) => entry.kind === 'placeholder' ? entry.id : entry.data.id}
             onScroll={handleScroll}
             scrollEventThrottle={200}
             ListHeaderComponent={showStreaming ? (

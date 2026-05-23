@@ -13,6 +13,11 @@ interface Props {
   tool: ClaudeToolCall
 }
 
+function fmtTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 /** Compact one-line summary of tool input (matches desktop toolInputSummary) */
 function toolInputSummary(input: Record<string, unknown>): string {
   if (input.command) return String(input.command).slice(0, 120)
@@ -35,6 +40,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
   // Description from input.description, or fall back to input summary
   const desc = tool.input?.description ? String(tool.input.description) : null
   const summary = desc || toolInputSummary(tool.input)
+  const timestamp = fmtTime(tool.timestamp)
 
   return (
     <TouchableOpacity
@@ -42,6 +48,12 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
       onPress={() => setExpanded(!expanded)}
       activeOpacity={0.7}
     >
+      <View style={styles.kindHeader}>
+        <View style={[styles.kindDot, { backgroundColor: '#10b981' }]} />
+        <Text style={styles.kindLabel}>TOOL</Text>
+        {timestamp ? <Text style={styles.kindTime}>{timestamp}</Text> : null}
+      </View>
+
       <View style={styles.header}>
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
         <Text style={styles.toolName}>{tool.toolName}</Text>
@@ -77,6 +89,29 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     minHeight: 40,
     justifyContent: 'center',
+  },
+  kindHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  kindDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  kindLabel: {
+    fontFamily: 'monospace',
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  kindTime: {
+    fontFamily: 'monospace',
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
   },
   header: {
     flexDirection: 'row',
