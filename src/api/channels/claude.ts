@@ -58,46 +58,61 @@ export function createClaudeChannel(ws: WebSocketClient) {
       agentPreset?: string
       codexSandboxMode?: string
       codexApprovalPolicy?: string
-    }) => ws.invoke('claude:start-session', sessionId, options),
+    }) => ws.invokeParams('agent:start-session', { sessionId, options }, [sessionId, options]),
 
     sendMessage: (sessionId: string, prompt: string, images?: string[]) =>
-      ws.invoke('claude:send-message', sessionId, prompt, images),
+      ws.invokeParams('agent:send-message', { sessionId, prompt, images }, [sessionId, prompt, images]),
 
     stopSession: (sessionId: string) =>
-      ws.invoke<boolean>('claude:stop-session', sessionId),
+      ws.invokeParams<boolean>('agent:stop-session', { sessionId }, [sessionId]),
 
     abortSession: (sessionId: string) =>
-      ws.invoke('claude:abort-session', sessionId),
+      ws.invokeParams('agent:abort-session', { sessionId }, [sessionId]),
 
     resetSession: (sessionId: string) =>
-      ws.invoke('claude:reset-session', sessionId),
+      ws.invokeParams('agent:reset-session', { sessionId }, [sessionId]),
 
     resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, options?: {
       agentPreset?: string
       permissionMode?: string
       effort?: string
-      codexSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
-      codexApprovalPolicy?: 'untrusted' | 'on-request' | 'never'
+      codexSandboxMode?: string
+      codexApprovalPolicy?: string
     }) =>
-      ws.invoke(
-        'claude:resume-session',
-        sessionId,
-        sdkSessionId,
-        cwd,
-        model,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        options?.agentPreset,
-        options?.codexSandboxMode,
-        options?.codexApprovalPolicy,
-        options?.permissionMode,
-        options?.effort,
+      ws.invokeParams(
+        'agent:resume-session',
+        {
+          sessionId,
+          sdkSessionId,
+          options: {
+            cwd,
+            model,
+            agentPreset: options?.agentPreset,
+            codexSandboxMode: options?.codexSandboxMode,
+            codexApprovalPolicy: options?.codexApprovalPolicy,
+            permissionMode: options?.permissionMode,
+            effort: options?.effort,
+          },
+        },
+        [
+          sessionId,
+          sdkSessionId,
+          cwd,
+          model,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          options?.agentPreset,
+          options?.codexSandboxMode,
+          options?.codexApprovalPolicy,
+          options?.permissionMode,
+          options?.effort,
+        ],
       ),
 
     forkSession: (sessionId: string) =>
-      ws.invoke<string>('claude:fork-session', sessionId),
+      ws.invokeParams<string>('agent:fork-session', { sessionId }, [sessionId]),
 
     rewindToPrompt: (sessionId: string, promptIndex: number) =>
       ws.invoke('claude:rewind-to-prompt', sessionId, promptIndex),
@@ -112,23 +127,23 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invoke<boolean>('claude:is-resting', sessionId),
 
     listSessions: (cwd: string) =>
-      ws.invoke('claude:list-sessions', cwd),
+      ws.invoke<unknown[]>('claude:list-sessions', cwd),
 
     // ---- Settings ----
     setPermissionMode: (sessionId: string, mode: string) =>
-      ws.invoke('claude:set-permission-mode', sessionId, mode),
+      ws.invokeParams('agent:set-permission-mode', { sessionId, mode }, [sessionId, mode]),
 
-    setCodexSandboxMode: (sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access') =>
-      ws.invoke('claude:set-codex-sandbox-mode', sessionId, mode),
+    setCodexSandboxMode: (sessionId: string, mode: string) =>
+      ws.invokeParams('agent:set-codex-sandbox-mode', { sessionId, mode }, [sessionId, mode]),
 
-    setCodexApprovalPolicy: (sessionId: string, policy: 'untrusted' | 'on-request' | 'never') =>
-      ws.invoke('claude:set-codex-approval-policy', sessionId, policy),
+    setCodexApprovalPolicy: (sessionId: string, policy: string) =>
+      ws.invokeParams('agent:set-codex-approval-policy', { sessionId, policy }, [sessionId, policy]),
 
     setModel: (sessionId: string, model: string) =>
-      ws.invoke('claude:set-model', sessionId, model),
+      ws.invokeParams('agent:set-model', { sessionId, model }, [sessionId, model]),
 
     setEffort: (sessionId: string, effort: string) =>
-      ws.invoke('claude:set-effort', sessionId, effort),
+      ws.invokeParams('agent:set-effort', { sessionId, effort }, [sessionId, effort]),
 
     setAutoContinue: (sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) =>
       ws.invoke('claude:set-auto-continue', sessionId, opts),
@@ -138,29 +153,38 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     // ---- Info ----
     getSupportedModels: (sessionId: string) =>
-      ws.invoke<string[]>('claude:get-supported-models', sessionId),
+      ws.invokeParams<unknown[]>('agent:get-supported-models', { sessionId }, [sessionId]),
+
+    getSupportedEfforts: (sessionId: string) =>
+      ws.invokeParams<unknown[]>('agent:get-supported-efforts', { sessionId }, [sessionId]),
+
+    getSupportedCodexSandboxModes: (sessionId: string) =>
+      ws.invokeParams<unknown[]>('agent:get-supported-codex-sandbox-modes', { sessionId }, [sessionId]),
+
+    getSupportedCodexApprovalPolicies: (sessionId: string) =>
+      ws.invokeParams<unknown[]>('agent:get-supported-codex-approval-policies', { sessionId }, [sessionId]),
 
     getSupportedAgents: (sessionId: string) =>
-      ws.invoke('claude:get-supported-agents', sessionId),
+      ws.invokeParams<unknown[]>('agent:get-supported-agents', { sessionId }, [sessionId]),
 
     getAccountInfo: (sessionId: string) =>
       ws.invoke('claude:get-account-info', sessionId),
 
     getSessionMeta: (sessionId: string) =>
-      ws.invoke<SessionMeta>('claude:get-session-meta', sessionId),
+      ws.invokeParams<SessionMeta>('agent:get-session-meta', { sessionId }, [sessionId]),
 
     getSupportedCommands: (sessionId: string) =>
-      ws.invoke('claude:get-supported-commands', sessionId),
+      ws.invokeParams<unknown[]>('agent:get-supported-commands', { sessionId }, [sessionId]),
 
     getContextUsage: (sessionId: string) =>
-      ws.invoke('claude:get-context-usage', sessionId),
+      ws.invokeParams('agent:get-context-usage', { sessionId }, [sessionId]),
 
     getCliPath: () =>
       ws.invoke<string>('claude:get-cli-path'),
 
     // ---- Worktree ----
     getWorktreeStatus: (sessionId: string) =>
-      ws.invoke('claude:get-worktree-status', sessionId),
+      ws.invokeParams('agent:get-worktree-status', { sessionId }, [sessionId]),
 
     cleanupWorktree: (sessionId: string) =>
       ws.invoke('claude:cleanup-worktree', sessionId),

@@ -1,9 +1,9 @@
 /**
  * BAT WebSocket Protocol Types
- * Synced with BAT Desktop: electron/remote/protocol.ts
+ * Synced with BAT Desktop remote WebSocket protocol.
  *
- * Channel names are single strings: 'namespace:method' (e.g., 'pty:create')
- * Args are flat arrays, invoked as handler(...args)
+ * V2 uses named `params` and canonical remote agent channels under `agent:*`.
+ * Legacy v1 uses positional `args`.
  */
 
 export type RemoteFrameType =
@@ -21,6 +21,7 @@ export interface RemoteFrame {
   id: string
   channel?: string
   args?: unknown[]
+  params?: unknown
   protocols?: string[]
   protocol?: string
   result?: unknown
@@ -28,10 +29,25 @@ export interface RemoteFrame {
   token?: string
 }
 
+export const REMOTE_PROTOCOL_V2 = 'bat-remote/v2'
 export const REMOTE_PROTOCOL_LEGACY_V1 = 'bat-remote/legacy-v1'
 
 // Channels proxied to remote host (client can invoke)
 export const PROXIED_CHANNELS = new Set([
+  // App metadata
+  'app:get-version',
+  // Agent runtime (v2 canonical namespace)
+  'agent:start-session', 'agent:resume-session', 'agent:send-message',
+  'agent:stop-session', 'agent:abort-session', 'agent:reset-session',
+  'agent:set-model', 'agent:set-effort', 'agent:set-permission-mode',
+  'agent:set-codex-sandbox-mode', 'agent:set-codex-approval-policy',
+  'agent:get-supported-models', 'agent:get-supported-efforts',
+  'agent:get-supported-codex-sandbox-modes',
+  'agent:get-supported-codex-approval-policies',
+  'agent:get-supported-commands', 'agent:get-supported-agents',
+  'agent:get-session-state', 'agent:get-session-meta',
+  'agent:get-context-usage', 'agent:get-worktree-status',
+  'agent:fork-session', 'agent:list-sessions',
   // PTY
   'pty:create', 'pty:write', 'pty:read-buffer', 'pty:resize',
   'pty:get-viewport-state', 'pty:set-viewport-mode', 'pty:set-viewport-size',
@@ -80,6 +96,12 @@ export const PROXIED_CHANNELS = new Set([
 // Events pushed from host to remote clients
 export const PROXIED_EVENTS = new Set([
   'pty:output', 'pty:exit', 'pty:viewport-state',
+  'agent:message', 'agent:tool-use', 'agent:tool-result',
+  'agent:stream', 'agent:result', 'agent:turn-end', 'agent:error',
+  'agent:status', 'agent:permission-request', 'agent:permission-resolved',
+  'agent:ask-user', 'agent:ask-user-resolved', 'agent:modeChange',
+  'agent:history', 'agent:resume-loading', 'agent:prompt-suggestion',
+  'agent:session-reset', 'agent:worktree-info', 'agent:rate-limit',
   'claude:message', 'claude:tool-use', 'claude:tool-result',
   'claude:stream', 'claude:result', 'claude:turn-end', 'claude:error',
   'claude:status', 'claude:permission-request', 'claude:permission-resolved', 'claude:ask-user', 'claude:ask-user-resolved',

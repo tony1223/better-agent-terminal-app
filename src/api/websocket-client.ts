@@ -7,7 +7,12 @@
  * Implements auth, request-response correlation, event dispatch, and exponential backoff reconnect.
  */
 
-import { PROXIED_EVENTS, REMOTE_PROTOCOL_LEGACY_V1, type RemoteFrame } from './protocol'
+import {
+  PROXIED_EVENTS,
+  REMOTE_PROTOCOL_LEGACY_V1,
+  REMOTE_PROTOCOL_V2,
+  type RemoteFrame,
+} from './protocol'
 import { TLSWebSocket } from '@/native/tls-websocket'
 import { dlog } from '@/utils/debug-log'
 
@@ -27,6 +32,7 @@ interface PendingInvoke {
 
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
+type RemoteProtocol = typeof REMOTE_PROTOCOL_V2 | typeof REMOTE_PROTOCOL_LEGACY_V1
 
 export interface RemoteClientContext {
   windowId?: string | null
@@ -38,6 +44,81 @@ const HEARTBEAT_MS = 30_000
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function canonicalRemoteChannel(channel: string): string {
+  const rest = channel.startsWith('agent:') ? channel.slice('agent:'.length) : null
+  if (!rest || rest === 'list-presets') return channel
+  return `claude:${rest}`
+}
+
+function remoteAgentChannel(channel: string): string {
+  return channel.startsWith('claude:')
+    ? `agent:${channel.slice('claude:'.length)}`
+    : channel
+}
+
+function valueAt(record: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : null
+}
+
+function eventParamsToArgs(channel: string, params: unknown): unknown[] {
+  if (Array.isArray(params)) return params
+  const record = asRecord(params)
+  if (!record) return params === undefined ? [] : [params]
+
+  switch (canonicalRemoteChannel(channel)) {
+    case 'pty:output':
+      return [valueAt(record, 'id'), valueAt(record, 'data')]
+    case 'pty:exit':
+      return [valueAt(record, 'id'), valueAt(record, 'exitCode')]
+    case 'pty:viewport-state':
+      return [valueAt(record, 'id'), valueAt(record, 'state')]
+    case 'claude:session-reset':
+      return [valueAt(record, 'sessionId')]
+    case 'claude:message':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'message')]
+    case 'claude:tool-use':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'toolCall')]
+    case 'claude:tool-result':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'result')]
+    case 'claude:stream':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'data')]
+    case 'claude:result':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'result')]
+    case 'claude:turn-end':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'payload')]
+    case 'claude:error':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'error')]
+    case 'claude:status':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'meta')]
+    case 'claude:modeChange':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'mode')]
+    case 'claude:history':
+      return [valueAt(record, 'sessionId'), record.items ?? record.payload ?? null]
+    case 'claude:resume-loading':
+      return [valueAt(record, 'sessionId'), record.loading ?? record.payload ?? null]
+    case 'claude:permission-request':
+    case 'claude:ask-user':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'data')]
+    case 'claude:permission-resolved':
+    case 'claude:ask-user-resolved':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'toolUseId')]
+    case 'claude:prompt-suggestion':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'suggestion')]
+    case 'claude:worktree-info':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'payload')]
+    case 'claude:rate-limit':
+      return [valueAt(record, 'sessionId'), valueAt(record, 'info')]
+    default:
+      return [params]
+  }
+}
+
 export class WebSocketClient {
   private ws: TLSWebSocket | null = null
   private pending: Map<string, PendingInvoke> = new Map()
@@ -46,6 +127,7 @@ export class WebSocketClient {
   private _status: ConnectionStatus = 'disconnected'
   private _counter = 0
   private _error: string | null = null
+  private protocol: RemoteProtocol = REMOTE_PROTOCOL_LEGACY_V1
 
   // Connection params
   private host = ''
@@ -121,6 +203,7 @@ export class WebSocketClient {
     this.context = context ?? null
     this.shouldReconnect = true
     this.reconnectAttempt = 0
+    this.protocol = REMOTE_PROTOCOL_LEGACY_V1
     this.generation++
 
     return this.doConnect()
@@ -185,7 +268,7 @@ export class WebSocketClient {
             type: 'auth',
             id: this.nextId(),
             token: this.token,
-            protocols: [REMOTE_PROTOCOL_LEGACY_V1],
+            protocols: [REMOTE_PROTOCOL_V2, REMOTE_PROTOCOL_LEGACY_V1],
             args: this.context ? [this.label, this.context] : [this.label],
           }
           ws.send(JSON.stringify(authFrame))
@@ -209,7 +292,10 @@ export class WebSocketClient {
                 this.setStatus('error', frame.error)
                 resolve(false)
               } else {
-                dlog('WS', 'auth success, connected!')
+                this.protocol = frame.protocol === REMOTE_PROTOCOL_V2
+                  ? REMOTE_PROTOCOL_V2
+                  : REMOTE_PROTOCOL_LEGACY_V1
+                dlog('WS', `auth success, connected! protocol=${this.protocol}`)
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -235,10 +321,14 @@ export class WebSocketClient {
 
           if (frame.type === 'pong') return
 
-          if (frame.type === 'event' && frame.channel && PROXIED_EVENTS.has(frame.channel)) {
-            const handlers = this.listeners.get(frame.channel)
+          if (frame.type === 'event' && frame.channel) {
+            const channel = canonicalRemoteChannel(frame.channel)
+            if (!PROXIED_EVENTS.has(frame.channel) && !PROXIED_EVENTS.has(channel)) return
+            const handlers = this.listeners.get(channel)
             if (handlers) {
-              const args = frame.args || []
+              const args = frame.params !== undefined
+                ? eventParamsToArgs(channel, frame.params)
+                : frame.args || []
               for (const handler of handlers) {
                 try {
                   handler(...args)
@@ -364,6 +454,47 @@ export class WebSocketClient {
 
     const id = this.nextId()
     const frame: RemoteFrame = { type: 'invoke', id, channel, args }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Remote invoke timeout: ${channel}`))
+      }, INVOKE_TIMEOUT_MS)
+
+      this.pending.set(id, {
+        resolve: resolve as (result: unknown) => void,
+        reject,
+        timer,
+      })
+
+      this.ws!.send(JSON.stringify(frame))
+    })
+  }
+
+  invokeParams<T = unknown>(
+    channel: string,
+    params: unknown,
+    legacyArgs: unknown[] = [],
+  ): Promise<T> {
+    if (!this.isConnected) {
+      return Promise.reject(new Error('Not connected to remote server'))
+    }
+
+    const id = this.nextId()
+    const frame: RemoteFrame = this.protocol === REMOTE_PROTOCOL_V2
+      ? {
+        type: 'invoke',
+        id,
+        channel: remoteAgentChannel(channel),
+        params,
+        args: legacyArgs,
+      }
+      : {
+        type: 'invoke',
+        id,
+        channel: canonicalRemoteChannel(channel),
+        args: legacyArgs,
+      }
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

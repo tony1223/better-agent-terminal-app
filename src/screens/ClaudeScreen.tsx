@@ -103,6 +103,11 @@ function normalizeModelOptions(raw: unknown): ModelOption[] {
   })
 }
 
+function normalizeStringOptions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap(item => typeof item === 'string' && item.trim() ? [item.trim()] : [])
+}
+
 function optionalText(value: unknown): string | undefined {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -158,14 +163,17 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true)
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [effortLevel, setEffortLevel] = useState('high')
-  const [codexSandboxMode, setCodexSandboxMode] = useState<typeof CODEX_SANDBOX_MODES[number]>('workspace-write')
-  const [codexApprovalPolicy, setCodexApprovalPolicy] = useState<typeof CODEX_APPROVAL_POLICIES[number]>('on-request')
+  const [codexSandboxMode, setCodexSandboxMode] = useState('workspace-write')
+  const [codexApprovalPolicy, setCodexApprovalPolicy] = useState('on-request')
   const [showFab, setShowFab] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [showEffortPicker, setShowEffortPicker] = useState(false)
   const [showSandboxPicker, setShowSandboxPicker] = useState(false)
   const [showApprovalPicker, setShowApprovalPicker] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
+  const [supportedEffortOptions, setSupportedEffortOptions] = useState<string[]>([])
+  const [supportedSandboxOptions, setSupportedSandboxOptions] = useState<string[]>([])
+  const [supportedApprovalOptions, setSupportedApprovalOptions] = useState<string[]>([])
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
   const [historyLoadingInBackground, setHistoryLoadingInBackground] = useState(false)
@@ -182,7 +190,22 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent'
   const isOpenAIAgent = agentPreset === 'openai-agent'
-  const effortOptions = isCodexAgent ? CODEX_EFFORT_LEVELS : CLAUDE_EFFORT_LEVELS
+  const fallbackEffortOptions = useMemo(
+    () => isCodexAgent ? [...CODEX_EFFORT_LEVELS] : [...CLAUDE_EFFORT_LEVELS],
+    [isCodexAgent],
+  )
+  const effortOptions = useMemo(
+    () => supportedEffortOptions.length > 0 ? supportedEffortOptions : fallbackEffortOptions,
+    [fallbackEffortOptions, supportedEffortOptions],
+  )
+  const sandboxOptions = useMemo(
+    () => supportedSandboxOptions.length > 0 ? supportedSandboxOptions : [...CODEX_SANDBOX_MODES],
+    [supportedSandboxOptions],
+  )
+  const approvalOptions = useMemo(
+    () => supportedApprovalOptions.length > 0 ? supportedApprovalOptions : [...CODEX_APPROVAL_POLICIES],
+    [supportedApprovalOptions],
+  )
   const terminalCwd = terminal?.cwd
   const terminalSdkSessionId = terminal?.sdkSessionId
   const terminalModel = terminal?.model
@@ -415,10 +438,58 @@ export function ClaudeScreen({ route, navigation }: Props) {
   }, [session.meta?.permissionMode])
 
   useEffect(() => {
+    if (!channels) return
+    let cancelled = false
+    channels.claude.getSupportedEfforts(sessionId)
+      .then(raw => {
+        if (!cancelled) setSupportedEffortOptions(normalizeStringOptions(raw))
+      })
+      .catch(() => {
+        if (!cancelled) setSupportedEffortOptions([])
+      })
+
+    if (isCodexAgent) {
+      channels.claude.getSupportedCodexSandboxModes(sessionId)
+        .then(raw => {
+          if (!cancelled) setSupportedSandboxOptions(normalizeStringOptions(raw))
+        })
+        .catch(() => {
+          if (!cancelled) setSupportedSandboxOptions([])
+        })
+      channels.claude.getSupportedCodexApprovalPolicies(sessionId)
+        .then(raw => {
+          if (!cancelled) setSupportedApprovalOptions(normalizeStringOptions(raw))
+        })
+        .catch(() => {
+          if (!cancelled) setSupportedApprovalOptions([])
+        })
+    } else {
+      setSupportedSandboxOptions([])
+      setSupportedApprovalOptions([])
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [channels, isCodexAgent, sessionId])
+
+  useEffect(() => {
     if (!(effortOptions as readonly string[]).includes(effortLevel)) {
-      setEffortLevel('high')
+      setEffortLevel(effortOptions[0] ?? 'high')
     }
   }, [effortLevel, effortOptions])
+
+  useEffect(() => {
+    if (isCodexAgent && !sandboxOptions.includes(codexSandboxMode)) {
+      setCodexSandboxMode(sandboxOptions[0] ?? 'workspace-write')
+    }
+  }, [codexSandboxMode, isCodexAgent, sandboxOptions])
+
+  useEffect(() => {
+    if (isCodexAgent && !approvalOptions.includes(codexApprovalPolicy)) {
+      setCodexApprovalPolicy(approvalOptions[0] ?? 'on-request')
+    }
+  }, [approvalOptions, codexApprovalPolicy, isCodexAgent])
 
   useEffect(() => {
     const sandbox = terminal?.agentParams?.sandboxMode
@@ -519,14 +590,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
     await channels.claude.setEffort(sessionId, effort)
   }, [channels, sessionId])
 
-  const handleCodexSandboxSelect = useCallback(async (mode: typeof CODEX_SANDBOX_MODES[number]) => {
+  const handleCodexSandboxSelect = useCallback(async (mode: string) => {
     if (!channels) return
     setShowSandboxPicker(false)
     setCodexSandboxMode(mode)
     await channels.claude.setCodexSandboxMode(sessionId, mode)
   }, [channels, sessionId])
 
-  const handleCodexApprovalSelect = useCallback(async (policy: typeof CODEX_APPROVAL_POLICIES[number]) => {
+  const handleCodexApprovalSelect = useCallback(async (policy: string) => {
     if (!channels) return
     setShowApprovalPicker(false)
     setCodexApprovalPolicy(policy)
@@ -901,7 +972,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{isCodexAgent ? 'Select Thinking' : 'Select Effort'}</Text>
             <FlatList
-              data={[...effortOptions]}
+              data={effortOptions}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -927,7 +998,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Sandbox</Text>
             <FlatList
-              data={[...CODEX_SANDBOX_MODES]}
+              data={sandboxOptions}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -953,7 +1024,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Approval</Text>
             <FlatList
-              data={[...CODEX_APPROVAL_POLICIES]}
+              data={approvalOptions}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
