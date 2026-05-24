@@ -10,6 +10,8 @@
 	<string>Better Agent Terminal</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -36,7 +38,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>BAT Mobile needs camera access to scan QR codes for quick host connection setup.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Better Agent Terminal uses your location only when needed to discover and connect to nearby development hosts.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

@@ -283,7 +283,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.tonyq.batmobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonyq.betteragentterminal;
 				PRODUCT_NAME = BATMobile;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -314,7 +314,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.tonyq.batmobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tonyq.betteragentterminal;
 				PRODUCT_NAME = BATMobile;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
