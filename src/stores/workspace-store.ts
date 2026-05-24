@@ -240,7 +240,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
       throw e
     }
-    await get().load()
+
+    get().applyState(nextState)
     return terminal
   },
 

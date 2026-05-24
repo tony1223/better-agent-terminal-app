@@ -33,7 +33,7 @@ export interface AgentPreset {
 }
 
 export const AGENT_PRESETS: AgentPreset[] = [
-  { id: 'claude-code', name: 'Claude Agent (V1)', icon: '\u2726', color: '#d97706', command: 'claude --continue' },
+  { id: 'claude-code', name: 'Claude Agent', icon: '\u2726', color: '#d97706', command: 'claude --continue' },
   { id: 'claude-code-v2', name: 'Claude Agent (V2)', icon: '\u2726', color: '#eab308' },
   { id: 'claude-code-worktree', name: 'Claude Agent (Worktree)', icon: '\u2726', color: '#22c55e' },
   { id: 'claude-cli', name: 'Claude CLI', icon: '\u25B6', color: '#d97706' },
@@ -49,6 +49,40 @@ export const AGENT_PRESETS: AgentPreset[] = [
 
 export function getAgentPreset(id: string): AgentPreset | undefined {
   return AGENT_PRESETS.find(p => p.id === id)
+}
+
+export function normalizeAgentPresetsFromHost(value: unknown): AgentPreset[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap(item => {
+    if (typeof item === 'string') {
+      const fallback = getAgentPreset(item)
+      return fallback ? [fallback] : []
+    }
+
+    if (!item || typeof item !== 'object') return []
+
+    const record = item as Record<string, unknown>
+    const id = typeof record.id === 'string' ? record.id : ''
+    if (!id) return []
+
+    const fallback = getAgentPreset(id)
+    return [{
+      id,
+      name: typeof record.name === 'string' && record.name.trim()
+        ? record.name
+        : fallback?.name ?? id,
+      icon: typeof record.icon === 'string' && record.icon
+        ? record.icon
+        : fallback?.icon ?? '?',
+      color: typeof record.color === 'string' && record.color
+        ? record.color
+        : fallback?.color ?? '#888888',
+      command: typeof record.command === 'string'
+        ? record.command
+        : fallback?.command,
+    }]
+  })
 }
 
 // ============================================

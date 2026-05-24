@@ -2,7 +2,7 @@
  * TerminalListScreen - List terminals in the active workspace
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -16,8 +16,8 @@ import {
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-import { AGENT_PRESETS, getAgentPreset } from '@/types'
-import type { AgentPresetId, TerminalInstance } from '@/types'
+import { getAgentPreset, normalizeAgentPresetsFromHost } from '@/types'
+import type { AgentPreset, AgentPresetId, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
 type Props = {
@@ -37,30 +37,34 @@ export function TerminalListScreen({ navigation }: Props) {
     requestCloseSession,
   } = useWorkspaceStore()
   const [showAddModal, setShowAddModal] = useState(false)
-  const [supportedSessionTypes, setSupportedSessionTypes] = useState<Set<string> | null>(null)
+  const [availableSessionTypes, setAvailableSessionTypes] = useState<AgentPreset[] | null>(null)
   const [loadingTypes, setLoadingTypes] = useState(false)
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
+  const createRequestRef = useRef(0)
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
   const workspaceTerminals = terminals.filter(
     t => t.workspaceId === activeWorkspaceId
   )
-  const availableSessionTypes = useMemo(
-    () => supportedSessionTypes
-      ? AGENT_PRESETS.filter(preset => supportedSessionTypes.has(preset.id))
-      : [],
-    [supportedSessionTypes],
-  )
+  const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
   const loadSupportedSessionTypes = useCallback(async () => {
     if (!channels) return
     setLoadingTypes(true)
     try {
+      const presets = await channels.agent.listPresets()
+        .then(normalizeAgentPresetsFromHost)
+        .catch(() => [])
+      if (presets.length > 0) {
+        setAvailableSessionTypes(presets)
+        return
+      }
+
       const ids = await channels.agent.getSupportedSessionTypes()
-      setSupportedSessionTypes(new Set((ids || []).map(String)))
+      setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
-      setSupportedSessionTypes(new Set())
+      setAvailableSessionTypes([])
       Alert.alert('Unable to load session types', String(e))
     } finally {
       setLoadingTypes(false)
@@ -81,16 +85,38 @@ export function TerminalListScreen({ navigation }: Props) {
   const addSession = async (presetId: string) => {
     if (!activeWorkspaceId) return
     const agentPreset = presetId === 'none' ? undefined : presetId as AgentPresetId
+    const requestId = createRequestRef.current + 1
+    createRequestRef.current = requestId
     setCreatingType(presetId)
     try {
       const terminal = await requestAddSession(activeWorkspaceId, agentPreset)
+      if (createRequestRef.current !== requestId) {
+        try {
+          await requestCloseSession(terminal.id)
+        } catch (cancelError) {
+          Alert.alert('Unable to cancel session', String(cancelError))
+        }
+        return
+      }
       setShowAddModal(false)
       handlePress(terminal)
     } catch (e) {
-      Alert.alert('Unable to add session', String(e))
+      if (createRequestRef.current === requestId) {
+        Alert.alert('Unable to add session', String(e))
+      }
     } finally {
+      if (createRequestRef.current === requestId) {
+        setCreatingType(null)
+      }
+    }
+  }
+
+  const dismissAddModal = () => {
+    if (creatingType) {
+      createRequestRef.current += 1
       setCreatingType(null)
     }
+    setShowAddModal(false)
   }
 
   const closeSession = (terminal: TerminalInstance) => {
@@ -165,7 +191,7 @@ export function TerminalListScreen({ navigation }: Props) {
             style={styles.headerButton}
             onPress={() => {
               setShowAddModal(true)
-              if (!supportedSessionTypes) {
+              if (!availableSessionTypes) {
                 loadSupportedSessionTypes().catch(() => undefined)
               }
             }}
@@ -195,21 +221,26 @@ export function TerminalListScreen({ navigation }: Props) {
           </Text>
         </View>
       )}
-      <Modal visible={showAddModal} animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+      <Modal
+        visible={showAddModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={dismissAddModal}
+      >
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Session</Text>
-            <TouchableOpacity style={styles.headerButton} onPress={() => setShowAddModal(false)}>
-              <Text style={styles.headerButtonText}>Close</Text>
+            <TouchableOpacity style={styles.headerButton} onPress={dismissAddModal}>
+              <Text style={styles.headerButtonText}>{creatingType ? 'Cancel' : 'Close'}</Text>
             </TouchableOpacity>
           </View>
-          {loadingTypes && availableSessionTypes.length === 0 ? (
+          {loadingTypes && sessionTypeRows.length === 0 ? (
             <View style={styles.loadingPane}>
               <ActivityIndicator color={appColors.accent} />
             </View>
           ) : (
             <FlatList
-              data={availableSessionTypes}
+              data={sessionTypeRows}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => {
                 const isCreating = creatingType === item.id

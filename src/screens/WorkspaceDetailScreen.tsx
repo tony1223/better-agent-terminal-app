@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,13 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
-import { AGENT_PRESETS, getAgentPreset, type AgentPresetId, type TerminalInstance } from '@/types'
+import {
+  getAgentPreset,
+  normalizeAgentPresetsFromHost,
+  type AgentPreset,
+  type AgentPresetId,
+  type TerminalInstance,
+} from '@/types'
 
 type Props = NativeStackScreenProps<any, 'WorkspaceDetail'>
 
@@ -114,29 +120,33 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const requestAddSession = useWorkspaceStore(s => s.requestAddSession)
   const requestCloseSession = useWorkspaceStore(s => s.requestCloseSession)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [supportedSessionTypes, setSupportedSessionTypes] = useState<Set<string> | null>(null)
+  const [availableSessionTypes, setAvailableSessionTypes] = useState<AgentPreset[] | null>(null)
   const [loadingTypes, setLoadingTypes] = useState(false)
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
+  const createRequestRef = useRef(0)
   const terminals = useMemo(
     () => allTerminals.filter(t => t.workspaceId === workspaceId),
     [allTerminals, workspaceId],
   )
-  const availableSessionTypes = useMemo(
-    () => supportedSessionTypes
-      ? AGENT_PRESETS.filter(preset => supportedSessionTypes.has(preset.id))
-      : [],
-    [supportedSessionTypes],
-  )
+  const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
   const loadSupportedSessionTypes = useCallback(async () => {
     if (!channels) return
     setLoadingTypes(true)
     try {
+      const presets = await channels.agent.listPresets()
+        .then(normalizeAgentPresetsFromHost)
+        .catch(() => [])
+      if (presets.length > 0) {
+        setAvailableSessionTypes(presets)
+        return
+      }
+
       const ids = await channels.agent.getSupportedSessionTypes()
-      setSupportedSessionTypes(new Set((ids || []).map(String)))
+      setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
-      setSupportedSessionTypes(new Set())
+      setAvailableSessionTypes([])
       Alert.alert('Unable to load session types', String(e))
     } finally {
       setLoadingTypes(false)
@@ -154,18 +164,40 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
 
   const addSession = async (presetId: string) => {
     const agentPreset = presetId === 'none' ? undefined : presetId as AgentPresetId
+    const requestId = createRequestRef.current + 1
+    createRequestRef.current = requestId
     setCreatingType(presetId)
     try {
       const terminal = await requestAddSession(workspaceId, agentPreset)
+      if (createRequestRef.current !== requestId) {
+        try {
+          await requestCloseSession(terminal.id)
+        } catch (cancelError) {
+          Alert.alert('Unable to cancel session', String(cancelError))
+        }
+        return
+      }
       setShowAddModal(false)
       const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
       const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
       navigation.getParent?.()?.navigate('Terminals', { screen, params })
     } catch (e) {
-      Alert.alert('Unable to add session', String(e))
+      if (createRequestRef.current === requestId) {
+        Alert.alert('Unable to add session', String(e))
+      }
     } finally {
+      if (createRequestRef.current === requestId) {
+        setCreatingType(null)
+      }
+    }
+  }
+
+  const dismissAddModal = () => {
+    if (creatingType) {
+      createRequestRef.current += 1
       setCreatingType(null)
     }
+    setShowAddModal(false)
   }
 
   const closeSession = (terminal: TerminalInstance) => {
@@ -200,7 +232,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
           style={styles.smallButton}
           onPress={() => {
             setShowAddModal(true)
-            if (!supportedSessionTypes) {
+            if (!availableSessionTypes) {
               loadSupportedSessionTypes().catch(() => undefined)
             }
           }}
@@ -238,19 +270,24 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
           )
         }}
       />
-      <Modal visible={showAddModal} animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+      <Modal
+        visible={showAddModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={dismissAddModal}
+      >
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Add Session</Text>
-            <TouchableOpacity style={styles.smallButton} onPress={() => setShowAddModal(false)}>
-              <Text style={styles.smallButtonText}>Close</Text>
+            <TouchableOpacity style={styles.smallButton} onPress={dismissAddModal}>
+              <Text style={styles.smallButtonText}>{creatingType ? 'Cancel' : 'Close'}</Text>
             </TouchableOpacity>
           </View>
-          {loadingTypes && availableSessionTypes.length === 0 ? (
+          {loadingTypes && sessionTypeRows.length === 0 ? (
             <LoadingState />
           ) : (
             <FlatList
-              data={availableSessionTypes}
+              data={sessionTypeRows}
               keyExtractor={item => item.id}
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={<EmptyMessage title="No session types" body="The host did not report any supported session types." />}
