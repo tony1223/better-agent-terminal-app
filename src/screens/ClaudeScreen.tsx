@@ -915,7 +915,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={0}
     >
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
