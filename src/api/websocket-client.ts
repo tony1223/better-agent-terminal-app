@@ -54,14 +54,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function canonicalRemoteChannel(channel: string): string {
-  const rest = channel.startsWith('agent:') ? channel.slice('agent:'.length) : null
+  const rest = channel.startsWith('claude:') ? channel.slice('claude:'.length) : null
   if (!rest || rest === 'list-presets') return channel
-  return `claude:${rest}`
+  return `agent:${rest}`
 }
 
-function remoteAgentChannel(channel: string): string {
-  return channel.startsWith('claude:')
-    ? `agent:${channel.slice('claude:'.length)}`
+function legacyRemoteChannel(channel: string): string {
+  if (channel === 'agent:list-presets' || channel === 'agent:get-supported-session-types') {
+    return channel
+  }
+  return channel.startsWith('agent:')
+    ? `claude:${channel.slice('agent:'.length)}`
     : channel
 }
 
@@ -96,41 +99,41 @@ function eventParamsToArgs(channel: string, params: unknown): unknown[] {
       return [valueAt(record, 'id'), valueAt(record, 'exitCode')]
     case 'pty:viewport-state':
       return [valueAt(record, 'id'), valueAt(record, 'state')]
-    case 'claude:session-reset':
+    case 'agent:session-reset':
       return [valueAt(record, 'sessionId')]
-    case 'claude:message':
+    case 'agent:message':
       return [valueAt(record, 'sessionId'), valueAt(record, 'message')]
-    case 'claude:tool-use':
+    case 'agent:tool-use':
       return [valueAt(record, 'sessionId'), valueAt(record, 'toolCall')]
-    case 'claude:tool-result':
+    case 'agent:tool-result':
       return [valueAt(record, 'sessionId'), valueAt(record, 'result')]
-    case 'claude:stream':
+    case 'agent:stream':
       return [valueAt(record, 'sessionId'), valueAt(record, 'data')]
-    case 'claude:result':
+    case 'agent:result':
       return [valueAt(record, 'sessionId'), valueAt(record, 'result')]
-    case 'claude:turn-end':
+    case 'agent:turn-end':
       return [valueAt(record, 'sessionId'), valueAt(record, 'payload')]
-    case 'claude:error':
+    case 'agent:error':
       return [valueAt(record, 'sessionId'), valueAt(record, 'error')]
-    case 'claude:status':
+    case 'agent:status':
       return [valueAt(record, 'sessionId'), valueAt(record, 'meta')]
-    case 'claude:modeChange':
+    case 'agent:modeChange':
       return [valueAt(record, 'sessionId'), valueAt(record, 'mode')]
-    case 'claude:history':
+    case 'agent:history':
       return [valueAt(record, 'sessionId'), record.items ?? record.payload ?? null]
-    case 'claude:resume-loading':
+    case 'agent:resume-loading':
       return [valueAt(record, 'sessionId'), record.loading ?? record.payload ?? null]
-    case 'claude:permission-request':
-    case 'claude:ask-user':
+    case 'agent:permission-request':
+    case 'agent:ask-user':
       return [valueAt(record, 'sessionId'), valueAt(record, 'data')]
-    case 'claude:permission-resolved':
-    case 'claude:ask-user-resolved':
+    case 'agent:permission-resolved':
+    case 'agent:ask-user-resolved':
       return [valueAt(record, 'sessionId'), valueAt(record, 'toolUseId')]
-    case 'claude:prompt-suggestion':
+    case 'agent:prompt-suggestion':
       return [valueAt(record, 'sessionId'), valueAt(record, 'suggestion')]
-    case 'claude:worktree-info':
+    case 'agent:worktree-info':
       return [valueAt(record, 'sessionId'), valueAt(record, 'payload')]
-    case 'claude:rate-limit':
+    case 'agent:rate-limit':
       return [valueAt(record, 'sessionId'), valueAt(record, 'info')]
     default:
       return [params]
@@ -179,6 +182,10 @@ export class WebSocketClient {
   get connectionInfo(): { host: string; port: number; tls: boolean; compression: RemoteCompression } | null {
     if (!this.isConnected) return null
     return { host: this.host, port: this.port, tls: this.useTLS, compression: this.compression }
+  }
+
+  get clientContext(): RemoteClientContext | null {
+    return this.context
   }
 
   // ============================================
@@ -476,24 +483,26 @@ export class WebSocketClient {
       return Promise.reject(new Error('Not connected to remote server'))
     }
 
-    const id = this.nextId()
-    const frame: RemoteFrame = { type: 'invoke', id, channel, args }
-    dlog('WS_INVOKE', `send ${channel} id=${id} args=${args.length}`)
+    const frameChannel = this.protocol === REMOTE_PROTOCOL_V2
+      ? canonicalRemoteChannel(channel)
+      : legacyRemoteChannel(channel)
+    const frame: RemoteFrame = { type: 'invoke', id: this.nextId(), channel: frameChannel, args }
+    dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} args=${args.length}`)
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id)
-        dlog('!WS_INVOKE', `timeout ${channel} id=${id}`)
+        this.pending.delete(frame.id)
+        dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
         reject(new Error(`Remote invoke timeout: ${channel}`))
       }, INVOKE_TIMEOUT_MS)
 
-      this.pending.set(id, {
+      this.pending.set(frame.id, {
         resolve: (result: unknown) => {
-          dlog('WS_INVOKE', `result ${channel} id=${id} ${summarizeRemoteValue(result)}`)
+          dlog('WS_INVOKE', `result ${frame.channel} id=${frame.id} ${summarizeRemoteValue(result)}`)
           resolve(result as T)
         },
         reject: (error: Error) => {
-          dlog('!WS_INVOKE', `error ${channel} id=${id}: ${error.message}`)
+          dlog('!WS_INVOKE', `error ${frame.channel} id=${frame.id}: ${error.message}`)
           reject(error)
         },
         timer,
@@ -527,8 +536,8 @@ export class WebSocketClient {
         args: legacyArgs,
       }
     const initialChannel = this.protocol === REMOTE_PROTOCOL_V2
-      ? remoteAgentChannel(channel)
-      : canonicalRemoteChannel(channel)
+      ? canonicalRemoteChannel(channel)
+      : legacyRemoteChannel(channel)
     const sendFrame = (frame: RemoteFrame, allowAgentFallback: boolean): Promise<T> => {
       dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} protocol=${this.protocol} params=${summarizeRemoteValue(params)}`)
 
@@ -547,7 +556,7 @@ export class WebSocketClient {
           reject: (error: Error) => {
             dlog('!WS_INVOKE', `error ${frame.channel} id=${frame.id}: ${error.message}`)
             if (allowAgentFallback && frame.channel?.startsWith('agent:') && isRemoteMethodNotFound(error)) {
-              const fallbackChannel = canonicalRemoteChannel(frame.channel)
+              const fallbackChannel = legacyRemoteChannel(frame.channel)
               dlog('WS_INVOKE', `fallback ${frame.channel} -> ${fallbackChannel}`)
               sendFrame(makeFrame(fallbackChannel), false).then(resolve, reject)
               return

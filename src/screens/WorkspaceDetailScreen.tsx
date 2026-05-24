@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Linking,
@@ -16,7 +17,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
-import { getAgentPreset, type TerminalInstance } from '@/types'
+import { AGENT_PRESETS, getAgentPreset, type AgentPresetId, type TerminalInstance } from '@/types'
 
 type Props = NativeStackScreenProps<any, 'WorkspaceDetail'>
 
@@ -107,12 +108,42 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
 }
 
 function SessionsPane({ workspaceId, navigation }: { workspaceId: string; navigation: any }) {
+  const channels = useConnectionStore(s => s.channels)
   const allTerminals = useWorkspaceStore(s => s.terminals)
   const setActiveTerminal = useWorkspaceStore(s => s.setActiveTerminal)
+  const requestAddSession = useWorkspaceStore(s => s.requestAddSession)
+  const requestCloseSession = useWorkspaceStore(s => s.requestCloseSession)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [supportedSessionTypes, setSupportedSessionTypes] = useState<Set<string> | null>(null)
+  const [loadingTypes, setLoadingTypes] = useState(false)
+  const [creatingType, setCreatingType] = useState<string | null>(null)
+  const [closingId, setClosingId] = useState<string | null>(null)
   const terminals = useMemo(
     () => allTerminals.filter(t => t.workspaceId === workspaceId),
     [allTerminals, workspaceId],
   )
+  const availableSessionTypes = useMemo(
+    () => supportedSessionTypes
+      ? AGENT_PRESETS.filter(preset => supportedSessionTypes.has(preset.id))
+      : [],
+    [supportedSessionTypes],
+  )
+
+  const loadSupportedSessionTypes = useCallback(async () => {
+    if (!channels) return
+    setLoadingTypes(true)
+    try {
+      const ids = await channels.agent.getSupportedSessionTypes()
+      setSupportedSessionTypes(new Set((ids || []).map(String)))
+    } catch (e) {
+      setSupportedSessionTypes(new Set())
+      Alert.alert('Unable to load session types', String(e))
+    } finally {
+      setLoadingTypes(false)
+    }
+  }, [channels])
+
+  useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
 
   const openSession = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)
@@ -121,30 +152,131 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     navigation.getParent?.()?.navigate('Terminals', { screen, params })
   }
 
+  const addSession = async (presetId: string) => {
+    const agentPreset = presetId === 'none' ? undefined : presetId as AgentPresetId
+    setCreatingType(presetId)
+    try {
+      const terminal = await requestAddSession(workspaceId, agentPreset)
+      setShowAddModal(false)
+      const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
+      const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
+      navigation.getParent?.()?.navigate('Terminals', { screen, params })
+    } catch (e) {
+      Alert.alert('Unable to add session', String(e))
+    } finally {
+      setCreatingType(null)
+    }
+  }
+
+  const closeSession = (terminal: TerminalInstance) => {
+    Alert.alert(
+      'Close Session',
+      `Close "${terminal.alias || terminal.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Close',
+          style: 'destructive',
+          onPress: async () => {
+            setClosingId(terminal.id)
+            try {
+              await requestCloseSession(terminal.id)
+            } catch (e) {
+              Alert.alert('Unable to close session', String(e))
+            } finally {
+              setClosingId(null)
+            }
+          },
+        },
+      ],
+    )
+  }
+
   return (
-    <FlatList
-      data={terminals}
-      keyExtractor={item => item.id}
-      contentContainerStyle={styles.listContent}
-      ListEmptyComponent={<EmptyMessage title="No sessions" body="No terminal or agent sessions are attached to this workspace." />}
-      renderItem={({ item }) => {
-        const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
-        return (
-          <TouchableOpacity style={styles.card} onPress={() => openSession(item)}>
-            <View style={styles.row}>
-              <Text style={[styles.leadingIcon, preset && { color: preset.color }]}>
-                {preset?.icon || '>'}
-              </Text>
-              <View style={styles.flex}>
-                <Text style={styles.cardTitle} numberOfLines={1}>{item.alias || item.title}</Text>
-                <Text style={styles.mutedMono} numberOfLines={1}>{item.cwd}</Text>
+    <View style={styles.pane}>
+      <View style={styles.sessionToolbar}>
+        <Text style={styles.sessionToolbarTitle}>Sessions</Text>
+        <TouchableOpacity
+          style={styles.smallButton}
+          onPress={() => {
+            setShowAddModal(true)
+            if (!supportedSessionTypes) {
+              loadSupportedSessionTypes().catch(() => undefined)
+            }
+          }}
+        >
+          <Text style={styles.smallButtonText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+      <FlatList
+        data={terminals}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={<EmptyMessage title="No sessions" body="No terminal or agent sessions are attached to this workspace." />}
+        renderItem={({ item }) => {
+          const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
+          const isClosing = closingId === item.id
+          return (
+            <TouchableOpacity style={styles.card} onPress={() => openSession(item)} disabled={isClosing}>
+              <View style={styles.row}>
+                <Text style={[styles.leadingIcon, preset && { color: preset.color }]}>
+                  {preset?.icon || '>'}
+                </Text>
+                <View style={styles.flex}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{item.alias || item.title}</Text>
+                  <Text style={styles.mutedMono} numberOfLines={1}>{item.cwd}</Text>
+                </View>
+                {isClosing ? (
+                  <ActivityIndicator size="small" color={appColors.accent} />
+                ) : (
+                  <TouchableOpacity style={styles.closeSessionButton} onPress={() => closeSession(item)}>
+                    <Text style={styles.closeSessionText}>Close</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              <View style={[styles.dot, { backgroundColor: item.pid ? appColors.success : appColors.textMuted }]} />
-            </View>
-          </TouchableOpacity>
-        )
-      }}
-    />
+            </TouchableOpacity>
+          )
+        }}
+      />
+      <Modal visible={showAddModal} animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add Session</Text>
+            <TouchableOpacity style={styles.smallButton} onPress={() => setShowAddModal(false)}>
+              <Text style={styles.smallButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+          {loadingTypes && availableSessionTypes.length === 0 ? (
+            <LoadingState />
+          ) : (
+            <FlatList
+              data={availableSessionTypes}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.listContent}
+              ListEmptyComponent={<EmptyMessage title="No session types" body="The host did not report any supported session types." />}
+              renderItem={({ item }) => {
+                const isCreating = creatingType === item.id
+                return (
+                  <TouchableOpacity
+                    style={styles.card}
+                    disabled={!!creatingType}
+                    onPress={() => addSession(item.id)}
+                  >
+                    <View style={styles.row}>
+                      <Text style={[styles.leadingIcon, { color: item.color }]}>{item.icon}</Text>
+                      <View style={styles.flex}>
+                        <Text style={styles.cardTitle}>{item.name}</Text>
+                      </View>
+                      {isCreating && <ActivityIndicator size="small" color={appColors.accent} />}
+                    </View>
+                  </TouchableOpacity>
+                )
+              }}
+            />
+          )}
+        </View>
+      </Modal>
+    </View>
   )
 }
 
@@ -544,6 +676,21 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     flexGrow: 1,
   },
+  sessionToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: appColors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: appColors.border,
+  },
+  sessionToolbarTitle: {
+    flex: 1,
+    color: appColors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '800',
+  },
   card: {
     backgroundColor: appColors.surface,
     borderRadius: 8,
@@ -597,6 +744,21 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginLeft: spacing.sm,
+  },
+  closeSessionButton: {
+    minHeight: 30,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    backgroundColor: appColors.background,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    marginLeft: spacing.sm,
+  },
+  closeSessionText: {
+    color: appColors.error,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
   },
   pathBar: {
     flexDirection: 'row',

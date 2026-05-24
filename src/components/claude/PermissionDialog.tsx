@@ -1,5 +1,5 @@
 /**
- * PermissionDialog - Modal for claude:permission-request events
+ * PermissionDialog - Modal for agent:permission-request events
  */
 
 import React, { useState } from 'react'

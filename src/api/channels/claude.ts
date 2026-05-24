@@ -116,20 +116,20 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams<string>('agent:fork-session', { sessionId }, [sessionId]),
 
     rewindToPrompt: (sessionId: string, promptIndex: number) =>
-      ws.invoke('claude:rewind-to-prompt', sessionId, promptIndex),
+      ws.invokeParams('agent:rewind-to-prompt', { sessionId, promptIndex }, [sessionId, promptIndex]),
 
     restSession: (sessionId: string) =>
-      ws.invoke('claude:rest-session', sessionId),
+      ws.invokeParams('agent:rest-session', { sessionId }, [sessionId]),
 
     wakeSession: (sessionId: string) =>
-      ws.invoke('claude:wake-session', sessionId),
+      ws.invokeParams('agent:wake-session', { sessionId }, [sessionId]),
 
     isResting: (sessionId: string) =>
-      ws.invoke<boolean>('claude:is-resting', sessionId),
+      ws.invokeParams<boolean>('agent:is-resting', { sessionId }, [sessionId]),
 
     listSessions: (cwd: string, agentKind?: 'claude' | 'codex') =>
       ws.invokeParams<unknown[]>(
-        'claude:list-sessions',
+        'agent:list-sessions',
         agentKind ? { cwd, agentKind } : { cwd },
         agentKind ? [cwd, agentKind] : [cwd],
       ),
@@ -151,10 +151,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams('agent:set-effort', { sessionId, effort }, [sessionId, effort]),
 
     setAutoContinue: (sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) =>
-      ws.invoke('claude:set-auto-continue', sessionId, opts),
+      ws.invokeParams('agent:set-auto-continue', { sessionId, opts }, [sessionId, opts]),
 
     getAutoContinue: (sessionId: string) =>
-      ws.invoke<{ enabled: boolean; max?: number; prompt?: string } | null>('claude:get-auto-continue', sessionId),
+      ws.invokeParams<{ enabled: boolean; max?: number; prompt?: string } | null>('agent:get-auto-continue', { sessionId }, [sessionId]),
 
     // ---- Info ----
     getSupportedModels: (sessionId: string) =>
@@ -173,7 +173,7 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams<unknown[]>('agent:get-supported-agents', { sessionId }, [sessionId]),
 
     getAccountInfo: (sessionId: string) =>
-      ws.invoke('claude:get-account-info', sessionId),
+      ws.invokeParams('agent:get-account-info', { sessionId }, [sessionId]),
 
     getSessionMeta: (sessionId: string) =>
       ws.invokeParams<SessionMeta>('agent:get-session-meta', { sessionId }, [sessionId]),
@@ -188,112 +188,112 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams('agent:get-context-usage', { sessionId }, [sessionId]),
 
     getCliPath: () =>
-      ws.invoke<string>('claude:get-cli-path'),
+      ws.invokeParams<string>('agent:get-cli-path', {}, []),
 
     // ---- Worktree ----
     getWorktreeStatus: (sessionId: string) =>
       ws.invokeParams('agent:get-worktree-status', { sessionId }, [sessionId]),
 
     cleanupWorktree: (sessionId: string) =>
-      ws.invoke('claude:cleanup-worktree', sessionId),
+      ws.invokeParams('agent:cleanup-worktree', { sessionId }, [sessionId]),
 
     // ---- Permissions & Interaction ----
     resolvePermission: (sessionId: string, toolUseId: string, result: PermissionResult) =>
-      ws.invoke('claude:resolve-permission', sessionId, toolUseId, result),
+      ws.invokeParams('agent:resolve-permission', { sessionId, toolUseId, result }, [sessionId, toolUseId, result]),
 
     resolveAskUser: (sessionId: string, toolUseId: string, answers: Record<string, string>) =>
-      ws.invoke('claude:resolve-ask-user', sessionId, toolUseId, answers),
+      ws.invokeParams('agent:resolve-ask-user', { sessionId, toolUseId, answers }, [sessionId, toolUseId, answers]),
 
     stopTask: (sessionId: string, taskId: string) =>
-      ws.invoke('claude:stop-task', sessionId, taskId),
+      ws.invokeParams('agent:stop-task', { sessionId, taskId }, [sessionId, taskId]),
 
     // ---- Archive ----
     archiveMessages: (sessionId: string, messages: unknown[]) =>
-      ws.invoke('claude:archive-messages', sessionId, messages),
+      ws.invokeParams('agent:archive-messages', { sessionId, messages }, [sessionId, messages]),
 
     loadArchived: (sessionId: string, offset = 0, limit = 300) =>
-      ws.invoke<{ messages: unknown[]; total: number; hasMore: boolean }>('claude:load-archived', sessionId, offset, limit),
+      ws.invokeParams<{ messages: unknown[]; total: number; hasMore: boolean }>('agent:load-archived', { sessionId, offset, limit }, [sessionId, offset, limit]),
 
     clearArchive: (sessionId: string) =>
-      ws.invoke('claude:clear-archive', sessionId),
+      ws.invokeParams('agent:clear-archive', { sessionId }, [sessionId]),
 
     fetchSubagentMessages: (sessionId: string, subagentId: string) =>
-      ws.invoke('claude:fetch-subagent-messages', sessionId, subagentId),
+      ws.invokeParams('agent:fetch-subagent-messages', { sessionId, subagentId }, [sessionId, subagentId]),
 
     // ---- Skills ----
     scanSkills: (sessionId: string) =>
-      ws.invoke('claude:scan-skills', sessionId),
+      ws.invokeParams('agent:scan-skills', { sessionId }, [sessionId]),
 
     // ---- Auth ----
-    authLogin: () => ws.invoke('claude:auth-login'),
-    authStatus: () => ws.invoke('claude:auth-status'),
-    authLogout: () => ws.invoke('claude:auth-logout'),
+    authLogin: () => ws.invokeParams('agent:auth-login', {}, []),
+    authStatus: () => ws.invokeParams('agent:auth-status', {}, []),
+    authLogout: () => ws.invokeParams('agent:auth-logout', {}, []),
 
     // ---- Account ----
-    accountList: () => ws.invoke('claude:account-list'),
-    accountImportCurrent: () => ws.invoke('claude:account-import-current'),
-    accountLoginNew: () => ws.invoke('claude:account-login-new'),
-    accountSwitch: (accountId: string) => ws.invoke('claude:account-switch', accountId),
-    accountRemove: (accountId: string) => ws.invoke('claude:account-remove', accountId),
-    accountMarkWarningShown: (accountId: string) => ws.invoke('claude:account-mark-warning-shown', accountId),
+    accountList: () => ws.invokeParams('agent:account-list', {}, []),
+    accountImportCurrent: () => ws.invokeParams('agent:account-import-current', {}, []),
+    accountLoginNew: () => ws.invokeParams('agent:account-login-new', {}, []),
+    accountSwitch: (accountId: string) => ws.invokeParams('agent:account-switch', { accountId }, [accountId]),
+    accountRemove: (accountId: string) => ws.invokeParams('agent:account-remove', { accountId }, [accountId]),
+    accountMarkWarningShown: (accountId: string) => ws.invokeParams('agent:account-mark-warning-shown', { accountId }, [accountId]),
 
     // ---- Events ----
     onMessage: (cb: (sessionId: string, msg: ClaudeMessage) => void) =>
-      ws.on('claude:message', cb as (...args: unknown[]) => void),
+      ws.on('agent:message', cb as (...args: unknown[]) => void),
 
     onToolUse: (cb: (sessionId: string, tool: ClaudeToolCall) => void) =>
-      ws.on('claude:tool-use', cb as (...args: unknown[]) => void),
+      ws.on('agent:tool-use', cb as (...args: unknown[]) => void),
 
     onToolResult: (cb: (sessionId: string, result: { id: string; status: string; result?: string; description?: string }) => void) =>
-      ws.on('claude:tool-result', cb as (...args: unknown[]) => void),
+      ws.on('agent:tool-result', cb as (...args: unknown[]) => void),
 
     onStream: (cb: (sessionId: string, data: ClaudeStreamData) => void) =>
-      ws.on('claude:stream', cb as (...args: unknown[]) => void),
+      ws.on('agent:stream', cb as (...args: unknown[]) => void),
 
     onResult: (cb: (sessionId: string, result: ClaudeResult) => void) =>
-      ws.on('claude:result', cb as (...args: unknown[]) => void),
+      ws.on('agent:result', cb as (...args: unknown[]) => void),
 
     onTurnEnd: (cb: (sessionId: string) => void) =>
-      ws.on('claude:turn-end', cb as (...args: unknown[]) => void),
+      ws.on('agent:turn-end', cb as (...args: unknown[]) => void),
 
     onError: (cb: (sessionId: string, error: string) => void) =>
-      ws.on('claude:error', cb as (...args: unknown[]) => void),
+      ws.on('agent:error', cb as (...args: unknown[]) => void),
 
     onStatus: (cb: (sessionId: string, meta: SessionMeta) => void) =>
-      ws.on('claude:status', cb as (...args: unknown[]) => void),
+      ws.on('agent:status', cb as (...args: unknown[]) => void),
 
     onPermissionRequest: (cb: (sessionId: string, data: PermissionRequest) => void) =>
-      ws.on('claude:permission-request', cb as (...args: unknown[]) => void),
+      ws.on('agent:permission-request', cb as (...args: unknown[]) => void),
 
     onPermissionResolved: (cb: (sessionId: string, toolUseId: string) => void) =>
-      ws.on('claude:permission-resolved', cb as (...args: unknown[]) => void),
+      ws.on('agent:permission-resolved', cb as (...args: unknown[]) => void),
 
     onAskUser: (cb: (sessionId: string, data: AskUserRequest) => void) =>
-      ws.on('claude:ask-user', cb as (...args: unknown[]) => void),
+      ws.on('agent:ask-user', cb as (...args: unknown[]) => void),
 
     onAskUserResolved: (cb: (sessionId: string, toolUseId: string) => void) =>
-      ws.on('claude:ask-user-resolved', cb as (...args: unknown[]) => void),
+      ws.on('agent:ask-user-resolved', cb as (...args: unknown[]) => void),
 
     onModeChange: (cb: (sessionId: string, mode: string) => void) =>
-      ws.on('claude:modeChange', cb as (...args: unknown[]) => void),
+      ws.on('agent:modeChange', cb as (...args: unknown[]) => void),
 
     onHistory: (cb: (sessionId: string, items: (ClaudeMessage | ClaudeToolCall)[]) => void) =>
-      ws.on('claude:history', (...args: unknown[]) => {
+      ws.on('agent:history', (...args: unknown[]) => {
         const event = normalizeHistoryEvent(args)
         if (event) cb(event.sessionId, event.items)
       }),
 
     onPromptSuggestion: (cb: (sessionId: string, suggestion: string) => void) =>
-      ws.on('claude:prompt-suggestion', cb as (...args: unknown[]) => void),
+      ws.on('agent:prompt-suggestion', cb as (...args: unknown[]) => void),
 
     onSessionReset: (cb: (sessionId: string) => void) =>
-      ws.on('claude:session-reset', cb as (...args: unknown[]) => void),
+      ws.on('agent:session-reset', cb as (...args: unknown[]) => void),
 
     onWorktreeInfo: (cb: (sessionId: string, info: unknown) => void) =>
-      ws.on('claude:worktree-info', cb as (...args: unknown[]) => void),
+      ws.on('agent:worktree-info', cb as (...args: unknown[]) => void),
 
     onRateLimit: (cb: (sessionId: string, data: unknown) => void) =>
-      ws.on('claude:rate-limit', cb as (...args: unknown[]) => void),
+      ws.on('agent:rate-limit', cb as (...args: unknown[]) => void),
   }
 }
 

@@ -5,11 +5,23 @@
 import type { WebSocketClient } from '../websocket-client'
 
 export function createWorkspaceChannel(ws: WebSocketClient) {
+  const contextParams = () => (
+    ws.clientContext?.windowId ? { windowId: ws.clientContext.windowId } : {}
+  )
+
   return {
     save: (data: string) =>
-      ws.invoke<boolean>('workspace:save', data),
+      ws.invokeParams<boolean>(
+        'workspace:save',
+        { ...contextParams(), data },
+        [undefined, data, ws.clientContext?.windowId],
+      ),
     load: () =>
-      ws.invoke<string | null>('workspace:load'),
+      ws.invokeParams<string | null>(
+        'workspace:load',
+        contextParams(),
+        [undefined, ws.clientContext?.windowId],
+      ),
 
     // Events
     onDetached: (cb: (workspaceId: string) => void) =>

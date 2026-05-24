@@ -9,8 +9,19 @@ import type {
   TerminalInstance,
   AppState,
   ProfileEntry,
+  AgentPresetId,
 } from '@/types'
+import { getAgentPreset } from '@/types'
 import { useConnectionStore } from './connection-store'
+
+const SDK_AGENT_PRESETS = new Set<AgentPresetId>([
+  'claude-code',
+  'claude-code-v2',
+  'claude-code-worktree',
+  'codex-agent',
+  'codex-agent-worktree',
+  'openai-agent',
+])
 
 /**
  * Result of the last `load()` attempt.
@@ -49,6 +60,8 @@ interface WorkspaceState {
   applyProfileChanged: (payload: unknown) => void
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
+  requestAddSession: (workspaceId: string, agentPreset?: AgentPresetId) => Promise<TerminalInstance>
+  requestCloseSession: (terminalId: string) => Promise<void>
 
   // Computed helpers
   getWorkspaceTerminals: (workspaceId: string) => TerminalInstance[]
@@ -184,6 +197,88 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ activeTerminalId: id })
   },
 
+  requestAddSession: async (workspaceId, agentPreset) => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels) throw new Error('Not connected to remote server')
+
+    const { workspaces, terminals } = get()
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    let terminal = createTerminalForWorkspace(workspace, agentPreset)
+    if (isWorktreePreset(agentPreset)) {
+      const result = await channels.worktree.create(terminal.id, workspace.folderPath, false)
+      const worktree = normalizeWorktreeResult(result)
+      if (!worktree.success || !worktree.worktreePath) {
+        throw new Error(worktree.error || 'Host failed to create worktree')
+      }
+      terminal = {
+        ...terminal,
+        cwd: worktree.worktreePath,
+        worktreePath: worktree.worktreePath,
+        branchName: worktree.branchName,
+        title: agentPreset === 'codex-agent-worktree'
+          ? 'Codex Agent (worktree)'
+          : 'Claude Agent (worktree)',
+      }
+    }
+
+    const nextState: AppState = {
+      workspaces,
+      terminals: [...terminals, terminal],
+      activeWorkspaceId: workspaceId,
+      activeTerminalId: terminal.id,
+      focusedTerminalId: terminal.id,
+    }
+
+    try {
+      const saved = await channels.workspace.save(JSON.stringify(nextState))
+      if (!saved) throw new Error('Host rejected workspace save')
+    } catch (e) {
+      if (terminal.worktreePath) {
+        await ignoreMissingRuntime(() => channels.worktree.remove(terminal.id, true))
+      }
+      throw e
+    }
+    await get().load()
+    return terminal
+  },
+
+  requestCloseSession: async (terminalId) => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels) throw new Error('Not connected to remote server')
+
+    const { workspaces, terminals, activeWorkspaceId, activeTerminalId } = get()
+    const terminal = terminals.find(t => t.id === terminalId)
+    if (!terminal) return
+
+    if (terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset)) {
+      await ignoreMissingRuntime(() => channels.claude.stopSession(terminalId))
+    } else {
+      await ignoreMissingRuntime(() => channels.pty.kill(terminalId))
+    }
+
+    const remaining = terminals.filter(t => t.id !== terminalId)
+    const fallback = restoredTerminalForWorkspace(
+      terminal.workspaceId || activeWorkspaceId,
+      remaining,
+    )
+    const nextActiveTerminalId = activeTerminalId === terminalId
+      ? fallback?.id ?? null
+      : activeTerminalId
+    const nextState: AppState = {
+      workspaces,
+      terminals: remaining,
+      activeWorkspaceId,
+      activeTerminalId: nextActiveTerminalId,
+      focusedTerminalId: nextActiveTerminalId,
+    }
+
+    const saved = await channels.workspace.save(JSON.stringify(nextState))
+    if (!saved) throw new Error('Host rejected workspace save')
+    await get().load()
+  },
+
   getWorkspaceTerminals: (workspaceId: string) => {
     return get().terminals.filter(t => t.workspaceId === workspaceId)
   },
@@ -198,6 +293,86 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return terminals.find(t => t.id === activeTerminalId)
   },
 }))
+
+function createTerminalForWorkspace(workspace: Workspace, agentPreset?: AgentPresetId): TerminalInstance {
+  const normalizedPreset = agentPreset && agentPreset !== 'none' ? agentPreset : undefined
+  const preset = normalizedPreset ? getAgentPreset(normalizedPreset) : null
+  return {
+    id: generateSessionId(),
+    workspaceId: workspace.id,
+    type: 'terminal',
+    agentPreset: normalizedPreset,
+    title: preset ? preset.name : 'New Terminal',
+    cwd: workspace.folderPath,
+    scrollbackBuffer: [],
+    lastActivityTime: Date.now(),
+    agentParams: normalizeAgentParams(normalizedPreset),
+  }
+}
+
+function generateSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function normalizeAgentParams(agentPreset?: AgentPresetId): TerminalInstance['agentParams'] {
+  if (agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree') {
+    return {
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'on-request',
+      effortLevel: 'high',
+    }
+  }
+  return undefined
+}
+
+function isWorktreePreset(agentPreset?: AgentPresetId): boolean {
+  return agentPreset === 'claude-code-worktree' || agentPreset === 'codex-agent-worktree'
+}
+
+function normalizeWorktreeResult(value: unknown): {
+  success: boolean
+  worktreePath?: string
+  branchName?: string
+  error?: string
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { success: false, error: 'Invalid worktree response' }
+  }
+  const record = value as Record<string, unknown>
+  return {
+    success: record.success === true,
+    worktreePath: typeof record.worktreePath === 'string' ? record.worktreePath : undefined,
+    branchName: typeof record.branchName === 'string' ? record.branchName : undefined,
+    error: typeof record.error === 'string' ? record.error : undefined,
+  }
+}
+
+function restoredTerminalForWorkspace(
+  workspaceId: string | null | undefined,
+  terminals: TerminalInstance[],
+): TerminalInstance | undefined {
+  return workspaceId
+    ? terminals.find(t => t.workspaceId === workspaceId) ?? terminals[0]
+    : terminals[0]
+}
+
+async function ignoreMissingRuntime(action: () => Promise<unknown>): Promise<void> {
+  try {
+    await action()
+  } catch (e) {
+    const message = String(e)
+    if (
+      /not found/i.test(message) ||
+      /not exist/i.test(message) ||
+      /no such/i.test(message) ||
+      /not running/i.test(message) ||
+      /already stopped/i.test(message)
+    ) {
+      return
+    }
+    throw e
+  }
+}
 
 async function loadFromActiveProfileSnapshot(
   channels: NonNullable<ReturnType<typeof useConnectionStore.getState>['channels']>,

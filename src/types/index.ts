@@ -98,6 +98,8 @@ export interface TerminalInstance {
   agentParams?: Record<string, string | number | boolean | null>
   pendingPrompt?: string
   pendingImages?: string[]
+  worktreePath?: string
+  branchName?: string
 }
 
 // ============================================

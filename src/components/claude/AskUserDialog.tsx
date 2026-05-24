@@ -1,5 +1,5 @@
 /**
- * AskUserDialog - Modal for claude:ask-user events
+ * AskUserDialog - Modal for agent:ask-user events
  */
 
 import React, { useState } from 'react'
