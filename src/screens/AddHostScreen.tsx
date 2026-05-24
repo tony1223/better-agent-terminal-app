@@ -21,6 +21,7 @@ import { useHostStore } from '@/stores/host-store'
 import { WebSocketClient } from '@/api/websocket-client'
 import { parseBATQR, type BATQRPayload } from '@/api/qr-protocol'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { dlog } from '@/utils/debug-log'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
 type Props = {
@@ -82,6 +83,13 @@ export function AddHostScreen({ navigation }: Props) {
 
   const handleTest = async () => {
     if (!isValid) return
+    dlog('!CONN_TEST', 'test pressed', {
+      address: address.trim(),
+      port: parseInt(port, 10),
+      hasTLS,
+      hasFingerprint,
+      hasContext: !!context,
+    })
     setTesting(true)
 
     try {
@@ -96,13 +104,21 @@ export function AddHostScreen({ navigation }: Props) {
         context,
         hasTLS,
       )
+      const err = client.error
       client.disconnect()
 
       if (ok) {
         Alert.alert('Success', `Connection successful!${hasTLS ? ' (TLS)' : ''}`)
       } else {
-        const err = client.error
-        Alert.alert('Failed', err || 'Could not connect. Check address, port, token, and fingerprint.')
+        const message = err || 'Could not connect. Check address, port, token, and fingerprint.'
+        dlog('!CONN_TEST', message, {
+          address: address.trim(),
+          port: parseInt(port, 10),
+          hasTLS,
+          hasFingerprint,
+          hasContext: !!context,
+        })
+        Alert.alert('Failed', message)
       }
     } finally {
       setTesting(false)

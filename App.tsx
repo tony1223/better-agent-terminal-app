@@ -14,12 +14,17 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
 import { openConnectionLink } from '@/utils/connection-link'
+import { dlog } from '@/utils/debug-log'
 
 function App() {
   const status = useConnectionStore(s => s.status)
   const channels = useConnectionStore(s => s.channels)
   const unsubRef = useRef<(() => void) | null>(null)
   const lastLinkRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    dlog('!APP', 'Better Agent Terminal mobile app mounted, build=ios-debug-raw-websocket-tls')
+  }, [])
 
   // When connection is established: load workspace state + subscribe to Claude events
   useEffect(() => {

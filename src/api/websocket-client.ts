@@ -280,6 +280,7 @@ export class WebSocketClient {
       const authTimeout = setTimeout(() => {
         if (!authResolved && gen === this.generation) {
           authResolved = true
+          dlog('!WS', `auth timeout waiting for server response`, { host: this.host, port: this.port, tls: this.useTLS })
           this.setStatus('error', 'Authentication timeout')
           ws.close()
           resolve(false)
@@ -316,7 +317,7 @@ export class WebSocketClient {
             if (!authResolved) {
               authResolved = true
               if (frame.error) {
-                dlog('WS', `auth failed: ${frame.error}`)
+                dlog('!WS', `auth failed: ${frame.error}`)
                 this.setStatus('error', frame.error)
                 resolve(false)
               } else {
@@ -371,9 +372,10 @@ export class WebSocketClient {
           }
         },
 
-        onClose: (_code: number, _reason: string) => {
+        onClose: (code: number, reason: string) => {
           if (gen !== this.generation) return
-          dlog('WS', `socket closed (was: ${this._status})`)
+          const closeTag = authResolved && this._status === 'connected' ? 'WS' : '!WS'
+          dlog(closeTag, `socket closed: code=${code} reason=${reason}`, { status: this._status, authResolved })
           clearTimeout(authTimeout)
           const wasConnected = this._status === 'connected'
           this.stopHeartbeat()
@@ -398,7 +400,7 @@ export class WebSocketClient {
 
         onError: (message: string) => {
           if (gen !== this.generation) return
-          dlog('WS', `socket error: ${message}`)
+          dlog('!WS', `socket error: ${message}`)
 
           if (message.includes('TLS fingerprint mismatch')) {
             clearTimeout(authTimeout)

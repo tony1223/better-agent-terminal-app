@@ -32,6 +32,7 @@ import { TerminalScreen } from '@/screens/TerminalScreen'
 import { ClaudeScreen } from '@/screens/ClaudeScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { ScanQRScreen } from '@/screens/ScanQRScreen'
+import { LocalSettingsScreen } from '@/screens/LocalSettingsScreen'
 
 // Dialogs (rendered as overlays in App.tsx, not in navigation)
 
@@ -41,6 +42,7 @@ export type RootStackParamList = {
   Connect: undefined
   AddHost: undefined
   ScanQR: undefined
+  LocalSettings: undefined
   Main: undefined
 }
 
@@ -194,6 +196,17 @@ export function RootNavigator() {
             presentation: 'modal',
             headerShown: true,
             title: 'Add Host',
+            headerStyle: { backgroundColor: appColors.surface },
+            headerTintColor: appColors.text,
+          }}
+        />
+        <RootStack.Screen
+          name="LocalSettings"
+          component={LocalSettingsScreen}
+          options={{
+            presentation: 'modal',
+            headerShown: true,
+            title: 'Settings',
             headerStyle: { backgroundColor: appColors.surface },
             headerTintColor: appColors.text,
           }}

@@ -36,9 +36,14 @@ export class TLSWebSocket {
     this.cleanup()
     this.callbacks = callbacks
     this.connectionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    dlog('!TLS', `connect requested native=${!!NativeTLS} emitter=${!!emitter} url=${url} pin=${!!fingerprint}`)
 
     if (!NativeTLS || !emitter) {
-      dlog('TLS', 'native module unavailable, falling back to plain WebSocket')
+      dlog('!TLS', 'native module unavailable')
+      if (url.startsWith('wss://')) {
+        callbacks.onError?.('Native TLS WebSocket module unavailable')
+        return
+      }
       this.connectFallback(url, callbacks)
       return
     }
@@ -58,13 +63,17 @@ export class TLSWebSocket {
       }),
       emitter.addListener('TLSWebSocket_onClose', (event: { connectionId?: string; code: number; reason: string }) => {
         if (event.connectionId !== this.connectionId) return
-        dlog('TLS', `closed: code=${event.code} reason=${event.reason}`)
+        dlog('!TLS', `closed: code=${event.code} reason=${event.reason}`)
         this._readyState = 'CLOSED'
         callbacks.onClose?.(event.code, event.reason)
       }),
+      emitter.addListener('TLSWebSocket_onState', (event: { connectionId?: string; state: string; message?: string }) => {
+        if (event.connectionId !== this.connectionId) return
+        dlog('!TLS_STATE', `${event.state}${event.message ? `: ${event.message}` : ''}`)
+      }),
       emitter.addListener('TLSWebSocket_onError', (event: { connectionId?: string; message: string }) => {
         if (event.connectionId !== this.connectionId) return
-        dlog('TLS', `error: ${event.message}`)
+        dlog('!TLS', `error: ${event.message}`)
         callbacks.onError?.(event.message)
       }),
     )

@@ -198,6 +198,12 @@ export function ConnectScreen({ navigation }: Props) {
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={() => navigation.navigate('LocalSettings')}
+        >
+          <Text style={styles.settingsButtonText}>{'\u2699'}</Text>
+        </TouchableOpacity>
         <Text style={styles.logo}>BAT</Text>
         <Text style={styles.title}>Better Agent Terminal</Text>
         <Text style={styles.subtitle}>Mobile Remote Client</Text>
@@ -275,6 +281,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xxl,
     paddingHorizontal: spacing.lg,
+  },
+  settingsButton: {
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.lg,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsButtonText: {
+    color: appColors.textSecondary,
+    fontSize: 26,
   },
   logo: {
     fontSize: 48,

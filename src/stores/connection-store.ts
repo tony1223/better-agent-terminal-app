@@ -32,7 +32,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => {
     const tls = useTLS ?? !!fingerprint
-    dlog('CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., tls=${tls}, fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
+    dlog('!CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., tls=${tls}, fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
     const { client: existing } = get()
     if (existing) {
       dlog('CONN', 'disconnecting existing client')
@@ -42,7 +42,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const client = new WebSocketClient()
 
     client.onStatusChange((status) => {
-      dlog('CONN', `status changed: ${status}, error: ${client.error}`)
+      dlog(status === 'error' ? '!CONN' : 'CONN', `status changed: ${status}, error: ${client.error}`)
       set({
         status,
         error: client.error,
@@ -53,19 +53,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     try {
       const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint, context, tls)
-      dlog('CONN', `client.connect returned: ${ok}`)
+      dlog(ok ? 'CONN' : '!CONN', `client.connect returned: ${ok}`)
 
       if (ok) {
         const channels = createChannels(client)
         set({ channels, status: 'connected', error: null, tls })
         return true
       } else {
-        dlog('CONN', `connect failed, error: ${client.error}`)
+        dlog('!CONN', `connect failed, error: ${client.error}`)
         set({ client: null, channels: null })
         return false
       }
     } catch (e) {
-      dlog('CONN', `connect threw: ${e}`)
+      dlog('!CONN', `connect threw: ${e}`)
       set({ client: null, channels: null, status: 'error', error: String(e) })
       return false
     }
