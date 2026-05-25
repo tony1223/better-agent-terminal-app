@@ -32,6 +32,12 @@ interface PendingInvoke {
   timer: ReturnType<typeof setTimeout>
 }
 
+interface PendingPing {
+  resolve: () => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
 type RemoteProtocol = typeof REMOTE_PROTOCOL_V2 | typeof REMOTE_PROTOCOL_LEGACY_V1
@@ -143,6 +149,7 @@ function eventParamsToArgs(channel: string, params: unknown): unknown[] {
 export class WebSocketClient {
   private ws: TLSWebSocket | null = null
   private pending: Map<string, PendingInvoke> = new Map()
+  private pendingPings: Map<string, PendingPing> = new Map()
   private listeners: Map<string, Set<EventHandler>> = new Map()
   private statusListeners: Set<StatusListener> = new Set()
   private _status: ConnectionStatus = 'disconnected'
@@ -251,6 +258,8 @@ export class WebSocketClient {
     }
     this.pending.clear()
 
+    this.rejectPendingPings(new Error('Disconnected'))
+
     if (this.ws) {
       this.ws.close(1000, 'client disconnect')
       this.ws = null
@@ -351,7 +360,15 @@ export class WebSocketClient {
             return
           }
 
-          if (frame.type === 'pong') return
+          if (frame.type === 'pong') {
+            const pendingPing = this.pendingPings.get(frame.id)
+            if (pendingPing) {
+              clearTimeout(pendingPing.timer)
+              this.pendingPings.delete(frame.id)
+              pendingPing.resolve()
+            }
+            return
+          }
 
           if (frame.type === 'event' && frame.channel) {
             const channel = canonicalRemoteChannel(frame.channel)
@@ -385,6 +402,7 @@ export class WebSocketClient {
             pending.reject(new Error('Connection closed'))
           }
           this.pending.clear()
+          this.rejectPendingPings(new Error('Connection closed'))
 
           if (this.shouldReconnect && wasConnected) {
             this.setStatus('reconnecting')
@@ -474,6 +492,41 @@ export class WebSocketClient {
       clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
     }
+  }
+
+  checkConnection(timeoutMs = 3_000): Promise<boolean> {
+    if (!this.isConnected) {
+      return Promise.resolve(false)
+    }
+
+    const id = this.nextId()
+    const frame: RemoteFrame = { type: 'ping', id }
+    dlog('WS', `health check ping id=${id}`)
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingPings.delete(id)
+        dlog('!WS', `health check timeout id=${id}`)
+        if (this.ws && this._status === 'connected') {
+          this.ws.close(4000, 'health check timeout')
+        }
+        resolve(false)
+      }, timeoutMs)
+
+      this.pendingPings.set(id, {
+        resolve: () => {
+          dlog('WS', `health check pong id=${id}`)
+          resolve(true)
+        },
+        reject: (error: Error) => {
+          dlog('!WS', `health check failed id=${id}: ${error.message}`)
+          resolve(false)
+        },
+        timer,
+      })
+
+      this.sendFrame(frame)
+    })
   }
 
   // ============================================
@@ -606,6 +659,14 @@ export class WebSocketClient {
 
   private nextId(): string {
     return `${Date.now()}-${++this._counter}`
+  }
+
+  private rejectPendingPings(error: Error) {
+    for (const [, pending] of this.pendingPings) {
+      clearTimeout(pending.timer)
+      pending.reject(error)
+    }
+    this.pendingPings.clear()
   }
 
   private sendFrame(frame: RemoteFrame): void {

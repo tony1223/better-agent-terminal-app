@@ -18,6 +18,7 @@ interface ConnectionState {
   channels: Channels | null
 
   connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => Promise<boolean>
+  checkConnection: () => Promise<boolean>
   disconnect: () => void
 }
 
@@ -69,6 +70,23 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set({ client: null, channels: null, status: 'error', error: String(e) })
       return false
     }
+  },
+
+  checkConnection: async () => {
+    const { client, status } = get()
+    if (!client) {
+      dlog('!CONN', 'health check skipped: no client')
+      set({ status: 'disconnected', channels: null, error: null })
+      return false
+    }
+    if (status !== 'connected') {
+      dlog('CONN', `health check skipped: status=${status}`)
+      return false
+    }
+
+    const ok = await client.checkConnection()
+    dlog(ok ? 'CONN' : '!CONN', `health check result: ${ok}`)
+    return ok
   },
 
   disconnect: () => {

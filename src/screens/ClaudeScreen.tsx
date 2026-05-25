@@ -35,6 +35,7 @@ import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import { isToolCall } from '@/types'
+import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 type Props = NativeStackScreenProps<any, 'Claude'>
@@ -165,6 +166,8 @@ function normalizeSessionSummaries(raw: unknown): SessionSummary[] {
 export function ClaudeScreen({ route, navigation }: Props) {
   const sessionId = route.params?.sessionId as string
   const channels = useConnectionStore(s => s.channels)
+  const connectionStatus = useConnectionStore(s => s.status)
+  const checkConnection = useConnectionStore(s => s.checkConnection)
   const session = useClaudeStore(s => s.sessions[sessionId] || EMPTY_SESSION)
   const chatFilters = useChatFilterStore(s => s.getFilter(sessionId))
   const setChatFilterKind = useChatFilterStore(s => s.setKind)
@@ -264,6 +267,28 @@ export function ClaudeScreen({ route, navigation }: Props) {
       navigation.goBack()
     }
   }, [loadStatus, navigation, terminal])
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false
+      useClaudeStore.getState().setActiveSession(sessionId)
+
+      if (connectionStatus === 'connected') {
+        dlog('CLAUDE_SCREEN', `focus health check sessionId=${sessionId}`)
+        checkConnection().then(ok => {
+          if (!cancelled) {
+            dlog(ok ? 'CLAUDE_SCREEN' : '!CLAUDE_SCREEN', `focus health check result=${ok} sessionId=${sessionId}`)
+          }
+        }).catch(e => {
+          dlog('!CLAUDE_SCREEN', `focus health check error sessionId=${sessionId}: ${e}`)
+        })
+      }
+
+      return () => {
+        cancelled = true
+      }
+    }, [checkConnection, connectionStatus, sessionId]),
+  )
 
   // Init session in store and load history
   useEffect(() => {
