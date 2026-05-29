@@ -395,7 +395,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
         codexSandboxMode: codexSandboxMode ?? null,
         codexApprovalPolicy: codexApprovalPolicy ?? null,
       })
-      const loadSessionState = async () => {
+      const loadSessionState = async (
+        options?: { archivedFallback?: boolean },
+      ): Promise<{ exists: boolean; liveCount: number }> => {
+        const archivedFallback = options?.archivedFallback !== false
         try {
           const state = await timedLoadStep(
             `getSessionState sessionId=${sessionId}`,
@@ -403,7 +406,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           )
           if (!state) {
             dlog('CLAUDE_SCREEN', `getSessionState returned null sessionId=${sessionId}`)
-            return false
+            return { exists: false, liveCount: 0 }
           }
           const stateMessageCount = Array.isArray(state.messages) ? state.messages.length : 0
           dlog('CLAUDE_SCREEN', `getSessionState messages=${stateMessageCount} streaming=${state.isStreaming === true}`)
@@ -411,7 +414,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           if (state.meta) {
             useClaudeStore.getState().handleStatus(sessionId, state.meta)
           }
-          if (stateMessageCount === 0) {
+          if (stateMessageCount === 0 && archivedFallback) {
             const archived = await channels.claude.loadArchived(sessionId).catch(e => {
               dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
               return null
@@ -422,10 +425,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
               useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
             }
           }
-          return true
+          return { exists: true, liveCount: stateMessageCount }
         } catch (e) {
           dlog('CLAUDE_SCREEN', `getSessionState error: ${e}`)
-          return false
+          return { exists: false, liveCount: 0 }
         }
       }
       const resumeWithSdkSessionId = async (sdkSessionIdToResume: string) => {
@@ -464,10 +467,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
       const loadHistory = async () => {
         try {
           if (terminalSdkSessionId) {
-            const stateLoaded = await loadSessionState()
-            if (stateLoaded) {
+            const state = await loadSessionState({ archivedFallback: false })
+            if (state.exists && state.liveCount > 0) {
               dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId}`)
             } else {
+              dlog('CLAUDE_SCREEN', `no live host messages (liveCount=${state.liveCount}); resuming sdkSessionId=${terminalSdkSessionId}`)
               await resumeWithSdkSessionId(terminalSdkSessionId)
             }
           } else {
@@ -490,7 +494,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             } catch (e) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
             }
-            stateLoaded = await loadSessionState()
+            stateLoaded = (await loadSessionState()).exists
             if (!metaLoaded && !stateLoaded) {
               dlog('CLAUDE_SCREEN', 'no existing backend session, starting fresh')
               const loadKey = buildLoadKey(null)
