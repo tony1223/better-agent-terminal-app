@@ -72,6 +72,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Check Play credentials
+        id: play_creds
+        env:
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$PLAY_JSON" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "PLAY_SERVICE_ACCOUNT_JSON not set; skipping Play upload."
+          fi
+
+      - name: Upload to Google Play
+        if: steps.play_creds.outputs.enabled == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tonyq.betteragentterminal
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+
       - name: Cleanup keystore
         if: always()
         run: rm -f android/app/upload.keystore
