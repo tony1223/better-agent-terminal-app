@@ -28,6 +28,7 @@ export function WorkspaceListScreen() {
     loadStatus,
     loadError,
     load,
+    loadProfileWorkspace,
     switchWorkspace,
     profiles,
     activeProfileIds,
@@ -107,7 +108,7 @@ export function WorkspaceListScreen() {
       const idsToDeactivate = activeProfileIds.filter(id => id !== profile.id)
       await channels.profile.activate(profile.id)
       await Promise.all(idsToDeactivate.map(id => channels.profile.deactivate(id)))
-      await load()
+      await loadProfileWorkspace(profile.id)
       setProfileModalVisible(false)
     } catch (e) {
       setProfileError(String(e))

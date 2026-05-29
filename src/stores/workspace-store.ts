@@ -54,6 +54,8 @@ interface WorkspaceState {
 
   // Actions
   load: () => Promise<void>
+  loadActiveProfileWorkspace: () => Promise<void>
+  loadProfileWorkspace: (profileId: string) => Promise<void>
   applySnapshot: (raw: string) => void
   applyReload: (payload: unknown) => void
   applyState: (state: AppState) => void
@@ -110,6 +112,57 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     get().applySnapshot(raw)
+  },
+
+  loadActiveProfileWorkspace: async () => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels) {
+      set({ loadStatus: 'no-channel', loadError: null })
+      return
+    }
+
+    let summary: { profiles: ProfileEntry[]; activeProfileIds: string[] } = {
+      profiles: [],
+      activeProfileIds: [],
+    }
+    await loadProfileSummary(channels, value => {
+      summary = value
+      set(value)
+    })
+
+    const profilesById = new Map(summary.profiles.map(profile => [profile.id, profile]))
+    const profileId = summary.activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
+      ?? summary.activeProfileIds[0]
+    if (!profileId) {
+      set({ workspaces: [], terminals: [], loadStatus: 'empty', loadError: null })
+      return
+    }
+
+    await get().loadProfileWorkspace(profileId)
+  },
+
+  loadProfileWorkspace: async (profileId) => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels) {
+      set({ loadStatus: 'no-channel', loadError: null })
+      return
+    }
+
+    await loadProfileSummary(channels, ({ profiles, activeProfileIds }) => {
+      set({ profiles, activeProfileIds })
+    })
+
+    try {
+      const snapshot = await channels.profile.loadSnapshot(profileId)
+      const state = stateFromProfileSnapshot(snapshot)
+      if (!state) {
+        set({ loadStatus: 'parse-error', loadError: `Invalid profile snapshot: ${profileId}` })
+        return
+      }
+      get().applyState(state)
+    } catch (e) {
+      set({ loadStatus: 'rpc-error', loadError: String(e) })
+    }
   },
 
   applySnapshot: (raw: string) => {
@@ -201,7 +254,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const channels = useConnectionStore.getState().channels
     if (!channels) throw new Error('Not connected to remote server')
 
-    const { workspaces, terminals } = get()
+    const { workspaces, terminals, activeWorkspaceId, activeTerminalId } = get()
     const workspace = workspaces.find(w => w.id === workspaceId)
     if (!workspace) throw new Error('Workspace not found')
 
@@ -230,18 +283,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       activeTerminalId: terminal.id,
       focusedTerminalId: terminal.id,
     }
+    const previousState: AppState = {
+      workspaces,
+      terminals,
+      activeWorkspaceId,
+      activeTerminalId,
+      focusedTerminalId: activeTerminalId,
+    }
+
+    get().applyState(nextState)
 
     try {
       const saved = await channels.workspace.save(JSON.stringify(nextState))
       if (!saved) throw new Error('Host rejected workspace save')
     } catch (e) {
+      get().applyState(previousState)
       if (terminal.worktreePath) {
         await ignoreMissingRuntime(() => channels.worktree.remove(terminal.id, true))
       }
       throw e
     }
 
-    get().applyState(nextState)
     return terminal
   },
 
