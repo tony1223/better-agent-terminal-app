@@ -141,7 +141,6 @@ function MainTabs() {
         tabBarStyle: MAIN_TAB_BAR_STYLE,
         tabBarActiveTintColor: appColors.accent,
         tabBarInactiveTintColor: appColors.textSecondary,
-        tabBarHideOnKeyboard: true,
         tabBarIcon: ({ focused }) => (
           <TabIcon label={route.name} focused={focused} />
         ),
