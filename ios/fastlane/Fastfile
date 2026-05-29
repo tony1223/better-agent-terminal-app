@@ -1,13 +1,43 @@
 default_platform(:ios)
 
 APP_IDENTIFIER = "com.tonyq.betteragentterminal"
-PROFILE_NAME = "match AppStore #{APP_IDENTIFIER}"
 XCODEPROJ = "BATMobile.xcodeproj"
 WORKSPACE = "BATMobile.xcworkspace"
 SCHEME = "BATMobile"
-TEAM_ID = "LFKZQH9KG8"
+TEAM_ID = "8JVDJGLLYR"
 
 platform :ios do
+  desc "One-time: generate the Apple Distribution cert + App Store profile into ./signing"
+  lane :bootstrap_signing do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY_P8_BASE64"),
+      is_key_content_base64: true,
+      in_house: false,
+    )
+
+    out = File.expand_path("../signing", __dir__)
+    FileUtils.mkdir_p(out)
+
+    # Create (or reuse, if the private key is already in this keychain) the cert.
+    cert(
+      api_key: api_key,
+      generate_apple_certs: true,
+      output_path: out,
+    )
+
+    # Create / download the App Store provisioning profile for this app id.
+    sigh(
+      api_key: api_key,
+      app_identifier: APP_IDENTIFIER,
+      platform: "ios",
+      output_path: out,
+    )
+
+    UI.success("Signing assets written to #{out}")
+  end
+
   desc "Build a Release IPA and upload it to TestFlight"
   lane :beta do
     api_key = app_store_connect_api_key(
@@ -18,16 +48,30 @@ platform :ios do
       in_house: false,
     )
 
-    # Pull the distribution cert + appstore profile from the match repo (read-only on CI).
-    match(
-      type: "appstore",
-      app_identifier: APP_IDENTIFIER,
-      readonly: true,
-      api_key: api_key,
+    # Create an isolated temporary keychain on CI and make it the default.
+    # Exposes MATCH_KEYCHAIN_NAME / MATCH_KEYCHAIN_PASSWORD for the import below.
+    setup_ci(force: true)
+
+    # Import the Apple Distribution certificate (.p12) into the temp keychain.
+    import_certificate(
+      certificate_path: ENV.fetch("DIST_CERT_PATH"),
+      certificate_password: ENV.fetch("DIST_CERT_PASSWORD", ""),
+      keychain_name: ENV.fetch("MATCH_KEYCHAIN_NAME", "fastlane_tmp_keychain"),
+      keychain_password: ENV.fetch("MATCH_KEYCHAIN_PASSWORD", ""),
     )
 
+    # Read the provisioning profile (name + UUID) and install it where Xcode looks.
+    profile_path = ENV.fetch("PROVISIONING_PROFILE_PATH")
+    require "plist"
+    profile = Plist.parse_xml(`security cms -D -i "#{profile_path}"`)
+    profile_name = profile.fetch("Name")
+    profile_uuid = profile.fetch("UUID")
+    profiles_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+    FileUtils.mkdir_p(profiles_dir)
+    FileUtils.cp(profile_path, File.join(profiles_dir, "#{profile_uuid}.mobileprovision"))
+
     # CI has no logged-in Xcode account, so switch the app target to manual signing
-    # pointing at the profile match just installed. Only affects the CI working copy.
+    # pointing at the profile we just installed. Only affects the CI working copy.
     update_code_signing_settings(
       use_automatic_signing: false,
       path: XCODEPROJ,
@@ -35,7 +79,7 @@ platform :ios do
       team_id: TEAM_ID,
       code_sign_identity: "Apple Distribution",
       bundle_identifier: APP_IDENTIFIER,
-      profile_name: PROFILE_NAME,
+      profile_name: profile_name,
     )
 
     # Optional marketing version override (e.g. 1.0.1).
@@ -71,7 +115,7 @@ platform :ios do
       export_method: "app-store",
       export_options: {
         provisioningProfiles: {
-          APP_IDENTIFIER => PROFILE_NAME,
+          APP_IDENTIFIER => profile_name,
         },
       },
     )

@@ -1,4 +1,4 @@
 app_identifier("com.tonyq.betteragentterminal")
-team_id("LFKZQH9KG8")
+team_id("8JVDJGLLYR")
 # App Store Connect auth is handled via the App Store Connect API key in the Fastfile,
 # so apple_id / itc_team_id are not required here.

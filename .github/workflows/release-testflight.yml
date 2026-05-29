@@ -36,15 +36,28 @@ jobs:
         working-directory: ios
         run: bundle exec pod install
 
+      - name: Decode signing assets
+        env:
+          DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+
       - name: Build and upload to TestFlight
         working-directory: ios
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          DIST_CERT_PATH: ${{ runner.temp }}/signing/dist.p12
+          DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROVISIONING_PROFILE_PATH: ${{ runner.temp }}/signing/profile.mobileprovision
           BUILD_NUMBER: ${{ github.run_number }}
           MARKETING_VERSION: ${{ inputs.versionName }}
         run: bundle exec fastlane ios beta
+
+      - name: Cleanup signing assets
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/signing"
