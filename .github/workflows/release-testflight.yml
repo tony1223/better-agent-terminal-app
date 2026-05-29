@@ -1,4 +1,5 @@
 name: Release TestFlight
+run-name: release ios ${{ inputs.versionName || github.ref_name }}
 
 on:
   push:
