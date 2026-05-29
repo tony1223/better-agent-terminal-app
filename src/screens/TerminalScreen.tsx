@@ -336,18 +336,30 @@ export function TerminalScreen({ route, navigation }: Props) {
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
-        right={(
+      />
+      <View style={styles.viewportBar}>
+        <Text style={styles.viewportLabel}>{t('terminal.layoutLabel')}</Text>
+        <View style={styles.segmented}>
           <TouchableOpacity
-            style={[styles.layoutButton, isMobileLayout && styles.layoutButtonActive]}
-            onPress={handleViewportToggle}
+            style={[styles.segment, !isMobileLayout && styles.segmentActive]}
+            onPress={() => { if (isMobileLayout) handleViewportToggle() }}
             activeOpacity={0.8}
           >
-            <Text style={[styles.layoutButtonText, isMobileLayout && styles.layoutButtonTextActive]}>
-              {isMobileLayout ? t('terminal.layoutMobile') : t('terminal.layoutDesktop')}
+            <Text style={[styles.segmentText, !isMobileLayout && styles.segmentTextActive]}>
+              {t('terminal.layoutDesktop')}
             </Text>
           </TouchableOpacity>
-        )}
-      />
+          <TouchableOpacity
+            style={[styles.segment, isMobileLayout && styles.segmentActive]}
+            onPress={() => { if (!isMobileLayout) handleViewportToggle() }}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.segmentText, isMobileLayout && styles.segmentTextActive]}>
+              {t('terminal.layoutMobile')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
       <WebView
         ref={webViewRef}
         source={{ html: terminalHtml }}
@@ -408,25 +420,44 @@ const styles = StyleSheet.create({
     left: -10,
     bottom: 0,
   },
-  layoutButton: {
-    borderWidth: 1,
-    borderColor: appColors.border,
-    borderRadius: 6,
-    paddingHorizontal: spacing.sm,
+  viewportBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: appColors.background,
+    backgroundColor: appColors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: appColors.border,
   },
-  layoutButtonActive: {
-    borderColor: appColors.accent,
-    backgroundColor: appColors.accentDim,
-  },
-  layoutButtonText: {
+  viewportLabel: {
     color: appColors.textSecondary,
     fontSize: fontSize.xs,
     fontWeight: '700',
   },
-  layoutButtonTextActive: {
-    color: appColors.text,
+  segmented: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: appColors.border,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  segment: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: appColors.background,
+  },
+  segmentActive: {
+    backgroundColor: appColors.accent,
+  },
+  segmentText: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+  },
+  segmentTextActive: {
+    color: appColors.background,
   },
   headerTitleWrap: {
     minWidth: 0,

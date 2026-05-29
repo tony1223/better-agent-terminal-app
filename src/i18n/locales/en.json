@@ -165,8 +165,9 @@
     "claude": "Claude",
     "workspaceFallback": "Workspace",
     "terminalFallback": "Terminal",
-    "layoutMobile": "Mobile Layout",
-    "layoutDesktop": "Desktop Layout"
+    "layoutLabel": "Layout",
+    "layoutMobile": "Mobile",
+    "layoutDesktop": "Desktop"
   },
   "terminalList": {
     "title": "Sessions",

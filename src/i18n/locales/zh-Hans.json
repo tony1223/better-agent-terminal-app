@@ -165,8 +165,9 @@
     "claude": "Claude",
     "workspaceFallback": "工作区",
     "terminalFallback": "终端",
-    "layoutMobile": "移动版布局",
-    "layoutDesktop": "桌面版布局"
+    "layoutLabel": "显示模式",
+    "layoutMobile": "移动版",
+    "layoutDesktop": "桌面版"
   },
   "terminalList": {
     "title": "会话",

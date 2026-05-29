@@ -104,6 +104,27 @@ export const terminalHtml = `
         sendResize();
       };
 
+      var DESKTOP_FONT_SIZE = 13;
+
+      // In mobile mode the column count is fixed, so shrink the font until every
+      // column fits the screen width — otherwise long prompts/paths get clipped
+      // off the right edge with no way to scroll to them.
+      function applyMobileLayout() {
+        container.style.setProperty('--terminal-width', '100%');
+        var cols = viewportState.cols || term.cols || 56;
+        var rows = viewportState.rows || term.rows || 24;
+        var avail = (container.clientWidth || window.innerWidth || 0) - 8;
+        var fontSize = DESKTOP_FONT_SIZE;
+        if (avail > 0 && cols > 0) {
+          fontSize = Math.max(6, Math.min(DESKTOP_FONT_SIZE, Math.floor(avail / (cols * 0.62))));
+        }
+        if (term.options.fontSize !== fontSize) {
+          term.options.fontSize = fontSize;
+        }
+        term.resize(cols, rows);
+        term.refresh(0, Math.max(0, term.rows - 1));
+      }
+
       // ---- RN → WebView: shared desktop/mobile terminal viewport state ----
       window.handleViewportState = function(state) {
         if (!state) return;
@@ -115,10 +136,11 @@ export const terminalHtml = `
         document.body.classList.toggle('mobile-layout', viewportState.mode === 'mobile');
         document.body.classList.toggle('desktop-layout', viewportState.mode !== 'mobile');
         if (viewportState.mode === 'mobile') {
-          container.style.setProperty('--terminal-width', '100%');
-          term.resize(viewportState.cols, viewportState.rows);
-          term.refresh(0, Math.max(0, term.rows - 1));
+          applyMobileLayout();
           return;
+        }
+        if (term.options.fontSize !== DESKTOP_FONT_SIZE) {
+          term.options.fontSize = DESKTOP_FONT_SIZE;
         }
         var approxCellWidth = Math.max(7, Math.ceil((term.options.fontSize || 13) * 0.62));
         container.style.setProperty('--terminal-width', ((viewportState.cols * approxCellWidth) + 16) + 'px');
@@ -137,7 +159,7 @@ export const terminalHtml = `
       window.handleFontSize = function(size) {
         term.options.fontSize = size;
         if (viewportState.mode === 'mobile') {
-          term.resize(viewportState.cols, viewportState.rows);
+          applyMobileLayout();
         } else {
           fitAddon.fit();
         }
@@ -154,7 +176,9 @@ export const terminalHtml = `
       }
 
       var ro = new ResizeObserver(function() {
-        if (viewportState.mode !== 'mobile') {
+        if (viewportState.mode === 'mobile') {
+          applyMobileLayout();
+        } else {
           fitAddon.fit();
         }
         sendResize();

@@ -165,8 +165,9 @@
     "claude": "Claude",
     "workspaceFallback": "工作區",
     "terminalFallback": "終端機",
-    "layoutMobile": "行動版配置",
-    "layoutDesktop": "桌面版配置"
+    "layoutLabel": "顯示模式",
+    "layoutMobile": "行動版",
+    "layoutDesktop": "桌面版"
   },
   "terminalList": {
     "title": "工作階段",
