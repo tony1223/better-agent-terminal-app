@@ -6,6 +6,8 @@ on:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-android"
+      - "v[0-9]+.[0-9]+.[0-9]+-android"
   workflow_dispatch:
     inputs:
       versionCode:
@@ -58,6 +60,8 @@ jobs:
           VN="$INPUT_VERSION_NAME"
           if [ -z "$VN" ] && [ "$REF_TYPE" = "tag" ]; then
             VN="${REF_NAME#v}"
+            VN="${VN%-android}"
+            VN="${VN%-ios}"
           fi
           VC="${INPUT_VERSION_CODE:-$RUN_NUMBER}"
           sed -i "s/versionCode [0-9]\+/versionCode $VC/" android/app/build.gradle

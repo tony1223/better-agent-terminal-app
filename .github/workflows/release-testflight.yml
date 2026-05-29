@@ -6,6 +6,8 @@ on:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-ios"
+      - "v[0-9]+.[0-9]+.[0-9]+-ios"
   workflow_dispatch:
     inputs:
       versionName:
@@ -63,6 +65,8 @@ jobs:
           VN="$INPUT_VERSION_NAME"
           if [ -z "$VN" ] && [ "$REF_TYPE" = "tag" ]; then
             VN="${REF_NAME#v}"
+            VN="${VN%-ios}"
+            VN="${VN%-android}"
           fi
           echo "marketing_version=$VN" >> "$GITHUB_OUTPUT"
           echo "Resolved MARKETING_VERSION='$VN'"
