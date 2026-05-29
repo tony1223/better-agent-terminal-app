@@ -722,9 +722,34 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [channels, terminal?.cwd, isOpenAIAgent, isCodexAgent])
 
+  // Esc-key replacement: tap once = soft stop (stop & wait for input),
+  // double-tap within 500ms = hard abort (fully interrupt), mirroring the
+  // desktop's single-vs-double Esc behavior.
+  const lastStopTapRef = useRef(0)
+  const stopArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [stopArmed, setStopArmed] = useState(false)
+
+  useEffect(() => () => {
+    if (stopArmTimerRef.current) clearTimeout(stopArmTimerRef.current)
+  }, [])
+
   const handleStop = useCallback(async () => {
     if (!channels) return
-    await channels.claude.stopSession(sessionId)
+    const now = Date.now()
+    const isDoubleTap = now - lastStopTapRef.current < 500
+    lastStopTapRef.current = now
+    if (stopArmTimerRef.current) {
+      clearTimeout(stopArmTimerRef.current)
+      stopArmTimerRef.current = null
+    }
+    if (isDoubleTap) {
+      setStopArmed(false)
+      await channels.claude.abortSession(sessionId)
+    } else {
+      setStopArmed(true)
+      stopArmTimerRef.current = setTimeout(() => setStopArmed(false), 500)
+      await channels.claude.stopSession(sessionId)
+    }
   }, [channels, sessionId])
 
   const handlePermissionCycle = useCallback(async () => {
@@ -1149,8 +1174,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
 
           {session.isStreaming && (
-            <TouchableOpacity style={[styles.controlBtn, { backgroundColor: appColors.error, borderColor: appColors.error }]} onPress={handleStop}>
-              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>{t('claude.controls.stop')}</Text>
+            <TouchableOpacity
+              style={[styles.controlBtn, { backgroundColor: stopArmed ? appColors.warning : appColors.error, borderColor: stopArmed ? appColors.warning : appColors.error }]}
+              onPress={handleStop}
+            >
+              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>
+                {stopArmed ? t('claude.controls.stopAgain') : t('claude.controls.stop')}
+              </Text>
             </TouchableOpacity>
           )}
         </ScrollView>

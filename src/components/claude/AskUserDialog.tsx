@@ -59,6 +59,18 @@ export function AskUserDialog() {
     setCustomText('')
   }
 
+  // Esc-key replacement: there is no protocol method to cancel a pending
+  // question, so interrupting it means aborting the waiting turn.
+  const handleInterrupt = async () => {
+    const sessionId = pending.sessionId
+    clearAskUser()
+    setAnswers({})
+    setCustomText('')
+    if (channels) {
+      await channels.claude.abortSession(sessionId)
+    }
+  }
+
   return (
     <View style={styles.overlay}>
       <KeyboardAvoidingView
@@ -112,9 +124,14 @@ export function AskUserDialog() {
           />
         </ScrollView>
 
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-          <Text style={styles.submitText}>{t('askUserDialog.submit')}</Text>
-        </TouchableOpacity>
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.interruptButton} onPress={handleInterrupt}>
+            <Text style={styles.interruptText}>{t('askUserDialog.interrupt')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+            <Text style={styles.submitText}>{t('askUserDialog.submit')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       </KeyboardAvoidingView>
     </View>
@@ -199,12 +216,30 @@ const styles = StyleSheet.create({
     minHeight: 60,
     marginTop: spacing.sm,
   },
+  actions: {
+    flexDirection: 'row',
+    marginTop: spacing.lg,
+  },
+  interruptButton: {
+    flex: 1,
+    backgroundColor: appColors.errorDim,
+    borderRadius: 10,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
+  interruptText: {
+    color: appColors.error,
+    fontWeight: '700',
+    fontSize: fontSize.lg,
+  },
   submitButton: {
+    flex: 1,
     backgroundColor: appColors.accent,
     borderRadius: 10,
     paddingVertical: spacing.md,
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginLeft: spacing.sm,
   },
   submitText: {
     color: '#fff',

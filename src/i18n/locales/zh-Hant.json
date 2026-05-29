@@ -331,7 +331,8 @@
       "approval": "approval:{{value}}",
       "compact": "精簡",
       "fork": "分支",
-      "stop": "停止"
+      "stop": "停止",
+      "stopAgain": "再點中斷"
     },
     "modal": {
       "selectModel": "選擇模型",
@@ -359,7 +360,8 @@
     "questionFallback": "問題",
     "optionFallback": "選項 {{n}}",
     "customPlaceholder": "或輸入自訂回覆…",
-    "submit": "送出"
+    "submit": "送出",
+    "interrupt": "中斷"
   },
   "toolCall": {
     "label": "工具",

@@ -331,7 +331,8 @@
       "approval": "approval:{{value}}",
       "compact": "compact",
       "fork": "Fork",
-      "stop": "Stop"
+      "stop": "Stop",
+      "stopAgain": "Tap to abort"
     },
     "modal": {
       "selectModel": "Select Model",
@@ -359,7 +360,8 @@
     "questionFallback": "Question",
     "optionFallback": "Option {{n}}",
     "customPlaceholder": "Or type a custom response...",
-    "submit": "Submit"
+    "submit": "Submit",
+    "interrupt": "Interrupt"
   },
   "toolCall": {
     "label": "TOOL",
