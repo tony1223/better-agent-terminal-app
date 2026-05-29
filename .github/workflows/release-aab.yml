@@ -91,7 +91,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.tonyq.betteragentterminal
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
-          track: internal
+          track: beta
           status: completed
 
       - name: Cleanup keystore
