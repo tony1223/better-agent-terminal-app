@@ -16,11 +16,15 @@ export function createWorkspaceChannel(ws: WebSocketClient) {
         { ...contextParams(), data },
         [undefined, data, ws.clientContext?.windowId],
       ),
-    load: () =>
+    // When a profileId is supplied, load that profile's workspace without
+    // binding to the connection's windowId. The host returns the profile's
+    // live window state (current sdkSessionIds / running sessions) when one
+    // exists, falling back to the persisted snapshot otherwise.
+    load: (profileId?: string) =>
       ws.invokeParams<string | null>(
         'workspace:load',
-        contextParams(),
-        [undefined, ws.clientContext?.windowId],
+        profileId ? { profileId } : contextParams(),
+        profileId ? [undefined, undefined, profileId] : [undefined, ws.clientContext?.windowId],
       ),
 
     // Events

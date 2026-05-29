@@ -168,6 +168,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ profiles, activeProfileIds })
     })
 
+    // Prefer the host's live workspace for this profile so terminals carry
+    // their current sdkSessionId and resolve to the running agent sessions.
+    // The persisted profile snapshot lags behind (stale sdkSessionId / closed
+    // terminals), which made reopened sessions show old, archived messages.
+    try {
+      const raw = await channels.workspace.load(profileId)
+      if (raw != null) {
+        get().applySnapshot(raw)
+        return
+      }
+    } catch (e) {
+      // Host couldn't serve the live workspace; fall back to the snapshot.
+      void e
+    }
+
     try {
       const snapshot = await channels.profile.loadSnapshot(profileId)
       const state = stateFromProfileSnapshot(snapshot)
