@@ -81,7 +81,8 @@
     "scanQR": "扫描二维码",
     "addHostManual": "＋ 手动添加主机",
     "renameTitle": "重命名 BAT 主机",
-    "renamePlaceholder": "主机名称"
+    "renamePlaceholder": "主机名称",
+    "version": "v{{version}}"
   },
   "scanQR": {
     "tlsSuffix": "（TLS）",

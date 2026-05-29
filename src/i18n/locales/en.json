@@ -81,7 +81,8 @@
     "scanQR": "Scan QR Code",
     "addHostManual": "+ Add Host Manually",
     "renameTitle": "Rename BAT Host",
-    "renamePlaceholder": "Host name"
+    "renamePlaceholder": "Host name",
+    "version": "v{{version}}"
   },
   "scanQR": {
     "tlsSuffix": " (TLS)",

@@ -54,6 +54,13 @@ jobs:
           fi
           echo "marketing_version=$VN" >> "$GITHUB_OUTPUT"
           echo "Resolved MARKETING_VERSION='$VN'"
+          if [ -n "$VN" ]; then
+            cat > src/app-version.ts <<EOF
+          // Generated at build time from the release tag.
+          export const APP_VERSION = '$VN'
+          EOF
+          fi
+          cat src/app-version.ts
 
       - name: Decode signing assets
         env:

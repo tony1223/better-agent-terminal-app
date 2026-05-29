@@ -81,7 +81,8 @@
     "scanQR": "掃描 QR Code",
     "addHostManual": "＋ 手動新增主機",
     "renameTitle": "重新命名 BAT 主機",
-    "renamePlaceholder": "主機名稱"
+    "renamePlaceholder": "主機名稱",
+    "version": "v{{version}}"
   },
   "scanQR": {
     "tlsSuffix": "（TLS）",

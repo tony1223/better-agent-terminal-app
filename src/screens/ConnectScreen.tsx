@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useHostStore } from '@/stores/host-store'
+import { APP_VERSION } from '@/app-version'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { SavedHost } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -235,6 +236,7 @@ export function ConnectScreen({ navigation }: Props) {
         >
           <Text style={styles.addButtonText}>{t('connect.addHostManual')}</Text>
         </TouchableOpacity>
+        <Text style={styles.version}>{t('connect.version', { version: APP_VERSION })}</Text>
       </View>
 
       <Modal
@@ -421,6 +423,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: appColors.text,
     fontWeight: '600',
+  },
+  version: {
+    fontSize: fontSize.sm,
+    color: appColors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.md,
   },
   modalOverlay: {
     flex: 1,
