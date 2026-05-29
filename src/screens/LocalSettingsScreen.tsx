@@ -15,6 +15,7 @@ import {
   Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import {
   getDebugLogText,
@@ -25,6 +26,7 @@ import {
 } from '@/utils/debug-log'
 
 export function LocalSettingsScreen() {
+  const { t } = useTranslation()
   const insets = useSafeAreaInsets()
   const [debugEnabled, setDebugEnabled] = useState(isDebugMode)
   const [showLogViewer, setShowLogViewer] = useState(false)
@@ -41,15 +43,15 @@ export function LocalSettingsScreen() {
         style={styles.container}
         contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }}
       >
-        <Text style={styles.sectionTitle}>Diagnostics</Text>
+        <Text style={styles.sectionTitle}>{t('localSettings.section')}</Text>
         <View style={styles.card}>
           <View style={styles.switchRow}>
             <View style={styles.switchTextBlock}>
-              <Text style={styles.switchLabel}>Debug Logs</Text>
+              <Text style={styles.switchLabel}>{t('localSettings.debugLabel')}</Text>
               <Text style={styles.switchHint}>
                 {debugEnabled
-                  ? 'Verbose logging is enabled for connection and remote events.'
-                  : 'Only errors are logged. Enable before reproducing a connection issue.'}
+                  ? t('localSettings.hintOn')
+                  : t('localSettings.hintOff')}
               </Text>
             </View>
             <Switch
@@ -61,25 +63,25 @@ export function LocalSettingsScreen() {
           </View>
 
           <TouchableOpacity style={styles.actionRow} onPress={() => setShowLogViewer(true)}>
-            <Text style={[styles.actionText, { color: appColors.accent }]}>View Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.accent }]}>{t('localSettings.viewLogs')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
               const logs = getDebugLogText()
-              Share.share({ message: logs, title: 'BAT Mobile Debug Logs' })
+              Share.share({ message: logs, title: t('localSettings.shareTitle') })
             }}
           >
-            <Text style={[styles.actionText, { color: appColors.info }]}>Share Debug Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.info }]}>{t('localSettings.shareLogs')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
               clearDebugLogs()
-              Alert.alert('Cleared', 'Debug logs have been cleared.')
+              Alert.alert(t('localSettings.clearedTitle'), t('localSettings.clearedMessage'))
             }}
           >
-            <Text style={[styles.actionText, { color: appColors.textSecondary }]}>Clear Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.textSecondary }]}>{t('localSettings.clearLogs')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -87,9 +89,9 @@ export function LocalSettingsScreen() {
       <Modal visible={showLogViewer} animationType="slide" onRequestClose={() => setShowLogViewer(false)}>
         <View style={styles.logViewerContainer}>
           <View style={styles.logViewerHeader}>
-            <Text style={styles.logViewerTitle}>Debug Logs</Text>
+            <Text style={styles.logViewerTitle}>{t('localSettings.logViewerTitle')}</Text>
             <TouchableOpacity onPress={() => setShowLogViewer(false)}>
-              <Text style={styles.logViewerClose}>Close</Text>
+              <Text style={styles.logViewerClose}>{t('common.close')}</Text>
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.logViewerBody}>

@@ -1,0 +1,410 @@
+{
+  "common": {
+    "cancel": "取消",
+    "save": "儲存",
+    "delete": "刪除",
+    "close": "關閉",
+    "copy": "複製",
+    "deny": "拒絕",
+    "allow": "允許",
+    "error": "錯誤",
+    "connectionFailed": "連線失敗"
+  },
+  "language": {
+    "section": "語言",
+    "system": "跟隨系統"
+  },
+  "nav": {
+    "workspaces": "工作區",
+    "workspace": "工作區",
+    "terminals": "終端機",
+    "terminal": "終端機",
+    "claude": "Claude",
+    "settings": "設定",
+    "addHost": "新增主機",
+    "scanQR": "掃描 QR Code"
+  },
+  "settings": {
+    "connection": "連線",
+    "host": "主機",
+    "address": "位址",
+    "status": "狀態",
+    "activeWorkspace": "使用中的工作區",
+    "name": "名稱",
+    "path": "路徑",
+    "actions": "操作",
+    "disconnect": "中斷連線",
+    "disconnectConfirmTitle": "中斷連線",
+    "disconnectConfirmMessage": "確定要中斷與這台主機的連線嗎？",
+    "debug": "偵錯",
+    "debugMode": "偵錯模式",
+    "debugHintOn": "已啟用記錄。遠端呼叫、備援重試、工作階段狀態數與歷史筆數會寫入 MMKV 與 logcat。",
+    "debugHintOff": "僅記錄錯誤。重現遠端／工作階段問題前請先啟用。",
+    "viewLogs": "檢視記錄",
+    "shareLogs": "分享偵錯記錄",
+    "clearLogs": "清除記錄",
+    "clearedTitle": "已清除",
+    "clearedMessage": "偵錯記錄已清除。",
+    "debugLogsTitle": "偵錯記錄",
+    "shareLogsTitle": "BAT Mobile 偵錯記錄",
+    "about": "關於",
+    "app": "應用程式",
+    "version": "版本"
+  },
+  "localSettings": {
+    "section": "診斷",
+    "debugLabel": "偵錯記錄",
+    "hintOn": "已啟用連線與遠端事件的詳細記錄。",
+    "hintOff": "僅記錄錯誤。重現連線問題前請先啟用。",
+    "viewLogs": "檢視記錄",
+    "shareTitle": "BAT Mobile 偵錯記錄",
+    "shareLogs": "分享偵錯記錄",
+    "clearedTitle": "已清除",
+    "clearedMessage": "偵錯記錄已清除。",
+    "clearLogs": "清除記錄",
+    "logViewerTitle": "偵錯記錄"
+  },
+  "connect": {
+    "noToken": "找不到這台主機的權杖",
+    "certChangedTitle": "憑證已變更",
+    "certChangedMessage": "「{{name}}」出示了新的 TLS 憑證。這通常發生在桌面版重新安裝或重新產生憑證之後——但也可能代表中間人攻擊。\n\n已儲存：\n{{saved}}\n\n伺服器目前：\n{{server}}\n\n只有在你剛重新設定過桌面版時才信任。",
+    "trustConnect": "信任並連線",
+    "trustFailedMessage": "信任新指紋後仍無法連線。",
+    "connectFailedMessage": "無法連線到主機",
+    "nameRequiredTitle": "需要名稱",
+    "nameRequiredMessage": "請為這台 BAT 主機輸入名稱。",
+    "deleteTitle": "刪除主機",
+    "deleteMessage": "要移除「{{name}}」嗎？",
+    "rename": "重新命名",
+    "subtitle": "行動遠端用戶端",
+    "emptyHosts": "尚無已儲存的主機。新增一台以開始使用。",
+    "scanQR": "掃描 QR Code",
+    "addHostManual": "＋ 手動新增主機",
+    "renameTitle": "重新命名 BAT 主機",
+    "renamePlaceholder": "主機名稱"
+  },
+  "scanQR": {
+    "tlsSuffix": "（TLS）",
+    "status": {
+      "initial": "將相機對準 BAT Desktop 的 QR Code。",
+      "found": "已找到 {{host}}:{{port}}。",
+      "notDecoded": "偵測到 QR Code，但無法解碼。",
+      "reading": "偵測到 QR Code。正在讀取連線資訊…",
+      "notBatCode": "偵測到 QR Code，但不是 BAT 連線碼。",
+      "connectionFailed": "連線失敗——請再試一次或掃描新的 QR Code。",
+      "cameraReady": "相機已就緒。請對準桌面版的 QR Code。",
+      "cameraError": "相機錯誤：{{code}}"
+    },
+    "alerts": {
+      "updateTitle": "更新 BAT 主機",
+      "foundTitle": "找到 BAT 主機",
+      "refreshMessage": "重新整理「{{name}}」{{tlsLabel}}\n{{host}}:{{port}}",
+      "fingerprintChanged": "\n\n指紋已變更——將覆寫已儲存的指紋。",
+      "connectMessage": "要連線到「{{name}}」{{tlsLabel}}\n{{host}}:{{port}} 嗎？",
+      "updateOnly": "僅更新",
+      "saveOnly": "僅儲存",
+      "connect": "連線",
+      "connectFailedFallback": "無法連線。主機已儲存供稍後使用。"
+    },
+    "permission": {
+      "required": "掃描 QR Code 需要相機權限。",
+      "grant": "授予權限"
+    },
+    "error": {
+      "noCamera": "找不到相機裝置。"
+    },
+    "hint": {
+      "title": "掃描 BAT QR Code",
+      "breadcrumb": "BAT Desktop {{arrow}} 設定 {{arrow}} 遠端 {{arrow}} 顯示 QR Code"
+    },
+    "connecting": {
+      "title": "連線中…",
+      "status": "狀態：{{status}}",
+      "hint": "驗證將於 10 秒後逾時。"
+    }
+  },
+  "addHost": {
+    "tlsSuffix": "（TLS）",
+    "alerts": {
+      "invalidTitle": "無效的連線字串",
+      "invalidMessage": "請貼上 BAT 連結、ws/wss URL，或 BAT Desktop 的 QR JSON 內容。",
+      "successTitle": "成功",
+      "successMessage": "連線成功！{{tlsLabel}}",
+      "failedFallback": "無法連線。請檢查位址、連接埠、權杖與指紋。",
+      "failedTitle": "失敗"
+    },
+    "label": {
+      "connectionString": "連線字串",
+      "name": "名稱",
+      "address": "位址",
+      "port": "連接埠",
+      "token": "權杖",
+      "tlsFingerprint": "TLS 指紋",
+      "tlsFingerprintHint": "（來自 BAT Desktop 設定）"
+    },
+    "placeholder": {
+      "connectionString": "貼上 BAT 連結、ws/wss URL 或 QR JSON",
+      "name": "例如：工作用 MacBook",
+      "address": "例如：192.168.1.100 或主機名稱",
+      "token": "32 字元十六進位權杖",
+      "fingerprint": "AB:CD:EF:...（SHA-256）"
+    },
+    "button": {
+      "apply": "套用連線字串",
+      "test": "測試連線",
+      "save": "儲存"
+    },
+    "badge": {
+      "tlsPinning": "已啟用 TLS 釘選",
+      "tls": "已啟用 TLS"
+    }
+  },
+  "terminal": {
+    "sessions": "工作階段",
+    "claude": "Claude",
+    "workspaceFallback": "工作區",
+    "terminalFallback": "終端機",
+    "layoutMobile": "行動版配置",
+    "layoutDesktop": "桌面版配置"
+  },
+  "terminalList": {
+    "title": "工作階段",
+    "modal": {
+      "title": "新增工作階段"
+    },
+    "button": {
+      "add": "新增",
+      "close": "關閉"
+    },
+    "label": {
+      "workspace": "工作區"
+    },
+    "empty": {
+      "noTerminals": "這個工作區中沒有終端機。",
+      "noWorkspace": "請先選擇工作區。",
+      "noSessionTypes": "主機未回報任何支援的工作階段類型。"
+    },
+    "alerts": {
+      "loadTypesFailedTitle": "無法載入工作階段類型",
+      "cancelFailedTitle": "無法取消工作階段",
+      "addFailedTitle": "無法新增工作階段",
+      "closeTitle": "關閉工作階段",
+      "closeMessage": "要關閉「{{name}}」嗎？",
+      "closeFailedTitle": "無法關閉工作階段"
+    }
+  },
+  "workspaceList": {
+    "search": {
+      "placeholder": "搜尋工作區"
+    },
+    "empty": {
+      "noMatch": "沒有符合「{{query}}」的工作區。",
+      "loading": "載入中…"
+    },
+    "modal": {
+      "title": "切換設定檔",
+      "subtitle": "選擇用於工作區與工作階段狀態的設定檔。"
+    },
+    "button": {
+      "close": "關閉",
+      "refreshing": "重新整理中…",
+      "refreshProfiles": "重新整理設定檔",
+      "disconnectRescan": "中斷連線並重新掃描 QR"
+    },
+    "profile": {
+      "defaultLabel": "設定檔",
+      "active": "使用中",
+      "use": "使用"
+    },
+    "diagnostic": {
+      "noProfilesTitle": "找不到設定檔",
+      "noProfilesBody": "下拉重新整理，或在 BAT Desktop 上建立設定檔。",
+      "noWindowTitle": "連線未繫結到任何視窗",
+      "noWindowBodyBefore": "桌面版伺服器已接受你的連線，但未附加任何視窗內容，因此回傳了空的工作區快照。",
+      "noWindowBodyRescan": "這通常代表你掃描的 QR Code 是由舊版桌面版產生的。請重新掃描來自以下位置的新 QR",
+      "noWindowBodyAfter": "——你已儲存的主機會就地更新。",
+      "loadFailedTitle": "載入工作區失敗",
+      "unknownError": "未知錯誤。",
+      "noWorkspacesTitle": "尚無工作區",
+      "noWorkspacesBody": "開啟 BAT Desktop 並建立工作區，然後下拉重新整理。"
+    }
+  },
+  "workspaceDetail": {
+    "tab": {
+      "sessions": "工作階段",
+      "files": "檔案",
+      "git": "Git",
+      "github": "GitHub"
+    },
+    "title": {
+      "workspace": "工作區",
+      "sessions": "工作階段"
+    },
+    "empty": {
+      "workspaceNotFound": "找不到工作區",
+      "noSessionsTitle": "沒有工作階段",
+      "noSessionsBody": "這個工作區未附加任何終端機或代理工作階段。",
+      "noSessionTypesTitle": "沒有工作階段類型",
+      "noSessionTypesBody": "主機未回報任何支援的工作階段類型。",
+      "noFilesTitle": "沒有檔案",
+      "noFilesBody": "這個目錄為空或無法存取。"
+    },
+    "alerts": {
+      "loadSessionTypesFailed": "無法載入工作階段類型",
+      "cancelSessionFailed": "無法取消工作階段",
+      "addSessionFailed": "無法新增工作階段",
+      "closeSessionTitle": "關閉工作階段",
+      "closeSessionMessage": "要關閉「{{name}}」嗎？",
+      "closeSessionFailed": "無法關閉工作階段"
+    },
+    "button": {
+      "add": "新增",
+      "close": "關閉",
+      "up": "上層"
+    },
+    "modal": {
+      "addSession": "新增工作階段"
+    },
+    "status": {
+      "loading": "載入中…",
+      "loadingDiff": "載入差異中…"
+    },
+    "git": {
+      "noTextDiff": "（沒有可用的文字差異。）",
+      "notARepository": "不是 git 儲存庫",
+      "workingTreeClean": "工作目錄乾淨",
+      "noRepository": "沒有 git 儲存庫",
+      "noModifiedFiles": "沒有已修改的檔案。",
+      "statusUnavailable": "這個工作區無法取得 Git 狀態。"
+    },
+    "github": {
+      "title": "GitHub",
+      "cliStatus": "gh：{{installed}} / {{auth}}",
+      "installed": "已安裝",
+      "missing": "未安裝",
+      "authenticated": "已驗證",
+      "notAuthenticated": "未驗證",
+      "noRemote": "未偵測到 GitHub 遠端。",
+      "pullRequests": "Pull Request",
+      "noPullRequests": "沒有開啟中的 pull request。",
+      "issues": "Issue",
+      "noIssues": "沒有開啟中的 issue。"
+    }
+  },
+  "claude": {
+    "defaultTitle": "Claude",
+    "defaultWorkspace": "工作區",
+    "errors": {
+      "switchPermissionFailed": "無法切換權限模式",
+      "switchEffortFailed": "無法切換強度",
+      "switchSandboxFailed": "無法切換沙箱模式",
+      "switchApprovalFailed": "無法切換核准原則",
+      "loadModelsFailed": "無法載入模型",
+      "switchModelFailed": "無法切換模型",
+      "resumeSessionFailed": "無法繼續工作階段",
+      "imageLimitTitle": "已達上限",
+      "imageLimitMessage": "最多允許 {{max}} 張圖片。",
+      "rebuildRequiredTitle": "需要重新建置",
+      "rebuildRequiredMessage": "圖片選擇器需要重新建置原生程式。請執行：npx react-native run-android"
+    },
+    "loading": {
+      "session": "載入工作階段中…"
+    },
+    "empty": {
+      "syncingHistory": "同步歷史中…",
+      "noMessages": "尚無訊息",
+      "historyLoadingBackground": "歷史仍在背景載入中。",
+      "startConversation": "傳送訊息以開始與 Claude 對話"
+    },
+    "suggestion": {
+      "label": "建議"
+    },
+    "input": {
+      "placeholderClaude": "傳訊息給 Claude…",
+      "placeholderCodex": "傳訊息給 Codex…"
+    },
+    "controls": {
+      "effort": "effort:{{value}}",
+      "thinking": "thinking:{{value}}",
+      "sandbox": "sandbox:{{value}}",
+      "approval": "approval:{{value}}",
+      "compact": "精簡",
+      "fork": "分支",
+      "stop": "停止"
+    },
+    "modal": {
+      "selectModel": "選擇模型",
+      "selectThinking": "選擇思考程度",
+      "selectEffort": "選擇強度",
+      "selectSandbox": "選擇沙箱模式",
+      "selectApproval": "選擇核准原則",
+      "effortOption": "effort: {{value}}",
+      "thinkingOption": "thinking: {{value}}",
+      "sandboxOption": "sandbox: {{value}}",
+      "approvalOption": "approval: {{value}}"
+    },
+    "resume": {
+      "title": "繼續工作階段",
+      "loading": "載入工作階段中…",
+      "noSessions": "找不到工作階段"
+    }
+  },
+  "permissionDialog": {
+    "title": "需要權限",
+    "inputDetails": "輸入詳情"
+  },
+  "askUserDialog": {
+    "title": "Claude 正在詢問",
+    "questionFallback": "問題",
+    "optionFallback": "選項 {{n}}",
+    "customPlaceholder": "或輸入自訂回覆…",
+    "submit": "送出"
+  },
+  "toolCall": {
+    "label": "工具",
+    "input": "輸入：",
+    "result": "結果："
+  },
+  "messageBubble": {
+    "you": "你",
+    "thinking": "思考",
+    "message": "訊息",
+    "thinkingToggle": "思考"
+  },
+  "chatItem": {
+    "kind": {
+      "you": "你",
+      "message": "訊息",
+      "tool": "工具",
+      "thinking": "思考"
+    },
+    "kindPlural": {
+      "you": "則你的訊息",
+      "message": "則訊息",
+      "tool": "個工具呼叫",
+      "thinking": "個思考區塊"
+    },
+    "hiddenA11y": "顯示 {{count}} 個隱藏的{{label}}",
+    "hiddenLabel": "{{count}} {{label}}已隱藏 · 點按以顯示"
+  },
+  "chatFilter": {
+    "button": "篩選聊天訊息",
+    "showInThread": "在討論串中顯示",
+    "reset": "重設",
+    "filterA11y": "{{label}}篩選"
+  },
+  "streamingText": {
+    "thinking": "思考中…"
+  },
+  "sessionContext": {
+    "defaultProfile": "預設",
+    "defaultWorkspace": "工作區"
+  },
+  "terminalToolbar": {
+    "showKeyboard": "顯示鍵盤"
+  },
+  "filePreview": {
+    "notConnected": "未連線到伺服器",
+    "unexpectedFormat": "非預期的回應格式"
+  }
+}

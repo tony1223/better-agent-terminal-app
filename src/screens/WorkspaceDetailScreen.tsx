@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
@@ -52,14 +53,15 @@ interface GitHubItem {
 
 const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
-const TABS: Array<{ id: DetailTab; label: string }> = [
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'files', label: 'Files' },
-  { id: 'git', label: 'Git' },
-  { id: 'github', label: 'GitHub' },
+const TABS: Array<{ id: DetailTab; labelKey: string }> = [
+  { id: 'sessions', labelKey: 'workspaceDetail.tab.sessions' },
+  { id: 'files', labelKey: 'workspaceDetail.tab.files' },
+  { id: 'git', labelKey: 'workspaceDetail.tab.git' },
+  { id: 'github', labelKey: 'workspaceDetail.tab.github' },
 ]
 
 export function WorkspaceDetailScreen({ route, navigation }: Props) {
+  const { t } = useTranslation()
   const workspaceId = route.params?.workspaceId as string | undefined
   const workspaces = useWorkspaceStore(s => s.workspaces)
   const switchWorkspace = useWorkspaceStore(s => s.switchWorkspace)
@@ -72,16 +74,16 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     navigation.setOptions({
-      title: workspace?.alias || workspace?.name || 'Workspace',
+      title: workspace?.alias || workspace?.name || t('workspaceDetail.title.workspace'),
       headerStyle: { backgroundColor: appColors.surface },
       headerTintColor: appColors.text,
     })
-  }, [navigation, workspace])
+  }, [navigation, workspace, t])
 
   if (!workspace) {
     return (
       <View style={styles.centerPane}>
-        <Text style={styles.emptyTitle}>Workspace not found</Text>
+        <Text style={styles.emptyTitle}>{t('workspaceDetail.empty.workspaceNotFound')}</Text>
       </View>
     )
   }
@@ -100,7 +102,7 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
             onPress={() => setActiveTab(tab.id)}
           >
             <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>
-              {tab.label}
+              {t(tab.labelKey)}
             </Text>
           </TouchableOpacity>
         ))}
@@ -114,6 +116,7 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
 }
 
 function SessionsPane({ workspaceId, navigation }: { workspaceId: string; navigation: any }) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const allTerminals = useWorkspaceStore(s => s.terminals)
   const setActiveTerminal = useWorkspaceStore(s => s.setActiveTerminal)
@@ -126,7 +129,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const [closingId, setClosingId] = useState<string | null>(null)
   const createRequestRef = useRef(0)
   const terminals = useMemo(
-    () => allTerminals.filter(t => t.workspaceId === workspaceId),
+    () => allTerminals.filter(item => item.workspaceId === workspaceId),
     [allTerminals, workspaceId],
   )
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
@@ -147,11 +150,11 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
       setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
       setAvailableSessionTypes([])
-      Alert.alert('Unable to load session types', String(e))
+      Alert.alert(t('workspaceDetail.alerts.loadSessionTypesFailed'), String(e))
     } finally {
       setLoadingTypes(false)
     }
-  }, [channels])
+  }, [channels, t])
 
   useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
 
@@ -173,7 +176,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
         try {
           await requestCloseSession(terminal.id)
         } catch (cancelError) {
-          Alert.alert('Unable to cancel session', String(cancelError))
+          Alert.alert(t('workspaceDetail.alerts.cancelSessionFailed'), String(cancelError))
         }
         return
       }
@@ -183,7 +186,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
       navigation.getParent?.()?.navigate('Terminals', { screen, params })
     } catch (e) {
       if (createRequestRef.current === requestId) {
-        Alert.alert('Unable to add session', String(e))
+        Alert.alert(t('workspaceDetail.alerts.addSessionFailed'), String(e))
       }
     } finally {
       if (createRequestRef.current === requestId) {
@@ -202,19 +205,19 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
 
   const closeSession = (terminal: TerminalInstance) => {
     Alert.alert(
-      'Close Session',
-      `Close "${terminal.alias || terminal.title}"?`,
+      t('workspaceDetail.alerts.closeSessionTitle'),
+      t('workspaceDetail.alerts.closeSessionMessage', { name: terminal.alias || terminal.title }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Close',
+          text: t('workspaceDetail.button.close'),
           style: 'destructive',
           onPress: async () => {
             setClosingId(terminal.id)
             try {
               await requestCloseSession(terminal.id)
             } catch (e) {
-              Alert.alert('Unable to close session', String(e))
+              Alert.alert(t('workspaceDetail.alerts.closeSessionFailed'), String(e))
             } finally {
               setClosingId(null)
             }
@@ -227,7 +230,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   return (
     <View style={styles.pane}>
       <View style={styles.sessionToolbar}>
-        <Text style={styles.sessionToolbarTitle}>Sessions</Text>
+        <Text style={styles.sessionToolbarTitle}>{t('workspaceDetail.title.sessions')}</Text>
         <TouchableOpacity
           style={styles.smallButton}
           onPress={() => {
@@ -237,14 +240,14 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
             }
           }}
         >
-          <Text style={styles.smallButtonText}>Add</Text>
+          <Text style={styles.smallButtonText}>{t('workspaceDetail.button.add')}</Text>
         </TouchableOpacity>
       </View>
       <FlatList
         data={terminals}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
-        ListEmptyComponent={<EmptyMessage title="No sessions" body="No terminal or agent sessions are attached to this workspace." />}
+        ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noSessionsTitle')} body={t('workspaceDetail.empty.noSessionsBody')} />}
         renderItem={({ item }) => {
           const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
           const isClosing = closingId === item.id
@@ -262,7 +265,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
                   <ActivityIndicator size="small" color={appColors.accent} />
                 ) : (
                   <TouchableOpacity style={styles.closeSessionButton} onPress={() => closeSession(item)}>
-                    <Text style={styles.closeSessionText}>Close</Text>
+                    <Text style={styles.closeSessionText}>{t('workspaceDetail.button.close')}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -278,9 +281,9 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
       >
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Session</Text>
+            <Text style={styles.modalTitle}>{t('workspaceDetail.modal.addSession')}</Text>
             <TouchableOpacity style={styles.smallButton} onPress={dismissAddModal}>
-              <Text style={styles.smallButtonText}>{creatingType ? 'Cancel' : 'Close'}</Text>
+              <Text style={styles.smallButtonText}>{creatingType ? t('common.cancel') : t('workspaceDetail.button.close')}</Text>
             </TouchableOpacity>
           </View>
           {loadingTypes && sessionTypeRows.length === 0 ? (
@@ -290,7 +293,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
               data={sessionTypeRows}
               keyExtractor={item => item.id}
               contentContainerStyle={styles.listContent}
-              ListEmptyComponent={<EmptyMessage title="No session types" body="The host did not report any supported session types." />}
+              ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noSessionTypesTitle')} body={t('workspaceDetail.empty.noSessionTypesBody')} />}
               renderItem={({ item }) => {
                 const isCreating = creatingType === item.id
                 return (
@@ -318,6 +321,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
 }
 
 function FilesPane({ rootPath }: { rootPath: string }) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [currentPath, setCurrentPath] = useState(rootPath)
   const [entries, setEntries] = useState<FsEntry[]>([])
@@ -350,7 +354,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
       return
     }
     const ext = fileExt(entry.name)
-    setPreview({ title: entry.name, body: 'Loading...' })
+    setPreview({ title: entry.name, body: t('workspaceDetail.status.loading') })
     try {
       if (IMAGE_EXTS.has(ext)) {
         const imageUrl = await channels.fs.readImageAsDataUrl(entry.path)
@@ -376,7 +380,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
           onPress={() => setCurrentPath(parentPath(currentPath))}
           disabled={normalizePath(currentPath) === normalizePath(rootPath)}
         >
-          <Text style={styles.smallButtonText}>Up</Text>
+          <Text style={styles.smallButtonText}>{t('workspaceDetail.button.up')}</Text>
         </TouchableOpacity>
         <Text style={styles.pathBarText} numberOfLines={1}>{currentPath}</Text>
       </View>
@@ -388,7 +392,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
           keyExtractor={item => item.path}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={appColors.accent} />}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={<EmptyMessage title="No files" body={error || 'This directory is empty or unavailable.'} />}
+          ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noFilesTitle')} body={error || t('workspaceDetail.empty.noFilesBody')} />}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.compactRow} onPress={() => openEntry(item)}>
               <Text style={styles.fileIcon}>{item.isDirectory ? 'dir' : fileExt(item.name) || 'file'}</Text>
@@ -406,6 +410,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
 }
 
 function GitPane({ cwd }: { cwd: string }) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [branch, setBranch] = useState<string | null>(null)
   const [root, setRoot] = useState<string | null>(null)
@@ -439,10 +444,10 @@ function GitPane({ cwd }: { cwd: string }) {
 
   const openDiff = async (file: GitFileEntry) => {
     if (!channels) return
-    setDiff({ file: file.file, text: 'Loading diff...' })
+    setDiff({ file: file.file, text: t('workspaceDetail.status.loadingDiff') })
     try {
       const text = await channels.git.diff(cwd, 'working', file.file)
-      setDiff({ file: file.file, text: text || '(No text diff available.)' })
+      setDiff({ file: file.file, text: text || t('workspaceDetail.git.noTextDiff') })
     } catch (e) {
       setDiff({ file: file.file, text: String(e) })
     }
@@ -453,7 +458,7 @@ function GitPane({ cwd }: { cwd: string }) {
   return (
     <View style={styles.pane}>
       <View style={styles.summaryPanel}>
-        <Text style={styles.summaryTitle}>{branch || 'Not a git repository'}</Text>
+        <Text style={styles.summaryTitle}>{branch || t('workspaceDetail.git.notARepository')}</Text>
         <Text style={styles.mutedMono} numberOfLines={1}>{root || cwd}</Text>
         {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
@@ -464,8 +469,8 @@ function GitPane({ cwd }: { cwd: string }) {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={(
           <EmptyMessage
-            title={isGitRepository ? 'Working tree clean' : 'No git repository'}
-            body={loading ? 'Loading...' : isGitRepository ? 'No modified files.' : 'Git status is unavailable for this workspace.'}
+            title={isGitRepository ? t('workspaceDetail.git.workingTreeClean') : t('workspaceDetail.git.noRepository')}
+            body={loading ? t('workspaceDetail.status.loading') : isGitRepository ? t('workspaceDetail.git.noModifiedFiles') : t('workspaceDetail.git.statusUnavailable')}
           />
         )}
         renderItem={({ item }) => (
@@ -484,6 +489,7 @@ function GitPane({ cwd }: { cwd: string }) {
 }
 
 function GitHubPane({ cwd }: { cwd: string }) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [repoUrl, setRepoUrl] = useState<string | null>(null)
   const [cli, setCli] = useState<{ installed?: boolean; authenticated?: boolean } | null>(null)
@@ -524,23 +530,26 @@ function GitHubPane({ cwd }: { cwd: string }) {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={appColors.accent} />}
     >
       <View style={styles.summaryPanel}>
-        <Text style={styles.summaryTitle}>GitHub</Text>
+        <Text style={styles.summaryTitle}>{t('workspaceDetail.github.title')}</Text>
         <Text style={styles.mutedText}>
-          gh: {cli?.installed ? 'installed' : 'missing'} / {cli?.authenticated ? 'authenticated' : 'not authenticated'}
+          {t('workspaceDetail.github.cliStatus', {
+            installed: cli?.installed ? t('workspaceDetail.github.installed') : t('workspaceDetail.github.missing'),
+            auth: cli?.authenticated ? t('workspaceDetail.github.authenticated') : t('workspaceDetail.github.notAuthenticated'),
+          })}
         </Text>
         {repoUrl ? (
           <TouchableOpacity onPress={() => Linking.openURL(repoUrl)}>
             <Text style={styles.linkText} numberOfLines={1}>{repoUrl}</Text>
           </TouchableOpacity>
         ) : (
-          <Text style={styles.mutedText}>No GitHub remote detected.</Text>
+          <Text style={styles.mutedText}>{t('workspaceDetail.github.noRemote')}</Text>
         )}
         {error && <Text style={styles.errorText}>{error}</Text>}
       </View>
-      <Text style={styles.sectionTitle}>Pull Requests</Text>
-      {prs.length === 0 ? <Text style={styles.emptyInline}>No open pull requests.</Text> : prs.map(item => <GitHubListItem key={`pr-${item.number}`} item={item} prefix="PR" />)}
-      <Text style={styles.sectionTitle}>Issues</Text>
-      {issues.length === 0 ? <Text style={styles.emptyInline}>No open issues.</Text> : issues.map(item => <GitHubListItem key={`issue-${item.number}`} item={item} prefix="Issue" />)}
+      <Text style={styles.sectionTitle}>{t('workspaceDetail.github.pullRequests')}</Text>
+      {prs.length === 0 ? <Text style={styles.emptyInline}>{t('workspaceDetail.github.noPullRequests')}</Text> : prs.map(item => <GitHubListItem key={`pr-${item.number}`} item={item} prefix="PR" />)}
+      <Text style={styles.sectionTitle}>{t('workspaceDetail.github.issues')}</Text>
+      {issues.length === 0 ? <Text style={styles.emptyInline}>{t('workspaceDetail.github.noIssues')}</Text> : issues.map(item => <GitHubListItem key={`issue-${item.number}`} item={item} prefix="Issue" />)}
     </ScrollView>
   )
 }
@@ -566,13 +575,14 @@ function PreviewModal({
   preview: { title: string; body?: string; imageUrl?: string; error?: string } | null
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <Modal visible={!!preview} animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalRoot}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle} numberOfLines={1}>{preview?.title}</Text>
           <TouchableOpacity style={styles.smallButton} onPress={onClose}>
-            <Text style={styles.smallButtonText}>Close</Text>
+            <Text style={styles.smallButtonText}>{t('workspaceDetail.button.close')}</Text>
           </TouchableOpacity>
         </View>
         {preview?.imageUrl ? (

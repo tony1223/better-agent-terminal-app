@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -22,6 +23,7 @@ import { getAgentPreset } from '@/types'
 import type { ProfileEntry, Workspace } from '@/types'
 
 export function WorkspaceListScreen() {
+  const { t } = useTranslation()
   const {
     workspaces,
     activeWorkspaceId,
@@ -53,11 +55,11 @@ export function WorkspaceListScreen() {
   )
 
   const profileLabel = useMemo(() => {
-    if (activeProfiles.length === 0) return 'Profile'
+    if (activeProfiles.length === 0) return t('workspaceList.profile.defaultLabel')
     if (activeProfiles.length === 1) return activeProfiles[0].name || activeProfiles[0].id
     const first = activeProfiles[0].name || activeProfiles[0].id
     return `${first} +${activeProfiles.length - 1}`
-  }, [activeProfiles])
+  }, [activeProfiles, t])
 
   const filteredWorkspaces = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -165,7 +167,7 @@ export function WorkspaceListScreen() {
               style={styles.searchInput}
               value={query}
               onChangeText={setQuery}
-              placeholder="Search workspaces"
+              placeholder={t('workspaceList.search.placeholder')}
               placeholderTextColor={appColors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
@@ -182,7 +184,7 @@ export function WorkspaceListScreen() {
         }
         ListEmptyComponent={
           query.trim()
-            ? <Text style={styles.empty}>No workspaces match "{query.trim()}".</Text>
+            ? <Text style={styles.empty}>{t('workspaceList.empty.noMatch', { query: query.trim() })}</Text>
             : <EmptyState status={loadStatus} error={loadError} navigation={navigation} />
         }
       />
@@ -222,6 +224,7 @@ function ProfileModal({
   onClose: () => void
   onRefresh: () => Promise<void>
 }) {
+  const { t } = useTranslation()
   const [refreshing, setRefreshing] = React.useState(false)
 
   return (
@@ -229,19 +232,19 @@ function ProfileModal({
       <View style={styles.modalRoot}>
         <View style={styles.modalHeader}>
           <View style={styles.modalTitleBlock}>
-            <Text style={styles.modalTitle}>Switch Profile</Text>
-            <Text style={styles.modalSubtitle}>Choose the profile used for workspace and session state.</Text>
+            <Text style={styles.modalTitle}>{t('workspaceList.modal.title')}</Text>
+            <Text style={styles.modalSubtitle}>{t('workspaceList.modal.subtitle')}</Text>
           </View>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeButtonText}>Close</Text>
+            <Text style={styles.closeButtonText}>{t('workspaceList.button.close')}</Text>
           </TouchableOpacity>
         </View>
         {error ? <Text style={styles.profileError}>{error}</Text> : null}
         {profiles.length === 0 ? (
           <View style={styles.diagnostic}>
-            <Text style={styles.diagTitle}>No profiles found</Text>
+            <Text style={styles.diagTitle}>{t('workspaceList.diagnostic.noProfilesTitle')}</Text>
             <Text style={styles.diagBody}>
-              Pull to refresh, or create a profile on BAT Desktop.
+              {t('workspaceList.diagnostic.noProfilesBody')}
             </Text>
             <TouchableOpacity
               style={styles.primaryBtn}
@@ -252,7 +255,7 @@ function ProfileModal({
                 setRefreshing(false)
               }}
             >
-              <Text style={styles.primaryBtnText}>{refreshing ? 'Refreshing...' : 'Refresh Profiles'}</Text>
+              <Text style={styles.primaryBtnText}>{refreshing ? t('workspaceList.button.refreshing') : t('workspaceList.button.refreshProfiles')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -279,7 +282,7 @@ function ProfileModal({
                     <ActivityIndicator color={appColors.accent} />
                   ) : (
                     <Text style={[styles.profileState, active && styles.profileStateActive]}>
-                      {active ? 'Active' : 'Use'}
+                      {active ? t('workspaceList.profile.active') : t('workspaceList.profile.use')}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -301,21 +304,22 @@ function EmptyState({
   error: string | null
   navigation: any
 }) {
+  const { t } = useTranslation()
   const disconnect = useConnectionStore(s => s.disconnect)
 
   if (status === 'idle' || status === 'no-channel') {
-    return <Text style={styles.empty}>Loading…</Text>
+    return <Text style={styles.empty}>{t('workspaceList.empty.loading')}</Text>
   }
 
   if (status === 'no-window') {
     return (
       <View style={styles.diagnostic}>
-        <Text style={styles.diagTitle}>Connection isn’t bound to a window</Text>
+        <Text style={styles.diagTitle}>{t('workspaceList.diagnostic.noWindowTitle')}</Text>
         <Text style={styles.diagBody}>
-          The desktop server accepted your connection but no window context is attached, so it returned an empty workspace snapshot.
+          {t('workspaceList.diagnostic.noWindowBodyBefore')}
           {'\n\n'}
-          This usually means the QR code you scanned was generated by an older desktop version. Re-scan a fresh QR from{' '}
-          <Text style={styles.mono}>BAT Desktop → Settings → Remote → Show QR Code</Text> — your saved host will be updated in place.
+          {t('workspaceList.diagnostic.noWindowBodyRescan')}{' '}
+          <Text style={styles.mono}>BAT Desktop → Settings → Remote → Show QR Code</Text>{t('workspaceList.diagnostic.noWindowBodyAfter')}
         </Text>
         <TouchableOpacity
           style={styles.primaryBtn}
@@ -325,7 +329,7 @@ function EmptyState({
               ?? navigation.navigate('ScanQR')
           }}
         >
-          <Text style={styles.primaryBtnText}>Disconnect & Re-scan QR</Text>
+          <Text style={styles.primaryBtnText}>{t('workspaceList.button.disconnectRescan')}</Text>
         </TouchableOpacity>
       </View>
     )
@@ -334,8 +338,8 @@ function EmptyState({
   if (status === 'parse-error' || status === 'rpc-error') {
     return (
       <View style={styles.diagnostic}>
-        <Text style={styles.diagTitle}>Failed to load workspaces</Text>
-        <Text style={styles.diagBody}>{error ?? 'Unknown error.'}</Text>
+        <Text style={styles.diagTitle}>{t('workspaceList.diagnostic.loadFailedTitle')}</Text>
+        <Text style={styles.diagBody}>{error ?? t('workspaceList.diagnostic.unknownError')}</Text>
       </View>
     )
   }
@@ -343,9 +347,9 @@ function EmptyState({
   // status === 'empty' or 'ok' (with no items)
   return (
     <View style={styles.diagnostic}>
-      <Text style={styles.diagTitle}>No workspaces yet</Text>
+      <Text style={styles.diagTitle}>{t('workspaceList.diagnostic.noWorkspacesTitle')}</Text>
       <Text style={styles.diagBody}>
-        Open BAT Desktop and create a workspace, then pull to refresh.
+        {t('workspaceList.diagnostic.noWorkspacesBody')}
       </Text>
     </View>
   )

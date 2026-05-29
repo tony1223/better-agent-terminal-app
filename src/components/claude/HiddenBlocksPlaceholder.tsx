@@ -1,7 +1,8 @@
 import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-import { KIND_LABEL_PLURAL, type ChatItemKind } from '@/utils/classify-chat-item'
+import { type ChatItemKind } from '@/utils/classify-chat-item'
 
 const KIND_COLOR: Record<ChatItemKind, string> = {
   you: appColors.info,
@@ -21,17 +22,19 @@ export const HiddenBlocksPlaceholder = React.memo(function HiddenBlocksPlacehold
   count,
   onPress,
 }: Props) {
+  const { t } = useTranslation()
+  const label = t(`chatItem.kindPlural.${kind}`)
   return (
     <TouchableOpacity
       onPress={onPress}
       style={styles.container}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel={`Show ${count} hidden ${KIND_LABEL_PLURAL[kind]}`}
+      accessibilityLabel={t('chatItem.hiddenA11y', { count, label })}
     >
       <View style={[styles.dot, { backgroundColor: KIND_COLOR[kind] }]} />
       <Text style={styles.label}>
-        {count} {KIND_LABEL_PLURAL[kind]} hidden · tap to show
+        {t('chatItem.hiddenLabel', { count, label })}
       </Text>
     </TouchableOpacity>
   )

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -27,6 +28,7 @@ type Props = {
 const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 
 export function TerminalListScreen({ navigation }: Props) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const {
     activeWorkspaceId,
@@ -45,7 +47,7 @@ export function TerminalListScreen({ navigation }: Props) {
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
   const workspaceTerminals = terminals.filter(
-    t => t.workspaceId === activeWorkspaceId
+    item => item.workspaceId === activeWorkspaceId
   )
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
@@ -65,11 +67,11 @@ export function TerminalListScreen({ navigation }: Props) {
       setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
       setAvailableSessionTypes([])
-      Alert.alert('Unable to load session types', String(e))
+      Alert.alert(t('terminalList.alerts.loadTypesFailedTitle'), String(e))
     } finally {
       setLoadingTypes(false)
     }
-  }, [channels])
+  }, [channels, t])
 
   useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
 
@@ -94,7 +96,7 @@ export function TerminalListScreen({ navigation }: Props) {
         try {
           await requestCloseSession(terminal.id)
         } catch (cancelError) {
-          Alert.alert('Unable to cancel session', String(cancelError))
+          Alert.alert(t('terminalList.alerts.cancelFailedTitle'), String(cancelError))
         }
         return
       }
@@ -102,7 +104,7 @@ export function TerminalListScreen({ navigation }: Props) {
       handlePress(terminal)
     } catch (e) {
       if (createRequestRef.current === requestId) {
-        Alert.alert('Unable to add session', String(e))
+        Alert.alert(t('terminalList.alerts.addFailedTitle'), String(e))
       }
     } finally {
       if (createRequestRef.current === requestId) {
@@ -121,19 +123,19 @@ export function TerminalListScreen({ navigation }: Props) {
 
   const closeSession = (terminal: TerminalInstance) => {
     Alert.alert(
-      'Close Session',
-      `Close "${terminal.alias || terminal.title}"?`,
+      t('terminalList.alerts.closeTitle'),
+      t('terminalList.alerts.closeMessage', { name: terminal.alias || terminal.title }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Close',
+          text: t('terminalList.button.close'),
           style: 'destructive',
           onPress: async () => {
             setClosingId(terminal.id)
             try {
               await requestCloseSession(terminal.id)
             } catch (e) {
-              Alert.alert('Unable to close session', String(e))
+              Alert.alert(t('terminalList.alerts.closeFailedTitle'), String(e))
             } finally {
               setClosingId(null)
             }
@@ -174,7 +176,7 @@ export function TerminalListScreen({ navigation }: Props) {
             <ActivityIndicator size="small" color={appColors.accent} style={styles.closeSpinner} />
           ) : (
             <TouchableOpacity style={styles.closeButton} onPress={() => closeSession(item)}>
-              <Text style={styles.closeButtonText}>Close</Text>
+              <Text style={styles.closeButtonText}>{t('terminalList.button.close')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -186,7 +188,7 @@ export function TerminalListScreen({ navigation }: Props) {
     <View style={styles.container}>
       {activeWorkspaceId && (
         <View style={styles.sessionToolbar}>
-          <Text style={styles.sessionToolbarTitle}>Sessions</Text>
+          <Text style={styles.sessionToolbarTitle}>{t('terminalList.title')}</Text>
           <TouchableOpacity
             style={styles.headerButton}
             onPress={() => {
@@ -196,7 +198,7 @@ export function TerminalListScreen({ navigation }: Props) {
               }
             }}
           >
-            <Text style={styles.headerButtonText}>Add</Text>
+            <Text style={styles.headerButtonText}>{t('terminalList.button.add')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -208,14 +210,14 @@ export function TerminalListScreen({ navigation }: Props) {
         ListEmptyComponent={
           <Text style={styles.empty}>
             {activeWorkspaceId
-              ? 'No terminals in this workspace.'
-              : 'Select a workspace first.'}
+              ? t('terminalList.empty.noTerminals')
+              : t('terminalList.empty.noWorkspace')}
           </Text>
         }
       />
       {activeWorkspace && (
         <View style={styles.workspaceBar}>
-          <Text style={styles.workspaceBarLabel}>Workspace</Text>
+          <Text style={styles.workspaceBarLabel}>{t('terminalList.label.workspace')}</Text>
           <Text style={styles.workspaceBarName} numberOfLines={1}>
             {activeWorkspace.alias || activeWorkspace.name}
           </Text>
@@ -229,9 +231,9 @@ export function TerminalListScreen({ navigation }: Props) {
       >
         <View style={styles.modalRoot}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Add Session</Text>
+            <Text style={styles.modalTitle}>{t('terminalList.modal.title')}</Text>
             <TouchableOpacity style={styles.headerButton} onPress={dismissAddModal}>
-              <Text style={styles.headerButtonText}>{creatingType ? 'Cancel' : 'Close'}</Text>
+              <Text style={styles.headerButtonText}>{creatingType ? t('common.cancel') : t('terminalList.button.close')}</Text>
             </TouchableOpacity>
           </View>
           {loadingTypes && sessionTypeRows.length === 0 ? (
@@ -261,7 +263,7 @@ export function TerminalListScreen({ navigation }: Props) {
                 )
               }}
               contentContainerStyle={styles.list}
-              ListEmptyComponent={<Text style={styles.empty}>The host did not report any supported session types.</Text>}
+              ListEmptyComponent={<Text style={styles.empty}>{t('terminalList.empty.noSessionTypes')}</Text>}
             />
           )}
         </View>

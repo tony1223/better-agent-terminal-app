@@ -14,17 +14,3 @@ export function classifyChatItem(item: ClaudeMessage | ClaudeToolCall): ChatItem
   }
   return null
 }
-
-export const KIND_LABEL: Record<ChatItemKind, string> = {
-  you: 'You',
-  message: 'Message',
-  tool: 'Tool',
-  thinking: 'Thinking',
-}
-
-export const KIND_LABEL_PLURAL: Record<ChatItemKind, string> = {
-  you: 'you messages',
-  message: 'messages',
-  tool: 'tool calls',
-  thinking: 'thinking blocks',
-}

@@ -20,6 +20,7 @@ import {
   Alert,
 } from 'react-native'
 import { launchImageLibrary } from 'react-native-image-picker'
+import { useTranslation } from 'react-i18next'
 import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -166,6 +167,7 @@ function normalizeSessionSummaries(raw: unknown): SessionSummary[] {
 }
 
 export function ClaudeScreen({ route, navigation }: Props) {
+  const { t } = useTranslation()
   const sessionId = route.params?.sessionId as string
   const channels = useConnectionStore(s => s.channels)
   const connectionStatus = useConnectionStore(s => s.status)
@@ -174,9 +176,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const chatFilters = useChatFilterStore(s => s.getFilter(sessionId))
   const setChatFilterKind = useChatFilterStore(s => s.setKind)
   const promptSuggestions = useClaudeStore(s => s.promptSuggestions)
-  const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === sessionId))
+  const terminal = useWorkspaceStore(s => s.terminals.find(item => item.id === sessionId))
   const workspace = useWorkspaceStore(s => {
-    const term = s.terminals.find(t => t.id === sessionId)
+    const term = s.terminals.find(item => item.id === sessionId)
     return term ? s.workspaces.find(w => w.id === term.workspaceId) : undefined
   })
   const loadStatus = useWorkspaceStore(s => s.loadStatus)
@@ -253,15 +255,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {workspace?.alias || workspace?.name || 'Workspace'}
+            {workspace?.alias || workspace?.name || t('claude.defaultWorkspace')}
           </Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {terminal?.alias || terminal?.title || 'Claude'}
+            {terminal?.alias || terminal?.title || t('claude.defaultTitle')}
           </Text>
         </View>
       ),
     })
-  }, [navigation, sessionId, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name])
+  }, [navigation, sessionId, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name, t])
 
   // Lift the input area above the keyboard. The tab bar reserves space at the
   // bottom, so the keyboard only overlaps the input by (keyboardHeight - tabBarHeight).
@@ -721,9 +723,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.setPermissionMode(sessionId, next)
       setPermissionMode(next)
     } catch (e) {
-      Alert.alert('Unable to switch permission mode', String(e))
+      Alert.alert(t('claude.errors.switchPermissionFailed'), String(e))
     }
-  }, [channels, sessionId, permissionMode])
+  }, [channels, sessionId, permissionMode, t])
 
   const handleEffortSelect = useCallback(async (effort: string) => {
     if (!channels) return
@@ -732,9 +734,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.setEffort(sessionId, effort)
       setEffortLevel(effort)
     } catch (e) {
-      Alert.alert('Unable to switch effort', String(e))
+      Alert.alert(t('claude.errors.switchEffortFailed'), String(e))
     }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleCodexSandboxSelect = useCallback(async (mode: string) => {
     if (!channels) return
@@ -743,9 +745,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.setCodexSandboxMode(sessionId, mode)
       setCodexSandboxMode(mode)
     } catch (e) {
-      Alert.alert('Unable to switch sandbox mode', String(e))
+      Alert.alert(t('claude.errors.switchSandboxFailed'), String(e))
     }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleCodexApprovalSelect = useCallback(async (policy: string) => {
     if (!channels) return
@@ -754,9 +756,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.setCodexApprovalPolicy(sessionId, policy)
       setCodexApprovalPolicy(policy)
     } catch (e) {
-      Alert.alert('Unable to switch approval policy', String(e))
+      Alert.alert(t('claude.errors.switchApprovalFailed'), String(e))
     }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleCompact = useCallback(async () => {
     if (!channels) return
@@ -771,9 +773,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       setShowModelPicker(true)
     } catch (e) {
       console.warn('[Claude] getSupportedModels error:', e)
-      Alert.alert('Unable to load models', String(e))
+      Alert.alert(t('claude.errors.loadModelsFailed'), String(e))
     }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleModelSelect = useCallback(async (model: ModelOption) => {
     if (!channels) return
@@ -782,9 +784,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.setModel(sessionId, model.value)
     } catch (e) {
       console.warn('[Claude] setModel error:', e)
-      Alert.alert('Unable to switch model', String(e))
+      Alert.alert(t('claude.errors.switchModelFailed'), String(e))
     }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleFork = useCallback(async () => {
     if (!channels) return
@@ -812,7 +814,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       useChatFilterStore.getState().clearSession(sessionId)
     } catch (e) {
       setHistoryLoadingInBackground(false)
-      Alert.alert('Unable to resume session', String(e))
+      Alert.alert(t('claude.errors.resumeSessionFailed'), String(e))
       return
     }
     try {
@@ -841,11 +843,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
     } finally {
       setHistoryLoadingInBackground(false)
     }
-  }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy])
+  }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy, t])
 
   const handleUpload = useCallback(() => {
     if (attachedImages.length >= MAX_IMAGES) {
-      Alert.alert('Limit reached', `Maximum ${MAX_IMAGES} images allowed.`)
+      Alert.alert(t('claude.errors.imageLimitTitle'), t('claude.errors.imageLimitMessage', { max: MAX_IMAGES }))
       return
     }
     try {
@@ -872,9 +874,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
         },
       )
     } catch {
-      Alert.alert('Rebuild required', 'Image picker needs a native rebuild. Run: npx react-native run-android')
+      Alert.alert(t('claude.errors.rebuildRequiredTitle'), t('claude.errors.rebuildRequiredMessage'))
     }
-  }, [attachedImages.length])
+  }, [attachedImages.length, t])
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages(prev => prev.filter((_, i) => i !== index))
@@ -976,18 +978,18 @@ export function ClaudeScreen({ route, navigation }: Props) {
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={agentColor} />
-            <Text style={styles.loadingText}>Loading session...</Text>
+            <Text style={styles.loadingText}>{t('claude.loading.session')}</Text>
           </View>
         ) : invertedItems.length === 0 && !showStreaming ? (
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyIcon, { color: agentColor }]}>{isCodexAgent ? '\u2B21' : '\u2726'}</Text>
             <Text style={styles.emptyText}>
-              {historyLoadingInBackground ? 'Syncing history...' : 'No messages yet'}
+              {historyLoadingInBackground ? t('claude.empty.syncingHistory') : t('claude.empty.noMessages')}
             </Text>
             <Text style={styles.emptySubtext}>
               {historyLoadingInBackground
-                ? 'History is still loading in the background.'
-                : 'Send a message to start a conversation with Claude'}
+                ? t('claude.empty.historyLoadingBackground')
+                : t('claude.empty.startConversation')}
             </Text>
           </View>
         ) : (
@@ -1024,7 +1026,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 style={styles.suggestionChip}
                 onPress={() => setInputText(s)}
               >
-                <Text style={styles.suggestionLabel}>suggest</Text>
+                <Text style={styles.suggestionLabel}>{t('claude.suggestion.label')}</Text>
                 <Text style={styles.suggestionText} numberOfLines={1}>{s}</Text>
               </TouchableOpacity>
             ))}
@@ -1053,7 +1055,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             style={styles.input}
             value={inputText}
             onChangeText={setInputText}
-            placeholder={isCodexAgent ? 'Message Codex...' : 'Message Claude...'}
+            placeholder={isCodexAgent ? t('claude.input.placeholderCodex') : t('claude.input.placeholderClaude')}
             placeholderTextColor={appColors.textMuted}
             multiline
             maxLength={100000}
@@ -1093,29 +1095,31 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
           <TouchableOpacity style={styles.controlBtn} onPress={() => setShowEffortPicker(true)}>
             <Text style={styles.controlText}>
-              {isCodexAgent ? `thinking:${effortLevel}` : `effort:${effortLevel}`}
+              {isCodexAgent
+                ? t('claude.controls.thinking', { value: effortLevel })
+                : t('claude.controls.effort', { value: effortLevel })}
             </Text>
           </TouchableOpacity>
 
           {isCodexAgent && (
             <>
               <TouchableOpacity style={styles.controlBtn} onPress={() => setShowSandboxPicker(true)}>
-                <Text style={styles.controlText}>sandbox:{codexSandboxMode}</Text>
+                <Text style={styles.controlText}>{t('claude.controls.sandbox', { value: codexSandboxMode })}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.controlBtn} onPress={() => setShowApprovalPicker(true)}>
-                <Text style={styles.controlText}>approval:{codexApprovalPolicy}</Text>
+                <Text style={styles.controlText}>{t('claude.controls.approval', { value: codexApprovalPolicy })}</Text>
               </TouchableOpacity>
             </>
           )}
 
           {isOpenAIAgent && (
             <TouchableOpacity style={styles.controlBtn} onPress={handleCompact}>
-              <Text style={styles.controlText}>compact</Text>
+              <Text style={styles.controlText}>{t('claude.controls.compact')}</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity style={styles.controlBtn} onPress={handleFork}>
-            <Text style={styles.controlText}>{'\u2442'} Fork</Text>
+            <Text style={styles.controlText}>{'\u2442'} {t('claude.controls.fork')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.controlBtn} onPress={handleUpload}>
@@ -1126,7 +1130,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
           {session.isStreaming && (
             <TouchableOpacity style={[styles.controlBtn, { backgroundColor: appColors.error, borderColor: appColors.error }]} onPress={handleStop}>
-              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>Stop</Text>
+              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>{t('claude.controls.stop')}</Text>
             </TouchableOpacity>
           )}
         </ScrollView>
@@ -1170,7 +1174,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModelPicker(false)}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Model</Text>
+            <Text style={styles.modalTitle}>{t('claude.modal.selectModel')}</Text>
             <FlatList
               data={availableModels}
               keyExtractor={(item) => item.value}
@@ -1202,7 +1206,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <Modal visible={showEffortPicker} transparent animationType="fade" onRequestClose={() => setShowEffortPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowEffortPicker(false)}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{isCodexAgent ? 'Select Thinking' : 'Select Effort'}</Text>
+            <Text style={styles.modalTitle}>{isCodexAgent ? t('claude.modal.selectThinking') : t('claude.modal.selectEffort')}</Text>
             <FlatList
               data={effortOptions}
               keyExtractor={(item) => item}
@@ -1212,7 +1216,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   onPress={() => handleEffortSelect(item)}
                 >
                   <Text style={[styles.modelItemText, item === effortLevel && { color: agentColor }]}>
-                    {isCodexAgent ? `thinking: ${item}` : `effort: ${item}`}
+                    {isCodexAgent
+                      ? t('claude.modal.thinkingOption', { value: item })
+                      : t('claude.modal.effortOption', { value: item })}
                   </Text>
                   {item === effortLevel && (
                     <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
@@ -1228,7 +1234,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <Modal visible={showSandboxPicker} transparent animationType="fade" onRequestClose={() => setShowSandboxPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSandboxPicker(false)}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Sandbox</Text>
+            <Text style={styles.modalTitle}>{t('claude.modal.selectSandbox')}</Text>
             <FlatList
               data={sandboxOptions}
               keyExtractor={(item) => item}
@@ -1238,7 +1244,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   onPress={() => handleCodexSandboxSelect(item)}
                 >
                   <Text style={[styles.modelItemText, item === codexSandboxMode && { color: agentColor }]}>
-                    sandbox: {item}
+                    {t('claude.modal.sandboxOption', { value: item })}
                   </Text>
                   {item === codexSandboxMode && (
                     <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
@@ -1254,7 +1260,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <Modal visible={showApprovalPicker} transparent animationType="fade" onRequestClose={() => setShowApprovalPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowApprovalPicker(false)}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Approval</Text>
+            <Text style={styles.modalTitle}>{t('claude.modal.selectApproval')}</Text>
             <FlatList
               data={approvalOptions}
               keyExtractor={(item) => item}
@@ -1264,7 +1270,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   onPress={() => handleCodexApprovalSelect(item)}
                 >
                   <Text style={[styles.modelItemText, item === codexApprovalPolicy && { color: agentColor }]}>
-                    approval: {item}
+                    {t('claude.modal.approvalOption', { value: item })}
                   </Text>
                   {item === codexApprovalPolicy && (
                     <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
@@ -1289,15 +1295,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <Modal visible={showResumeList} transparent animationType="fade" onRequestClose={() => setShowResumeList(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowResumeList(false)}>
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Resume Session</Text>
+            <Text style={styles.modalTitle}>{t('claude.resume.title')}</Text>
             {resumeLoading ? (
               <View style={styles.resumeEmpty}>
                 <ActivityIndicator size="small" color={appColors.accent} />
-                <Text style={styles.resumeEmptyText}>Loading sessions...</Text>
+                <Text style={styles.resumeEmptyText}>{t('claude.resume.loading')}</Text>
               </View>
             ) : resumeSessions.length === 0 ? (
               <View style={styles.resumeEmpty}>
-                <Text style={styles.resumeEmptyText}>No sessions found</Text>
+                <Text style={styles.resumeEmptyText}>{t('claude.resume.noSessions')}</Text>
               </View>
             ) : (
               <FlatList

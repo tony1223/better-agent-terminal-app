@@ -1,0 +1,410 @@
+{
+  "common": {
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "close": "关闭",
+    "copy": "复制",
+    "deny": "拒绝",
+    "allow": "允许",
+    "error": "错误",
+    "connectionFailed": "连接失败"
+  },
+  "language": {
+    "section": "语言",
+    "system": "跟随系统"
+  },
+  "nav": {
+    "workspaces": "工作区",
+    "workspace": "工作区",
+    "terminals": "终端",
+    "terminal": "终端",
+    "claude": "Claude",
+    "settings": "设置",
+    "addHost": "添加主机",
+    "scanQR": "扫描二维码"
+  },
+  "settings": {
+    "connection": "连接",
+    "host": "主机",
+    "address": "地址",
+    "status": "状态",
+    "activeWorkspace": "当前工作区",
+    "name": "名称",
+    "path": "路径",
+    "actions": "操作",
+    "disconnect": "断开连接",
+    "disconnectConfirmTitle": "断开连接",
+    "disconnectConfirmMessage": "确定要断开与此主机的连接吗？",
+    "debug": "调试",
+    "debugMode": "调试模式",
+    "debugHintOn": "已启用日志。远程调用、回退重试、会话状态计数和历史计数会写入 MMKV 与 logcat。",
+    "debugHintOff": "仅记录错误。在重现远程／会话问题前请先启用。",
+    "viewLogs": "查看日志",
+    "shareLogs": "分享调试日志",
+    "clearLogs": "清除日志",
+    "clearedTitle": "已清除",
+    "clearedMessage": "调试日志已清除。",
+    "debugLogsTitle": "调试日志",
+    "shareLogsTitle": "BAT Mobile 调试日志",
+    "about": "关于",
+    "app": "应用",
+    "version": "版本"
+  },
+  "localSettings": {
+    "section": "诊断",
+    "debugLabel": "调试日志",
+    "hintOn": "已启用连接与远程事件的详细日志。",
+    "hintOff": "仅记录错误。在重现连接问题前请先启用。",
+    "viewLogs": "查看日志",
+    "shareTitle": "BAT Mobile 调试日志",
+    "shareLogs": "分享调试日志",
+    "clearedTitle": "已清除",
+    "clearedMessage": "调试日志已清除。",
+    "clearLogs": "清除日志",
+    "logViewerTitle": "调试日志"
+  },
+  "connect": {
+    "noToken": "找不到此主机的令牌",
+    "certChangedTitle": "证书已变更",
+    "certChangedMessage": "“{{name}}”出示了新的 TLS 证书。这通常发生在桌面版重新安装或重新生成证书之后——但也可能意味着中间人攻击。\n\n已保存：\n{{saved}}\n\n服务器当前：\n{{server}}\n\n只有在你刚重新配置过桌面版时才信任。",
+    "trustConnect": "信任并连接",
+    "trustFailedMessage": "信任新指纹后仍无法连接。",
+    "connectFailedMessage": "无法连接到主机",
+    "nameRequiredTitle": "需要名称",
+    "nameRequiredMessage": "请为此 BAT 主机输入名称。",
+    "deleteTitle": "删除主机",
+    "deleteMessage": "要移除“{{name}}”吗？",
+    "rename": "重命名",
+    "subtitle": "移动远程客户端",
+    "emptyHosts": "尚无已保存的主机。添加一台以开始使用。",
+    "scanQR": "扫描二维码",
+    "addHostManual": "＋ 手动添加主机",
+    "renameTitle": "重命名 BAT 主机",
+    "renamePlaceholder": "主机名称"
+  },
+  "scanQR": {
+    "tlsSuffix": "（TLS）",
+    "status": {
+      "initial": "将相机对准 BAT Desktop 的二维码。",
+      "found": "已找到 {{host}}:{{port}}。",
+      "notDecoded": "检测到二维码，但无法解码。",
+      "reading": "检测到二维码。正在读取连接信息…",
+      "notBatCode": "检测到二维码，但不是 BAT 连接码。",
+      "connectionFailed": "连接失败——请重试或扫描新的二维码。",
+      "cameraReady": "相机已就绪。请对准桌面版的二维码。",
+      "cameraError": "相机错误：{{code}}"
+    },
+    "alerts": {
+      "updateTitle": "更新 BAT 主机",
+      "foundTitle": "找到 BAT 主机",
+      "refreshMessage": "刷新“{{name}}”{{tlsLabel}}\n{{host}}:{{port}}",
+      "fingerprintChanged": "\n\n指纹已变更——将覆盖已保存的指纹。",
+      "connectMessage": "要连接到“{{name}}”{{tlsLabel}}\n{{host}}:{{port}} 吗？",
+      "updateOnly": "仅更新",
+      "saveOnly": "仅保存",
+      "connect": "连接",
+      "connectFailedFallback": "无法连接。主机已保存供稍后使用。"
+    },
+    "permission": {
+      "required": "扫描二维码需要相机权限。",
+      "grant": "授予权限"
+    },
+    "error": {
+      "noCamera": "找不到相机设备。"
+    },
+    "hint": {
+      "title": "扫描 BAT 二维码",
+      "breadcrumb": "BAT Desktop {{arrow}} 设置 {{arrow}} 远程 {{arrow}} 显示二维码"
+    },
+    "connecting": {
+      "title": "连接中…",
+      "status": "状态：{{status}}",
+      "hint": "验证将在 10 秒后超时。"
+    }
+  },
+  "addHost": {
+    "tlsSuffix": "（TLS）",
+    "alerts": {
+      "invalidTitle": "无效的连接字符串",
+      "invalidMessage": "请粘贴 BAT 链接、ws/wss URL，或 BAT Desktop 的 QR JSON 内容。",
+      "successTitle": "成功",
+      "successMessage": "连接成功！{{tlsLabel}}",
+      "failedFallback": "无法连接。请检查地址、端口、令牌和指纹。",
+      "failedTitle": "失败"
+    },
+    "label": {
+      "connectionString": "连接字符串",
+      "name": "名称",
+      "address": "地址",
+      "port": "端口",
+      "token": "令牌",
+      "tlsFingerprint": "TLS 指纹",
+      "tlsFingerprintHint": "（来自 BAT Desktop 设置）"
+    },
+    "placeholder": {
+      "connectionString": "粘贴 BAT 链接、ws/wss URL 或 QR JSON",
+      "name": "例如：工作用 MacBook",
+      "address": "例如：192.168.1.100 或主机名",
+      "token": "32 字符十六进制令牌",
+      "fingerprint": "AB:CD:EF:...（SHA-256）"
+    },
+    "button": {
+      "apply": "应用连接字符串",
+      "test": "测试连接",
+      "save": "保存"
+    },
+    "badge": {
+      "tlsPinning": "已启用 TLS 固定",
+      "tls": "已启用 TLS"
+    }
+  },
+  "terminal": {
+    "sessions": "会话",
+    "claude": "Claude",
+    "workspaceFallback": "工作区",
+    "terminalFallback": "终端",
+    "layoutMobile": "移动版布局",
+    "layoutDesktop": "桌面版布局"
+  },
+  "terminalList": {
+    "title": "会话",
+    "modal": {
+      "title": "添加会话"
+    },
+    "button": {
+      "add": "添加",
+      "close": "关闭"
+    },
+    "label": {
+      "workspace": "工作区"
+    },
+    "empty": {
+      "noTerminals": "此工作区中没有终端。",
+      "noWorkspace": "请先选择工作区。",
+      "noSessionTypes": "主机未报告任何受支持的会话类型。"
+    },
+    "alerts": {
+      "loadTypesFailedTitle": "无法加载会话类型",
+      "cancelFailedTitle": "无法取消会话",
+      "addFailedTitle": "无法添加会话",
+      "closeTitle": "关闭会话",
+      "closeMessage": "要关闭“{{name}}”吗？",
+      "closeFailedTitle": "无法关闭会话"
+    }
+  },
+  "workspaceList": {
+    "search": {
+      "placeholder": "搜索工作区"
+    },
+    "empty": {
+      "noMatch": "没有匹配“{{query}}”的工作区。",
+      "loading": "加载中…"
+    },
+    "modal": {
+      "title": "切换配置文件",
+      "subtitle": "选择用于工作区和会话状态的配置文件。"
+    },
+    "button": {
+      "close": "关闭",
+      "refreshing": "刷新中…",
+      "refreshProfiles": "刷新配置文件",
+      "disconnectRescan": "断开连接并重新扫描二维码"
+    },
+    "profile": {
+      "defaultLabel": "配置文件",
+      "active": "使用中",
+      "use": "使用"
+    },
+    "diagnostic": {
+      "noProfilesTitle": "找不到配置文件",
+      "noProfilesBody": "下拉刷新，或在 BAT Desktop 上创建配置文件。",
+      "noWindowTitle": "连接未绑定到任何窗口",
+      "noWindowBodyBefore": "桌面版服务器已接受你的连接，但未附加任何窗口上下文，因此返回了空的工作区快照。",
+      "noWindowBodyRescan": "这通常意味着你扫描的二维码是由旧版桌面版生成的。请重新扫描来自以下位置的新二维码",
+      "noWindowBodyAfter": "——你已保存的主机会就地更新。",
+      "loadFailedTitle": "加载工作区失败",
+      "unknownError": "未知错误。",
+      "noWorkspacesTitle": "尚无工作区",
+      "noWorkspacesBody": "打开 BAT Desktop 并创建工作区，然后下拉刷新。"
+    }
+  },
+  "workspaceDetail": {
+    "tab": {
+      "sessions": "会话",
+      "files": "文件",
+      "git": "Git",
+      "github": "GitHub"
+    },
+    "title": {
+      "workspace": "工作区",
+      "sessions": "会话"
+    },
+    "empty": {
+      "workspaceNotFound": "找不到工作区",
+      "noSessionsTitle": "没有会话",
+      "noSessionsBody": "此工作区未附加任何终端或代理会话。",
+      "noSessionTypesTitle": "没有会话类型",
+      "noSessionTypesBody": "主机未报告任何受支持的会话类型。",
+      "noFilesTitle": "没有文件",
+      "noFilesBody": "此目录为空或无法访问。"
+    },
+    "alerts": {
+      "loadSessionTypesFailed": "无法加载会话类型",
+      "cancelSessionFailed": "无法取消会话",
+      "addSessionFailed": "无法添加会话",
+      "closeSessionTitle": "关闭会话",
+      "closeSessionMessage": "要关闭“{{name}}”吗？",
+      "closeSessionFailed": "无法关闭会话"
+    },
+    "button": {
+      "add": "添加",
+      "close": "关闭",
+      "up": "上一级"
+    },
+    "modal": {
+      "addSession": "添加会话"
+    },
+    "status": {
+      "loading": "加载中…",
+      "loadingDiff": "加载差异中…"
+    },
+    "git": {
+      "noTextDiff": "（没有可用的文本差异。）",
+      "notARepository": "不是 git 仓库",
+      "workingTreeClean": "工作目录干净",
+      "noRepository": "没有 git 仓库",
+      "noModifiedFiles": "没有已修改的文件。",
+      "statusUnavailable": "此工作区无法获取 Git 状态。"
+    },
+    "github": {
+      "title": "GitHub",
+      "cliStatus": "gh：{{installed}} / {{auth}}",
+      "installed": "已安装",
+      "missing": "未安装",
+      "authenticated": "已验证",
+      "notAuthenticated": "未验证",
+      "noRemote": "未检测到 GitHub 远程。",
+      "pullRequests": "Pull Request",
+      "noPullRequests": "没有打开的 pull request。",
+      "issues": "Issue",
+      "noIssues": "没有打开的 issue。"
+    }
+  },
+  "claude": {
+    "defaultTitle": "Claude",
+    "defaultWorkspace": "工作区",
+    "errors": {
+      "switchPermissionFailed": "无法切换权限模式",
+      "switchEffortFailed": "无法切换强度",
+      "switchSandboxFailed": "无法切换沙箱模式",
+      "switchApprovalFailed": "无法切换审批策略",
+      "loadModelsFailed": "无法加载模型",
+      "switchModelFailed": "无法切换模型",
+      "resumeSessionFailed": "无法恢复会话",
+      "imageLimitTitle": "已达上限",
+      "imageLimitMessage": "最多允许 {{max}} 张图片。",
+      "rebuildRequiredTitle": "需要重新构建",
+      "rebuildRequiredMessage": "图片选择器需要重新构建原生程序。请运行：npx react-native run-android"
+    },
+    "loading": {
+      "session": "加载会话中…"
+    },
+    "empty": {
+      "syncingHistory": "同步历史中…",
+      "noMessages": "尚无消息",
+      "historyLoadingBackground": "历史仍在后台加载中。",
+      "startConversation": "发送消息以开始与 Claude 对话"
+    },
+    "suggestion": {
+      "label": "建议"
+    },
+    "input": {
+      "placeholderClaude": "给 Claude 发消息…",
+      "placeholderCodex": "给 Codex 发消息…"
+    },
+    "controls": {
+      "effort": "effort:{{value}}",
+      "thinking": "thinking:{{value}}",
+      "sandbox": "sandbox:{{value}}",
+      "approval": "approval:{{value}}",
+      "compact": "精简",
+      "fork": "分支",
+      "stop": "停止"
+    },
+    "modal": {
+      "selectModel": "选择模型",
+      "selectThinking": "选择思考程度",
+      "selectEffort": "选择强度",
+      "selectSandbox": "选择沙箱模式",
+      "selectApproval": "选择审批策略",
+      "effortOption": "effort: {{value}}",
+      "thinkingOption": "thinking: {{value}}",
+      "sandboxOption": "sandbox: {{value}}",
+      "approvalOption": "approval: {{value}}"
+    },
+    "resume": {
+      "title": "恢复会话",
+      "loading": "加载会话中…",
+      "noSessions": "找不到会话"
+    }
+  },
+  "permissionDialog": {
+    "title": "需要权限",
+    "inputDetails": "输入详情"
+  },
+  "askUserDialog": {
+    "title": "Claude 正在询问",
+    "questionFallback": "问题",
+    "optionFallback": "选项 {{n}}",
+    "customPlaceholder": "或输入自定义回复…",
+    "submit": "提交"
+  },
+  "toolCall": {
+    "label": "工具",
+    "input": "输入：",
+    "result": "结果："
+  },
+  "messageBubble": {
+    "you": "你",
+    "thinking": "思考",
+    "message": "消息",
+    "thinkingToggle": "思考"
+  },
+  "chatItem": {
+    "kind": {
+      "you": "你",
+      "message": "消息",
+      "tool": "工具",
+      "thinking": "思考"
+    },
+    "kindPlural": {
+      "you": "条你的消息",
+      "message": "条消息",
+      "tool": "个工具调用",
+      "thinking": "个思考块"
+    },
+    "hiddenA11y": "显示 {{count}} 个隐藏的{{label}}",
+    "hiddenLabel": "{{count}} {{label}}已隐藏 · 点按以显示"
+  },
+  "chatFilter": {
+    "button": "筛选聊天消息",
+    "showInThread": "在会话串中显示",
+    "reset": "重置",
+    "filterA11y": "{{label}}筛选"
+  },
+  "streamingText": {
+    "thinking": "思考中…"
+  },
+  "sessionContext": {
+    "defaultProfile": "默认",
+    "defaultWorkspace": "工作区"
+  },
+  "terminalToolbar": {
+    "showKeyboard": "显示键盘"
+  },
+  "filePreview": {
+    "notConnected": "未连接到服务器",
+    "unexpectedFormat": "意外的响应格式"
+  }
+}

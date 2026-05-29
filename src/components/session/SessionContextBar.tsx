@@ -1,5 +1,6 @@
 import React from 'react'
 import { View, Text, StyleSheet } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function SessionContextBar({ workspaceId, detail, right }: Props) {
+  const { t } = useTranslation()
   const workspace = useWorkspaceStore(s =>
     workspaceId ? s.workspaces.find(w => w.id === workspaceId) : undefined
   )
@@ -21,8 +23,8 @@ export function SessionContextBar({ workspaceId, detail, right }: Props) {
     .filter((profile): profile is NonNullable<typeof profile> => !!profile)
   const profileLabel = activeProfiles.length > 0
     ? activeProfiles.map(profile => profile.name || profile.id).join(', ')
-    : 'Default'
-  const workspaceLabel = workspace?.alias || workspace?.name || 'Workspace'
+    : t('sessionContext.defaultProfile')
+  const workspaceLabel = workspace?.alias || workspace?.name || t('sessionContext.defaultWorkspace')
   const folder = workspace?.folderPath || detail || ''
 
   return (

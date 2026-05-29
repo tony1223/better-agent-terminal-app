@@ -17,6 +17,7 @@ import {
   TextInput,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useHostStore } from '@/stores/host-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -42,6 +43,7 @@ function formatFingerprint(fp: string): string {
 }
 
 export function ConnectScreen({ navigation }: Props) {
+  const { t } = useTranslation()
   const insets = useSafeAreaInsets()
   const { hosts, loadFromStorage, removeHost, updateHost, getToken, getFingerprint, updateFingerprint, setActiveHost } = useHostStore()
   const { error, connect } = useConnectionStore()
@@ -56,7 +58,7 @@ export function ConnectScreen({ navigation }: Props) {
   const performConnect = async (host: SavedHost, fingerprintOverride?: string | null): Promise<boolean> => {
     const token = await getToken(host.id)
     if (!token) {
-      Alert.alert('Error', 'No token found for this host')
+      Alert.alert(t('common.error'), t('connect.noToken'))
       return false
     }
     const fingerprint = fingerprintOverride !== undefined ? fingerprintOverride : getFingerprint(host.id)
@@ -77,15 +79,16 @@ export function ConnectScreen({ navigation }: Props) {
     const mismatch = parseFingerprintMismatch(latestError)
     if (mismatch) {
       Alert.alert(
-        'Certificate Changed',
-        `"${host.name}" is presenting a new TLS certificate. This happens after a desktop reinstall or cert regeneration — but can also indicate a man-in-the-middle attack.\n\n` +
-          `Saved:\n${formatFingerprint(mismatch.expected)}\n\n` +
-          `Server now:\n${formatFingerprint(mismatch.got)}\n\n` +
-          `Only trust if you just reconfigured the desktop.`,
+        t('connect.certChangedTitle'),
+        t('connect.certChangedMessage', {
+          name: host.name,
+          saved: formatFingerprint(mismatch.expected),
+          server: formatFingerprint(mismatch.got),
+        }),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Trust & Connect',
+            text: t('connect.trustConnect'),
             style: 'destructive',
             onPress: async () => {
               await updateFingerprint(host.id, mismatch.got)
@@ -96,14 +99,14 @@ export function ConnectScreen({ navigation }: Props) {
                 setActiveHost(host.id)
               } else {
                 const err = useConnectionStore.getState().error
-                Alert.alert('Connection Failed', err || 'Could not connect after trusting new fingerprint.')
+                Alert.alert(t('common.connectionFailed'), err || t('connect.trustFailedMessage'))
               }
             },
           },
         ],
       )
     } else {
-      Alert.alert('Connection Failed', latestError || 'Could not connect to host')
+      Alert.alert(t('common.connectionFailed'), latestError || t('connect.connectFailedMessage'))
     }
   }
 
@@ -116,7 +119,7 @@ export function ConnectScreen({ navigation }: Props) {
     if (!renamingHost) return
     const name = renameValue.trim()
     if (!name) {
-      Alert.alert('Name Required', 'Enter a name for this BAT host.')
+      Alert.alert(t('connect.nameRequiredTitle'), t('connect.nameRequiredMessage'))
       return
     }
     await updateHost(renamingHost.id, { name })
@@ -126,11 +129,11 @@ export function ConnectScreen({ navigation }: Props) {
 
   const handleDelete = (host: SavedHost) => {
     Alert.alert(
-      'Delete Host',
-      `Remove "${host.name}"?`,
+      t('connect.deleteTitle'),
+      t('connect.deleteMessage', { name: host.name }),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => removeHost(host.id) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => removeHost(host.id) },
       ]
     )
   }
@@ -140,9 +143,9 @@ export function ConnectScreen({ navigation }: Props) {
       host.name,
       `${host.address}:${host.port}`,
       [
-        { text: 'Rename', onPress: () => openRename(host) },
-        { text: 'Delete', style: 'destructive', onPress: () => handleDelete(host) },
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('connect.rename'), onPress: () => openRename(host) },
+        { text: t('common.delete'), style: 'destructive', onPress: () => handleDelete(host) },
+        { text: t('common.cancel'), style: 'cancel' },
       ],
     )
   }
@@ -206,7 +209,7 @@ export function ConnectScreen({ navigation }: Props) {
         </TouchableOpacity>
         <Text style={styles.logo}>BAT</Text>
         <Text style={styles.title}>Better Agent Terminal</Text>
-        <Text style={styles.subtitle}>Mobile Remote Client</Text>
+        <Text style={styles.subtitle}>{t('connect.subtitle')}</Text>
       </View>
 
       <FlatList
@@ -215,7 +218,7 @@ export function ConnectScreen({ navigation }: Props) {
         renderItem={renderHost}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>No saved hosts. Add one to get started.</Text>
+          <Text style={styles.emptyText}>{t('connect.emptyHosts')}</Text>
         }
       />
 
@@ -224,13 +227,13 @@ export function ConnectScreen({ navigation }: Props) {
           style={styles.scanButton}
           onPress={() => navigation.navigate('ScanQR')}
         >
-          <Text style={styles.scanButtonText}>Scan QR Code</Text>
+          <Text style={styles.scanButtonText}>{t('connect.scanQR')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => navigation.navigate('AddHost')}
         >
-          <Text style={styles.addButtonText}>+ Add Host Manually</Text>
+          <Text style={styles.addButtonText}>{t('connect.addHostManual')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -242,14 +245,14 @@ export function ConnectScreen({ navigation }: Props) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.renameDialog}>
-            <Text style={styles.renameTitle}>Rename BAT Host</Text>
+            <Text style={styles.renameTitle}>{t('connect.renameTitle')}</Text>
             <TextInput
               style={styles.renameInput}
               value={renameValue}
               onChangeText={setRenameValue}
               autoFocus
               selectTextOnFocus
-              placeholder="Host name"
+              placeholder={t('connect.renamePlaceholder')}
               placeholderTextColor={appColors.textMuted}
               returnKeyType="done"
               onSubmitEditing={saveRename}
@@ -259,10 +262,10 @@ export function ConnectScreen({ navigation }: Props) {
                 style={styles.renameSecondaryButton}
                 onPress={() => setRenamingHost(null)}
               >
-                <Text style={styles.renameSecondaryText}>Cancel</Text>
+                <Text style={styles.renameSecondaryText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.renamePrimaryButton} onPress={saveRename}>
-                <Text style={styles.renamePrimaryText}>Save</Text>
+                <Text style={styles.renamePrimaryText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>

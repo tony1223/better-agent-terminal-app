@@ -11,6 +11,7 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useClaudeStore } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -22,6 +23,7 @@ function textValue(value: unknown, fallback = ''): string {
 }
 
 export function AskUserDialog() {
+  const { t } = useTranslation()
   const pending = useClaudeStore(s => s.pendingAskUser)
   const clearAskUser = useClaudeStore(s => s.clearAskUser)
   const channels = useConnectionStore(s => s.channels)
@@ -58,12 +60,12 @@ export function AskUserDialog() {
   return (
     <View style={styles.overlay}>
       <View style={styles.dialog}>
-        <Text style={styles.title}>Claude is asking</Text>
+        <Text style={styles.title}>{t('askUserDialog.title')}</Text>
 
         <ScrollView style={styles.scroll}>
           {questions.map((q, qi) => {
             const question = textValue(q.question, `question-${qi}`)
-            const header = textValue(q.header, 'Question')
+            const header = textValue(q.header, t('askUserDialog.questionFallback'))
             const options = Array.isArray(q.options) ? q.options : []
 
             return (
@@ -72,7 +74,7 @@ export function AskUserDialog() {
                 <Text style={styles.question}>{question}</Text>
 
                 {options.map((opt, oi) => {
-                  const label = textValue(opt.label, `Option ${oi + 1}`)
+                  const label = textValue(opt.label, t('askUserDialog.optionFallback', { n: oi + 1 }))
                   const description = textValue(opt.description)
                   const selected = answers[question] === label
                   return (
@@ -98,14 +100,14 @@ export function AskUserDialog() {
             style={styles.customInput}
             value={customText}
             onChangeText={setCustomText}
-            placeholder="Or type a custom response..."
+            placeholder={t('askUserDialog.customPlaceholder')}
             placeholderTextColor={appColors.textMuted}
             multiline
           />
         </ScrollView>
 
         <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-          <Text style={styles.submitText}>Submit</Text>
+          <Text style={styles.submitText}>{t('askUserDialog.submit')}</Text>
         </TouchableOpacity>
       </View>
     </View>

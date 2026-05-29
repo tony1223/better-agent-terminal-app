@@ -5,6 +5,7 @@
 import React, { useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, Animated } from 'react-native'
 import Markdown from 'react-native-markdown-display'
+import { useTranslation } from 'react-i18next'
 import { pathLinkerRules } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export const StreamingText = React.memo(function StreamingText({ text, thinking }: Props) {
+  const { t } = useTranslation()
   const cursorOpacity = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
     <View style={styles.container}>
       {thinking ? (
         <View style={styles.thinkingBlock}>
-          <Text style={styles.thinkingLabel}>Thinking...</Text>
+          <Text style={styles.thinkingLabel}>{t('streamingText.thinking')}</Text>
           <Text style={styles.thinkingText} selectable>{thinking}</Text>
         </View>
       ) : null}

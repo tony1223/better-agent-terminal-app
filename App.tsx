@@ -7,6 +7,7 @@ import { Linking, StatusBar, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 
+import '@/i18n'
 import { RootNavigator } from '@/navigation/RootNavigator'
 import { PermissionDialog } from '@/components/claude/PermissionDialog'
 import { AskUserDialog } from '@/components/claude/AskUserDialog'

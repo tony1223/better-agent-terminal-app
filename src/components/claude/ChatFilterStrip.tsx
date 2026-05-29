@@ -8,8 +8,9 @@ import {
   UIManager,
   View,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useChatFilterStore, isAnyFilterOff } from '@/stores/chat-filter-store'
-import { CHAT_KINDS, KIND_LABEL, type ChatItemKind } from '@/utils/classify-chat-item'
+import { CHAT_KINDS, type ChatItemKind } from '@/utils/classify-chat-item'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, counts }: Props) {
+  const { t } = useTranslation()
   const isOpen = useChatFilterStore(s => s.isOpen(sessionId))
   const filters = useChatFilterStore(s => s.getFilter(sessionId))
   const toggleKind = useChatFilterStore(s => s.toggleKind)
@@ -49,10 +51,10 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerLabel}>SHOW IN THREAD</Text>
+        <Text style={styles.headerLabel}>{t('chatFilter.showInThread')}</Text>
         {anyOff && (
           <TouchableOpacity onPress={() => reset(sessionId)} activeOpacity={0.75}>
-            <Text style={styles.resetLink}>RESET</Text>
+            <Text style={styles.resetLink}>{t('chatFilter.reset')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -71,7 +73,7 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
               ]}
               activeOpacity={0.75}
               accessibilityRole="switch"
-              accessibilityLabel={`${KIND_LABEL[kind]} filter`}
+              accessibilityLabel={t('chatFilter.filterA11y', { label: t(`chatItem.kind.${kind}`) })}
               accessibilityState={{ checked: on }}
             >
               <View
@@ -82,7 +84,7 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
                     : { borderColor: appColors.textMuted },
                 ]}
               />
-              <Text style={[styles.chipLabel, !on && styles.chipLabelOff]}>{KIND_LABEL[kind]}</Text>
+              <Text style={[styles.chipLabel, !on && styles.chipLabelOff]}>{t(`chatItem.kind.${kind}`)}</Text>
               <Text style={styles.chipCount}>{counts[kind] ?? 0}</Text>
             </TouchableOpacity>
           )

@@ -17,6 +17,7 @@ import {
   Platform,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { useHostStore } from '@/stores/host-store'
 import { WebSocketClient } from '@/api/websocket-client'
 import { parseBATQR, type BATQRPayload } from '@/api/qr-protocol'
@@ -29,6 +30,7 @@ type Props = {
 }
 
 export function AddHostScreen({ navigation }: Props) {
+  const { t } = useTranslation()
   const insets = useSafeAreaInsets()
   const { addHost } = useHostStore()
 
@@ -75,7 +77,7 @@ export function AddHostScreen({ navigation }: Props) {
   const handleApplyConnectionString = () => {
     const payload = parseBATQR(connectionString)
     if (!payload) {
-      Alert.alert('Invalid Connection String', 'Paste a BAT link, ws/wss URL, or BAT Desktop QR JSON payload.')
+      Alert.alert(t('addHost.alerts.invalidTitle'), t('addHost.alerts.invalidMessage'))
       return
     }
     applyPayload(payload)
@@ -108,9 +110,9 @@ export function AddHostScreen({ navigation }: Props) {
       client.disconnect()
 
       if (ok) {
-        Alert.alert('Success', `Connection successful!${hasTLS ? ' (TLS)' : ''}`)
+        Alert.alert(t('addHost.alerts.successTitle'), t('addHost.alerts.successMessage', { tlsLabel: hasTLS ? t('addHost.tlsSuffix') : '' }))
       } else {
-        const message = err || 'Could not connect. Check address, port, token, and fingerprint.'
+        const message = err || t('addHost.alerts.failedFallback')
         dlog('!CONN_TEST', message, {
           address: address.trim(),
           port: parseInt(port, 10),
@@ -118,7 +120,7 @@ export function AddHostScreen({ navigation }: Props) {
           hasFingerprint,
           hasContext: !!context,
         })
-        Alert.alert('Failed', message)
+        Alert.alert(t('addHost.alerts.failedTitle'), message)
       }
     } finally {
       setTesting(false)
@@ -159,12 +161,12 @@ export function AddHostScreen({ navigation }: Props) {
           { paddingBottom: Math.max(insets.bottom, spacing.xxl) + spacing.xxl },
         ]}
       >
-        <Text style={styles.label}>Connection String</Text>
+        <Text style={styles.label}>{t('addHost.label.connectionString')}</Text>
         <TextInput
           style={[styles.input, styles.connectionInput]}
           value={connectionString}
           onChangeText={handleConnectionStringChange}
-          placeholder="Paste BAT link, ws/wss URL, or QR JSON"
+          placeholder={t('addHost.placeholder.connectionString')}
           placeholderTextColor={appColors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
@@ -175,32 +177,32 @@ export function AddHostScreen({ navigation }: Props) {
           onPress={handleApplyConnectionString}
           disabled={!connectionString.trim()}
         >
-          <Text style={styles.applyButtonText}>Apply Connection String</Text>
+          <Text style={styles.applyButtonText}>{t('addHost.button.apply')}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.label}>Name</Text>
+        <Text style={styles.label}>{t('addHost.label.name')}</Text>
         <TextInput
           style={styles.input}
           value={name}
           onChangeText={setName}
-          placeholder="e.g., Work MacBook"
+          placeholder={t('addHost.placeholder.name')}
           placeholderTextColor={appColors.textMuted}
           autoFocus
         />
 
-        <Text style={styles.label}>Address</Text>
+        <Text style={styles.label}>{t('addHost.label.address')}</Text>
         <TextInput
           style={styles.input}
           value={address}
           onChangeText={setAddress}
-          placeholder="e.g., 192.168.1.100 or hostname"
+          placeholder={t('addHost.placeholder.address')}
           placeholderTextColor={appColors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
         />
 
-        <Text style={styles.label}>Port</Text>
+        <Text style={styles.label}>{t('addHost.label.port')}</Text>
         <TextInput
           style={styles.input}
           value={port}
@@ -210,12 +212,12 @@ export function AddHostScreen({ navigation }: Props) {
           keyboardType="number-pad"
         />
 
-        <Text style={styles.label}>Token</Text>
+        <Text style={styles.label}>{t('addHost.label.token')}</Text>
         <TextInput
           style={styles.input}
           value={token}
           onChangeText={setToken}
-          placeholder="32-character hex token"
+          placeholder={t('addHost.placeholder.token')}
           placeholderTextColor={appColors.textMuted}
           secureTextEntry
           autoCapitalize="none"
@@ -223,8 +225,8 @@ export function AddHostScreen({ navigation }: Props) {
         />
 
         <Text style={styles.label}>
-          TLS Fingerprint{' '}
-          <Text style={styles.labelOptional}>(from BAT Desktop Settings)</Text>
+          {t('addHost.label.tlsFingerprint')}{' '}
+          <Text style={styles.labelOptional}>{t('addHost.label.tlsFingerprintHint')}</Text>
         </Text>
         <TextInput
           style={[styles.input, styles.fingerprintInput]}
@@ -236,7 +238,7 @@ export function AddHostScreen({ navigation }: Props) {
             }
           }}
           onBlur={() => { if (fingerprint) setFingerprint(formatFingerprint(fingerprint)) }}
-          placeholder="AB:CD:EF:... (SHA-256)"
+          placeholder={t('addHost.placeholder.fingerprint')}
           placeholderTextColor={appColors.textMuted}
           autoCapitalize="characters"
           autoCorrect={false}
@@ -245,7 +247,7 @@ export function AddHostScreen({ navigation }: Props) {
         {hasTLS && (
           <View style={styles.tlsBadge}>
             <Text style={styles.tlsBadgeText}>
-              {hasFingerprint ? 'TLS Pinning Enabled' : 'TLS Enabled'}
+              {hasFingerprint ? t('addHost.badge.tlsPinning') : t('addHost.badge.tls')}
             </Text>
           </View>
         )}
@@ -258,7 +260,7 @@ export function AddHostScreen({ navigation }: Props) {
           {testing ? (
             <ActivityIndicator color={appColors.text} />
           ) : (
-            <Text style={styles.testButtonText}>Test Connection</Text>
+            <Text style={styles.testButtonText}>{t('addHost.button.test')}</Text>
           )}
         </TouchableOpacity>
 
@@ -270,7 +272,7 @@ export function AddHostScreen({ navigation }: Props) {
           {saving ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
+            <Text style={styles.saveButtonText}>{t('addHost.button.save')}</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

@@ -11,6 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
@@ -42,6 +43,7 @@ const KEYS: KeyDef[] = [
 ]
 
 export function TerminalToolbar({ onKey, onKeyboardPress, keyboardActive = false }: Props) {
+  const { t } = useTranslation()
   const [ctrlActive, setCtrlActive] = useState(false)
   const [altActive, setAltActive] = useState(false)
 
@@ -85,7 +87,7 @@ export function TerminalToolbar({ onKey, onKeyboardPress, keyboardActive = false
           <TouchableOpacity
             style={[styles.key, styles.keyboardKey, keyboardActive && styles.keyActive]}
             onPress={onKeyboardPress}
-            accessibilityLabel="Show keyboard"
+            accessibilityLabel={t('terminalToolbar.showKeyboard')}
           >
             <Text style={[styles.keyText, keyboardActive && styles.keyTextActive]}>
               {'\u2328'}

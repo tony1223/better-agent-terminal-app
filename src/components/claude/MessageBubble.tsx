@@ -5,6 +5,7 @@
 import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import Markdown from 'react-native-markdown-display'
+import { useTranslation } from 'react-i18next'
 import { pathLinkerRules } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeMessage } from '@/types'
@@ -28,6 +29,7 @@ function tint(hex: string, opacity: number): string {
 }
 
 export const MessageBubble = React.memo(function MessageBubble({ message }: Props) {
+  const { t } = useTranslation()
   const [showThinking, setShowThinking] = useState(false)
 
   if (message.role === 'system') {
@@ -40,7 +42,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
 
   const isUser = message.role === 'user'
   const isThinkingOnly = message.role === 'assistant' && !!message.thinking && !message.content.trim()
-  const kindLabel = isUser ? 'YOU' : isThinkingOnly ? 'THINKING' : 'MESSAGE'
+  const kindLabel = isUser ? t('messageBubble.you') : isThinkingOnly ? t('messageBubble.thinking') : t('messageBubble.message')
   const kindColor = isUser ? appColors.info : isThinkingOnly ? appColors.warning : appColors.textSecondary
   const timestamp = fmtTime(message.timestamp)
 
@@ -72,7 +74,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
           onPress={() => setShowThinking(!showThinking)}
         >
           <Text style={styles.thinkingToggleText}>
-            {showThinking ? '\u25BC Thinking' : '\u25B6 Thinking'}
+            {showThinking ? '\u25BC ' + t('messageBubble.thinkingToggle') : '\u25B6 ' + t('messageBubble.thinkingToggle')}
           </Text>
         </TouchableOpacity>
       )}

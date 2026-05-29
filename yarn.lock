@@ -1414,6 +1414,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@babel/runtime@npm:^7.29.2":
+  version: 7.29.7
+  resolution: "@babel/runtime@npm:7.29.7"
+  checksum: bc311855c6dbf5356030979584ca0f8b6cee39fe058175b02e85a73e246fc76ae30248b0d40e70c2652101faeb43279468ed2d086a670673eb9783c1fee1df2b
+  languageName: node
+  linkType: hard
+
 "@babel/template@npm:^7.28.6, @babel/template@npm:^7.3.3":
   version: 7.28.6
   resolution: "@babel/template@npm:7.28.6"
@@ -2888,16 +2895,18 @@ __metadata:
     "@types/react-test-renderer": ^19.1.0
     babel-plugin-module-resolver: ^5.0.3
     eslint: ^8.19.0
+    i18next: ^26.3.0
     jest: ^29.6.3
     prettier: 2.8.8
     react: 19.2.3
+    react-i18next: ^17.0.8
     react-native: 0.84.1
     react-native-gesture-handler: ^2.30.0
     react-native-haptic-feedback: ^2.3.4
     react-native-image-picker: ^8.2.1
     react-native-keychain: ^10.0.0
     react-native-markdown-display: ^7.0.2
-    react-native-mmkv: ^4.2.0
+    react-native-mmkv: 4.2.0
     react-native-nitro-modules: ^0.35.2
     react-native-reanimated: ^4.2.2
     react-native-safe-area-context: ^5.5.2
@@ -5325,6 +5334,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"html-parse-stringify@npm:^3.0.1":
+  version: 3.0.1
+  resolution: "html-parse-stringify@npm:3.0.1"
+  dependencies:
+    void-elements: 3.1.0
+  checksum: 334fdebd4b5c355dba8e95284cead6f62bf865a2359da2759b039db58c805646350016d2017875718bc3c4b9bf81a0d11be5ee0cf4774a3a5a7b97cde21cfd67
+  languageName: node
+  linkType: hard
+
 "http-cache-semantics@npm:^4.1.1":
   version: 4.2.0
   resolution: "http-cache-semantics@npm:4.2.0"
@@ -5369,6 +5387,18 @@ __metadata:
   version: 2.1.0
   resolution: "human-signals@npm:2.1.0"
   checksum: b87fd89fce72391625271454e70f67fe405277415b48bcc0117ca73d31fa23a4241787afdc8d67f5a116cf37258c052f59ea82daffa72364d61351423848e3b8
+  languageName: node
+  linkType: hard
+
+"i18next@npm:^26.3.0":
+  version: 26.3.0
+  resolution: "i18next@npm:26.3.0"
+  peerDependencies:
+    typescript: ^5 || ^6
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+  checksum: 4f6fd594fc51ad022d3f5af6426d766e515a41737c787c5f3fdbe6c089ab075aa66a97022a9f8cb3ba55a06915fe0c21952b3f54fa6fc34fd792f43ed425b286
   languageName: node
   linkType: hard
 
@@ -7854,6 +7884,28 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-i18next@npm:^17.0.8":
+  version: 17.0.8
+  resolution: "react-i18next@npm:17.0.8"
+  dependencies:
+    "@babel/runtime": ^7.29.2
+    html-parse-stringify: ^3.0.1
+    use-sync-external-store: ^1.6.0
+  peerDependencies:
+    i18next: ">= 26.2.0"
+    react: ">= 16.8.0"
+    typescript: ^5 || ^6
+  peerDependenciesMeta:
+    react-dom:
+      optional: true
+    react-native:
+      optional: true
+    typescript:
+      optional: true
+  checksum: 4e5c783feaebd31cd919a2a32a702c5c8ec46fedbe7354e82a3ab3a1e4bda77c07ecc0c34f478f5cd23526b99fb2739c1832e4e2a39ad3a1d3008b8d7fd405e8
+  languageName: node
+  linkType: hard
+
 "react-is@npm:^16.13.1, react-is@npm:^16.7.0":
   version: 16.13.1
   resolution: "react-is@npm:16.13.1"
@@ -7950,14 +8002,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-mmkv@npm:^4.2.0":
-  version: 4.3.1
-  resolution: "react-native-mmkv@npm:4.3.1"
+"react-native-mmkv@npm:4.2.0":
+  version: 4.2.0
+  resolution: "react-native-mmkv@npm:4.2.0"
   peerDependencies:
     react: "*"
     react-native: "*"
     react-native-nitro-modules: "*"
-  checksum: 41f909a474e5142378484065a9778c2fec185bc82731a863d54db1b489226b33a260cd8a12b8007d9195f8813b781b8570592e55a33285257dc34dbff04a30ea
+  checksum: 225adffe9231745a7ffed70ca5118110fab2874d39a9dc1330f573171a89b2b502384842fbcce1d08b418c1345f6b6bfcd4222d6840b9311e6fadcacada7f11a
   languageName: node
   linkType: hard
 
@@ -9304,7 +9356,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"use-sync-external-store@npm:^1.5.0":
+"use-sync-external-store@npm:^1.5.0, use-sync-external-store@npm:^1.6.0":
   version: 1.6.0
   resolution: "use-sync-external-store@npm:1.6.0"
   peerDependencies:
@@ -9349,6 +9401,13 @@ __metadata:
   version: 1.0.1
   resolution: "vlq@npm:1.0.1"
   checksum: 67ab6dd35c787eaa02c0ff1a869dd07a230db08722fb6014adaaf432634808ddb070765f70958b47997e438c331790cfcf20902411b0d6453f1a2a5923522f55
+  languageName: node
+  linkType: hard
+
+"void-elements@npm:3.1.0":
+  version: 3.1.0
+  resolution: "void-elements@npm:3.1.0"
+  checksum: 0390f818107fa8fce55bb0a5c3f661056001c1d5a2a48c28d582d4d847347c2ab5b7f8272314cac58acf62345126b6b09bea623a185935f6b1c3bbce0dfd7f7f
   languageName: node
   linkType: hard
 

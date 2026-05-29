@@ -18,6 +18,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { Text, StyleSheet } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, fontSize } from '@/theme/colors'
 import { MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
@@ -77,6 +78,7 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 // ---- Stack navigators ----
 
 function WorkspacesStack() {
+  const { t } = useTranslation()
   return (
     <WorkspacesNav.Navigator
       screenOptions={{
@@ -88,18 +90,19 @@ function WorkspacesStack() {
       <WorkspacesNav.Screen
         name="WorkspaceList"
         component={WorkspaceListScreen}
-        options={{ title: 'Workspaces' }}
+        options={{ title: t('nav.workspaces') }}
       />
       <WorkspacesNav.Screen
         name="WorkspaceDetail"
         component={WorkspaceDetailScreen}
-        options={{ title: 'Workspace' }}
+        options={{ title: t('nav.workspace') }}
       />
     </WorkspacesNav.Navigator>
   )
 }
 
 function TerminalsStack() {
+  const { t } = useTranslation()
   return (
     <TerminalsNav.Navigator
       screenOptions={{
@@ -111,20 +114,20 @@ function TerminalsStack() {
       <TerminalsNav.Screen
         name="TerminalList"
         component={TerminalListScreen}
-        options={{ title: 'Terminals' }}
+        options={{ title: t('nav.terminals') }}
       />
       <TerminalsNav.Screen
         name="Terminal"
         component={TerminalScreen}
         options={() => ({
-          title: 'Terminal',
+          title: t('nav.terminal'),
           headerShown: true,
         })}
       />
       <TerminalsNav.Screen
         name="Claude"
         component={ClaudeScreen}
-        options={{ title: 'Claude' }}
+        options={{ title: t('nav.claude') }}
       />
     </TerminalsNav.Navigator>
   )
@@ -133,6 +136,7 @@ function TerminalsStack() {
 // ---- Main Tabs ----
 
 function MainTabs() {
+  const { t } = useTranslation()
   return (
     <Tab.Navigator
       detachInactiveScreens={false}
@@ -146,13 +150,22 @@ function MainTabs() {
         ),
       })}
     >
-      <Tab.Screen name="Workspaces" component={WorkspacesStack} />
-      <Tab.Screen name="Terminals" component={TerminalsStack} />
+      <Tab.Screen
+        name="Workspaces"
+        component={WorkspacesStack}
+        options={{ tabBarLabel: t('nav.workspaces') }}
+      />
+      <Tab.Screen
+        name="Terminals"
+        component={TerminalsStack}
+        options={{ tabBarLabel: t('nav.terminals') }}
+      />
       <Tab.Screen
         name="Settings"
         component={SettingsScreen}
         options={{
           headerShown: true,
+          title: t('nav.settings'),
           headerStyle: { backgroundColor: appColors.surface },
           headerTintColor: appColors.text,
         }}
@@ -178,6 +191,7 @@ const navTheme = {
 // ---- Root ----
 
 export function RootNavigator() {
+  const { t } = useTranslation()
   const status = useConnectionStore(s => s.status)
   const isConnected = status === 'connected'
 
@@ -195,7 +209,7 @@ export function RootNavigator() {
           options={{
             presentation: 'modal',
             headerShown: true,
-            title: 'Add Host',
+            title: t('nav.addHost'),
             headerStyle: { backgroundColor: appColors.surface },
             headerTintColor: appColors.text,
           }}
@@ -206,7 +220,7 @@ export function RootNavigator() {
           options={{
             presentation: 'modal',
             headerShown: true,
-            title: 'Settings',
+            title: t('nav.settings'),
             headerStyle: { backgroundColor: appColors.surface },
             headerTintColor: appColors.text,
           }}
@@ -217,7 +231,7 @@ export function RootNavigator() {
           options={{
             presentation: 'modal',
             headerShown: true,
-            title: 'Scan QR Code',
+            title: t('nav.scanQR'),
             headerStyle: { backgroundColor: '#000' },
             headerTintColor: appColors.text,
           }}

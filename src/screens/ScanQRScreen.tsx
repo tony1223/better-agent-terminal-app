@@ -20,6 +20,7 @@ import {
   useCodeScanner,
 } from 'react-native-vision-camera'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { parseBATQR, type BATQRPayload } from '@/api/qr-protocol'
 import { useHostStore } from '@/stores/host-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -30,11 +31,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 type Props = NativeStackScreenProps<any, 'ScanQR'>
 
 export function ScanQRScreen({ navigation }: Props) {
+  const { t } = useTranslation()
   const insets = useSafeAreaInsets()
   const { hasPermission, requestPermission } = useCameraPermission()
   const device = useCameraDevice('back')
   const [scanned, setScanned] = useState(false)
-  const [scanStatus, setScanStatus] = useState('Point the camera at the BAT Desktop QR code.')
+  const [scanStatus, setScanStatus] = useState(t('scanQR.status.initial'))
   const scannedRef = useRef(false)
 
   const { upsertHost, findByAddress, setActiveHost } = useHostStore()
@@ -58,19 +60,19 @@ export function ScanQRScreen({ navigation }: Props) {
 
   const handlePayload = useCallback(async (payload: BATQRPayload) => {
     dlog('QR', `parsed OK: ${payload.host}:${payload.port} tls=${payload.useTLS} fp=${payload.fingerprint ? payload.fingerprint.slice(0, 12) + '...' : 'none'} mode=${payload.mode}`)
-    setScanStatus(`Found ${payload.host}:${payload.port}.`)
+    setScanStatus(t('scanQR.status.found', { host: payload.host, port: payload.port }))
 
     const existing = findByAddress(payload.host, payload.port)
-    const tlsLabel = payload.useTLS ? ' (TLS)' : ''
-    const title = existing ? 'Update BAT Host' : 'BAT Host Found'
+    const tlsLabel = payload.useTLS ? t('scanQR.tlsSuffix') : ''
+    const title = existing ? t('scanQR.alerts.updateTitle') : t('scanQR.alerts.foundTitle')
     const fingerprintChanged =
       existing && payload.fingerprint &&
       existing.fingerprint?.toUpperCase().replace(/:/g, '') !==
         payload.fingerprint.toUpperCase().replace(/:/g, '')
     const message = existing
-      ? `Refresh "${existing.name}"${tlsLabel}\n${payload.host}:${payload.port}` +
-        (fingerprintChanged ? '\n\nFingerprint changed — will overwrite the saved one.' : '')
-      : `Connect to "${payload.name}"${tlsLabel}\n${payload.host}:${payload.port}?`
+      ? t('scanQR.alerts.refreshMessage', { name: existing.name, tlsLabel, host: payload.host, port: payload.port }) +
+        (fingerprintChanged ? t('scanQR.alerts.fingerprintChanged') : '')
+      : t('scanQR.alerts.connectMessage', { name: payload.name, tlsLabel, host: payload.host, port: payload.port })
 
     const doSave = async (): Promise<{ id: string; created: boolean }> => {
       const result = await upsertHost(
@@ -90,17 +92,17 @@ export function ScanQRScreen({ navigation }: Props) {
 
     Alert.alert(title, message, [
       {
-        text: 'Cancel',
+        text: t('common.cancel'),
         style: 'cancel',
         onPress: () => {
           dlog('QR', 'user cancelled')
           scannedRef.current = false
           setScanned(false)
-          setScanStatus('Point the camera at the BAT Desktop QR code.')
+          setScanStatus(t('scanQR.status.initial'))
         },
       },
       {
-        text: existing ? 'Update Only' : 'Save Only',
+        text: existing ? t('scanQR.alerts.updateOnly') : t('scanQR.alerts.saveOnly'),
         onPress: async () => {
           try {
             await doSave()
@@ -111,7 +113,7 @@ export function ScanQRScreen({ navigation }: Props) {
         },
       },
       {
-        text: 'Connect',
+        text: t('scanQR.alerts.connect'),
         style: 'default',
         onPress: async () => {
           try {
@@ -130,8 +132,8 @@ export function ScanQRScreen({ navigation }: Props) {
               setConnecting(null)
               scannedRef.current = false
               setScanned(false)
-              setScanStatus('Connection failed — try again or scan a new QR code.')
-              Alert.alert('Connection Failed', err || 'Could not connect. Host saved for later.')
+              setScanStatus(t('scanQR.status.connectionFailed'))
+              Alert.alert(t('common.connectionFailed'), err || t('scanQR.alerts.connectFailedFallback'))
             }
           } catch (e) {
             dlog('QR', `connect error: ${e}`)
@@ -140,7 +142,7 @@ export function ScanQRScreen({ navigation }: Props) {
         },
       },
     ])
-  }, [upsertHost, findByAddress, connect, closeScanner, setActiveHost])
+  }, [upsertHost, findByAddress, connect, closeScanner, setActiveHost, t])
 
   const codeScanner = useCodeScanner({
     codeTypes: ['qr'],
@@ -149,18 +151,18 @@ export function ScanQRScreen({ navigation }: Props) {
       const qrValue = codes.find(code => code.value)?.value
       if (!qrValue) {
         if (codes.length > 0) {
-          setScanStatus('QR detected, but it could not be decoded.')
+          setScanStatus(t('scanQR.status.notDecoded'))
           console.log(`[BAT][QR] detected ${codes.length} code(s) without value`)
         }
         return
       }
 
-      setScanStatus('QR detected. Reading connection details...')
+      setScanStatus(t('scanQR.status.reading'))
       console.log(`[BAT][QR] scanned value length=${qrValue.length}`)
 
       const payload = parseBATQR(qrValue)
       if (!payload) {
-        setScanStatus('QR detected, but it is not a BAT connection code.')
+        setScanStatus(t('scanQR.status.notBatCode'))
         console.log('[BAT][QR] parse failed - not BAT QR format')
         return
       }
@@ -175,7 +177,7 @@ export function ScanQRScreen({ navigation }: Props) {
   if (!hasPermission) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.message}>Camera permission is required to scan QR codes.</Text>
+        <Text style={styles.message}>{t('scanQR.permission.required')}</Text>
         <TouchableOpacity
           style={styles.permButton}
           onPress={async () => {
@@ -185,7 +187,7 @@ export function ScanQRScreen({ navigation }: Props) {
             }
           }}
         >
-          <Text style={styles.permButtonText}>Grant Permission</Text>
+          <Text style={styles.permButtonText}>{t('scanQR.permission.grant')}</Text>
         </TouchableOpacity>
       </View>
     )
@@ -195,7 +197,7 @@ export function ScanQRScreen({ navigation }: Props) {
   if (!device) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.message}>No camera device found.</Text>
+        <Text style={styles.message}>{t('scanQR.error.noCamera')}</Text>
       </View>
     )
   }
@@ -208,11 +210,11 @@ export function ScanQRScreen({ navigation }: Props) {
         isActive={!scanned}
         codeScanner={codeScanner}
         onInitialized={() => {
-          setScanStatus('Camera ready. Point at the desktop QR code.')
+          setScanStatus(t('scanQR.status.cameraReady'))
           console.log('[BAT][QR] camera initialized')
         }}
         onError={(error) => {
-          const message = `Camera error: ${error.code}`
+          const message = t('scanQR.status.cameraError', { code: error.code })
           setScanStatus(message)
           console.warn(`[BAT][QR] ${message}`, error)
         }}
@@ -220,10 +222,10 @@ export function ScanQRScreen({ navigation }: Props) {
 
       {/* Overlay */}
       <View style={[styles.overlay, { paddingTop: insets.top + 60 }]}>
-        <Text style={styles.hint}>Scan BAT QR Code</Text>
+        <Text style={styles.hint}>{t('scanQR.hint.title')}</Text>
         <View style={styles.viewfinder} />
         <Text style={styles.subHint}>
-          BAT Desktop {'\u2192'} Settings {'\u2192'} Remote {'\u2192'} Show QR Code
+          {t('scanQR.hint.breadcrumb', { arrow: '\u2192' })}
         </Text>
         <Text style={styles.status}>{scanStatus}</Text>
       </View>
@@ -232,18 +234,18 @@ export function ScanQRScreen({ navigation }: Props) {
         <View style={styles.connectingOverlay}>
           <View style={styles.connectingCard}>
             <ActivityIndicator color={appColors.accent} size="large" />
-            <Text style={styles.connectingTitle}>Connecting\u2026</Text>
+            <Text style={styles.connectingTitle}>{t('scanQR.connecting.title')}</Text>
             <Text style={styles.connectingHost}>
               {connecting.host}:{connecting.port}
             </Text>
             <Text style={styles.connectingState}>
-              Status: {connectionStatus}
+              {t('scanQR.connecting.status', { status: connectionStatus })}
             </Text>
             {connectionError && (
               <Text style={styles.connectingError}>{connectionError}</Text>
             )}
             <Text style={styles.connectingHint}>
-              Auth times out after 10 seconds.
+              {t('scanQR.connecting.hint')}
             </Text>
           </View>
         </View>

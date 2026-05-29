@@ -7,6 +7,7 @@ import { View, StyleSheet, TouchableOpacity, Text, TextInput } from 'react-nativ
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, fontSize, spacing } from '@/theme/colors'
@@ -40,14 +41,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 export function TerminalScreen({ route, navigation }: Props) {
+  const { t } = useTranslation()
   const terminalId = route.params?.terminalId as string
   const webViewRef = useRef<WebView>(null)
   const insets = useSafeAreaInsets()
   const channels = useConnectionStore(s => s.channels)
-  const terminal = useWorkspaceStore(s => s.terminals.find(t => t.id === terminalId))
+  const terminal = useWorkspaceStore(s => s.terminals.find(item => item.id === terminalId))
   const loadStatus = useWorkspaceStore(s => s.loadStatus)
   const workspace = useWorkspaceStore(s => {
-    const term = s.terminals.find(t => t.id === terminalId)
+    const term = s.terminals.find(item => item.id === terminalId)
     return term ? s.workspaces.find(w => w.id === term.workspaceId) : undefined
   })
   const terminalReadyRef = useRef(false)
@@ -74,7 +76,7 @@ export function TerminalScreen({ route, navigation }: Props) {
             onPress={() => navigation.navigate('TerminalList')}
             style={styles.headerButton}
           >
-            <Text style={styles.headerButtonText}>Sessions</Text>
+            <Text style={styles.headerButtonText}>{t('terminal.sessions')}</Text>
           </TouchableOpacity>
           {terminal?.agentPreset === 'claude-code' && (
             <TouchableOpacity
@@ -82,7 +84,7 @@ export function TerminalScreen({ route, navigation }: Props) {
               style={styles.headerButton}
             >
               <Text style={styles.headerButtonText}>
-                {'\u2726'} Claude
+                {'\u2726'} {t('terminal.claude')}
               </Text>
             </TouchableOpacity>
           )}
@@ -91,10 +93,10 @@ export function TerminalScreen({ route, navigation }: Props) {
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {workspace?.alias || workspace?.name || 'Workspace'}
+            {workspace?.alias || workspace?.name || t('terminal.workspaceFallback')}
           </Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {terminal?.alias || terminal?.title || 'Terminal'}
+            {terminal?.alias || terminal?.title || t('terminal.terminalFallback')}
           </Text>
         </View>
       ),
@@ -105,7 +107,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     return () => {
       parent?.setOptions({ tabBarStyle: MAIN_TAB_BAR_STYLE })
     }
-  }, [navigation, terminal, terminalId, workspace])
+  }, [navigation, terminal, terminalId, workspace, t])
   const outputBufferRef = useRef('')
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -341,7 +343,7 @@ export function TerminalScreen({ route, navigation }: Props) {
             activeOpacity={0.8}
           >
             <Text style={[styles.layoutButtonText, isMobileLayout && styles.layoutButtonTextActive]}>
-              {isMobileLayout ? 'Mobile Layout' : 'Desktop Layout'}
+              {isMobileLayout ? t('terminal.layoutMobile') : t('terminal.layoutDesktop')}
             </Text>
           </TouchableOpacity>
         )}

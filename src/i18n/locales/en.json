@@ -1,0 +1,410 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "copy": "Copy",
+    "deny": "Deny",
+    "allow": "Allow",
+    "error": "Error",
+    "connectionFailed": "Connection Failed"
+  },
+  "language": {
+    "section": "Language",
+    "system": "System default"
+  },
+  "nav": {
+    "workspaces": "Workspaces",
+    "workspace": "Workspace",
+    "terminals": "Terminals",
+    "terminal": "Terminal",
+    "claude": "Claude",
+    "settings": "Settings",
+    "addHost": "Add Host",
+    "scanQR": "Scan QR Code"
+  },
+  "settings": {
+    "connection": "Connection",
+    "host": "Host",
+    "address": "Address",
+    "status": "Status",
+    "activeWorkspace": "Active Workspace",
+    "name": "Name",
+    "path": "Path",
+    "actions": "Actions",
+    "disconnect": "Disconnect",
+    "disconnectConfirmTitle": "Disconnect",
+    "disconnectConfirmMessage": "Are you sure you want to disconnect from this host?",
+    "debug": "Debug",
+    "debugMode": "Debug Mode",
+    "debugHintOn": "Logging enabled. Remote invokes, fallback retries, session state counts, and history counts are written to MMKV and logcat.",
+    "debugHintOff": "Only errors are logged. Enable this before reproducing a remote/session issue.",
+    "viewLogs": "View Logs",
+    "shareLogs": "Share Debug Logs",
+    "clearLogs": "Clear Logs",
+    "clearedTitle": "Cleared",
+    "clearedMessage": "Debug logs have been cleared.",
+    "debugLogsTitle": "Debug Logs",
+    "shareLogsTitle": "BAT Mobile Debug Logs",
+    "about": "About",
+    "app": "App",
+    "version": "Version"
+  },
+  "localSettings": {
+    "section": "Diagnostics",
+    "debugLabel": "Debug Logs",
+    "hintOn": "Verbose logging is enabled for connection and remote events.",
+    "hintOff": "Only errors are logged. Enable before reproducing a connection issue.",
+    "viewLogs": "View Logs",
+    "shareTitle": "BAT Mobile Debug Logs",
+    "shareLogs": "Share Debug Logs",
+    "clearedTitle": "Cleared",
+    "clearedMessage": "Debug logs have been cleared.",
+    "clearLogs": "Clear Logs",
+    "logViewerTitle": "Debug Logs"
+  },
+  "connect": {
+    "noToken": "No token found for this host",
+    "certChangedTitle": "Certificate Changed",
+    "certChangedMessage": "\"{{name}}\" is presenting a new TLS certificate. This happens after a desktop reinstall or cert regeneration — but can also indicate a man-in-the-middle attack.\n\nSaved:\n{{saved}}\n\nServer now:\n{{server}}\n\nOnly trust if you just reconfigured the desktop.",
+    "trustConnect": "Trust & Connect",
+    "trustFailedMessage": "Could not connect after trusting new fingerprint.",
+    "connectFailedMessage": "Could not connect to host",
+    "nameRequiredTitle": "Name Required",
+    "nameRequiredMessage": "Enter a name for this BAT host.",
+    "deleteTitle": "Delete Host",
+    "deleteMessage": "Remove \"{{name}}\"?",
+    "rename": "Rename",
+    "subtitle": "Mobile Remote Client",
+    "emptyHosts": "No saved hosts. Add one to get started.",
+    "scanQR": "Scan QR Code",
+    "addHostManual": "+ Add Host Manually",
+    "renameTitle": "Rename BAT Host",
+    "renamePlaceholder": "Host name"
+  },
+  "scanQR": {
+    "tlsSuffix": " (TLS)",
+    "status": {
+      "initial": "Point the camera at the BAT Desktop QR code.",
+      "found": "Found {{host}}:{{port}}.",
+      "notDecoded": "QR detected, but it could not be decoded.",
+      "reading": "QR detected. Reading connection details...",
+      "notBatCode": "QR detected, but it is not a BAT connection code.",
+      "connectionFailed": "Connection failed — try again or scan a new QR code.",
+      "cameraReady": "Camera ready. Point at the desktop QR code.",
+      "cameraError": "Camera error: {{code}}"
+    },
+    "alerts": {
+      "updateTitle": "Update BAT Host",
+      "foundTitle": "BAT Host Found",
+      "refreshMessage": "Refresh \"{{name}}\"{{tlsLabel}}\n{{host}}:{{port}}",
+      "fingerprintChanged": "\n\nFingerprint changed — will overwrite the saved one.",
+      "connectMessage": "Connect to \"{{name}}\"{{tlsLabel}}\n{{host}}:{{port}}?",
+      "updateOnly": "Update Only",
+      "saveOnly": "Save Only",
+      "connect": "Connect",
+      "connectFailedFallback": "Could not connect. Host saved for later."
+    },
+    "permission": {
+      "required": "Camera permission is required to scan QR codes.",
+      "grant": "Grant Permission"
+    },
+    "error": {
+      "noCamera": "No camera device found."
+    },
+    "hint": {
+      "title": "Scan BAT QR Code",
+      "breadcrumb": "BAT Desktop {{arrow}} Settings {{arrow}} Remote {{arrow}} Show QR Code"
+    },
+    "connecting": {
+      "title": "Connecting…",
+      "status": "Status: {{status}}",
+      "hint": "Auth times out after 10 seconds."
+    }
+  },
+  "addHost": {
+    "tlsSuffix": " (TLS)",
+    "alerts": {
+      "invalidTitle": "Invalid Connection String",
+      "invalidMessage": "Paste a BAT link, ws/wss URL, or BAT Desktop QR JSON payload.",
+      "successTitle": "Success",
+      "successMessage": "Connection successful!{{tlsLabel}}",
+      "failedFallback": "Could not connect. Check address, port, token, and fingerprint.",
+      "failedTitle": "Failed"
+    },
+    "label": {
+      "connectionString": "Connection String",
+      "name": "Name",
+      "address": "Address",
+      "port": "Port",
+      "token": "Token",
+      "tlsFingerprint": "TLS Fingerprint",
+      "tlsFingerprintHint": "(from BAT Desktop Settings)"
+    },
+    "placeholder": {
+      "connectionString": "Paste BAT link, ws/wss URL, or QR JSON",
+      "name": "e.g., Work MacBook",
+      "address": "e.g., 192.168.1.100 or hostname",
+      "token": "32-character hex token",
+      "fingerprint": "AB:CD:EF:... (SHA-256)"
+    },
+    "button": {
+      "apply": "Apply Connection String",
+      "test": "Test Connection",
+      "save": "Save"
+    },
+    "badge": {
+      "tlsPinning": "TLS Pinning Enabled",
+      "tls": "TLS Enabled"
+    }
+  },
+  "terminal": {
+    "sessions": "Sessions",
+    "claude": "Claude",
+    "workspaceFallback": "Workspace",
+    "terminalFallback": "Terminal",
+    "layoutMobile": "Mobile Layout",
+    "layoutDesktop": "Desktop Layout"
+  },
+  "terminalList": {
+    "title": "Sessions",
+    "modal": {
+      "title": "Add Session"
+    },
+    "button": {
+      "add": "Add",
+      "close": "Close"
+    },
+    "label": {
+      "workspace": "Workspace"
+    },
+    "empty": {
+      "noTerminals": "No terminals in this workspace.",
+      "noWorkspace": "Select a workspace first.",
+      "noSessionTypes": "The host did not report any supported session types."
+    },
+    "alerts": {
+      "loadTypesFailedTitle": "Unable to load session types",
+      "cancelFailedTitle": "Unable to cancel session",
+      "addFailedTitle": "Unable to add session",
+      "closeTitle": "Close Session",
+      "closeMessage": "Close \"{{name}}\"?",
+      "closeFailedTitle": "Unable to close session"
+    }
+  },
+  "workspaceList": {
+    "search": {
+      "placeholder": "Search workspaces"
+    },
+    "empty": {
+      "noMatch": "No workspaces match \"{{query}}\".",
+      "loading": "Loading…"
+    },
+    "modal": {
+      "title": "Switch Profile",
+      "subtitle": "Choose the profile used for workspace and session state."
+    },
+    "button": {
+      "close": "Close",
+      "refreshing": "Refreshing...",
+      "refreshProfiles": "Refresh Profiles",
+      "disconnectRescan": "Disconnect & Re-scan QR"
+    },
+    "profile": {
+      "defaultLabel": "Profile",
+      "active": "Active",
+      "use": "Use"
+    },
+    "diagnostic": {
+      "noProfilesTitle": "No profiles found",
+      "noProfilesBody": "Pull to refresh, or create a profile on BAT Desktop.",
+      "noWindowTitle": "Connection isn’t bound to a window",
+      "noWindowBodyBefore": "The desktop server accepted your connection but no window context is attached, so it returned an empty workspace snapshot.",
+      "noWindowBodyRescan": "This usually means the QR code you scanned was generated by an older desktop version. Re-scan a fresh QR from",
+      "noWindowBodyAfter": " — your saved host will be updated in place.",
+      "loadFailedTitle": "Failed to load workspaces",
+      "unknownError": "Unknown error.",
+      "noWorkspacesTitle": "No workspaces yet",
+      "noWorkspacesBody": "Open BAT Desktop and create a workspace, then pull to refresh."
+    }
+  },
+  "workspaceDetail": {
+    "tab": {
+      "sessions": "Sessions",
+      "files": "Files",
+      "git": "Git",
+      "github": "GitHub"
+    },
+    "title": {
+      "workspace": "Workspace",
+      "sessions": "Sessions"
+    },
+    "empty": {
+      "workspaceNotFound": "Workspace not found",
+      "noSessionsTitle": "No sessions",
+      "noSessionsBody": "No terminal or agent sessions are attached to this workspace.",
+      "noSessionTypesTitle": "No session types",
+      "noSessionTypesBody": "The host did not report any supported session types.",
+      "noFilesTitle": "No files",
+      "noFilesBody": "This directory is empty or unavailable."
+    },
+    "alerts": {
+      "loadSessionTypesFailed": "Unable to load session types",
+      "cancelSessionFailed": "Unable to cancel session",
+      "addSessionFailed": "Unable to add session",
+      "closeSessionTitle": "Close Session",
+      "closeSessionMessage": "Close \"{{name}}\"?",
+      "closeSessionFailed": "Unable to close session"
+    },
+    "button": {
+      "add": "Add",
+      "close": "Close",
+      "up": "Up"
+    },
+    "modal": {
+      "addSession": "Add Session"
+    },
+    "status": {
+      "loading": "Loading...",
+      "loadingDiff": "Loading diff..."
+    },
+    "git": {
+      "noTextDiff": "(No text diff available.)",
+      "notARepository": "Not a git repository",
+      "workingTreeClean": "Working tree clean",
+      "noRepository": "No git repository",
+      "noModifiedFiles": "No modified files.",
+      "statusUnavailable": "Git status is unavailable for this workspace."
+    },
+    "github": {
+      "title": "GitHub",
+      "cliStatus": "gh: {{installed}} / {{auth}}",
+      "installed": "installed",
+      "missing": "missing",
+      "authenticated": "authenticated",
+      "notAuthenticated": "not authenticated",
+      "noRemote": "No GitHub remote detected.",
+      "pullRequests": "Pull Requests",
+      "noPullRequests": "No open pull requests.",
+      "issues": "Issues",
+      "noIssues": "No open issues."
+    }
+  },
+  "claude": {
+    "defaultTitle": "Claude",
+    "defaultWorkspace": "Workspace",
+    "errors": {
+      "switchPermissionFailed": "Unable to switch permission mode",
+      "switchEffortFailed": "Unable to switch effort",
+      "switchSandboxFailed": "Unable to switch sandbox mode",
+      "switchApprovalFailed": "Unable to switch approval policy",
+      "loadModelsFailed": "Unable to load models",
+      "switchModelFailed": "Unable to switch model",
+      "resumeSessionFailed": "Unable to resume session",
+      "imageLimitTitle": "Limit reached",
+      "imageLimitMessage": "Maximum {{max}} images allowed.",
+      "rebuildRequiredTitle": "Rebuild required",
+      "rebuildRequiredMessage": "Image picker needs a native rebuild. Run: npx react-native run-android"
+    },
+    "loading": {
+      "session": "Loading session..."
+    },
+    "empty": {
+      "syncingHistory": "Syncing history...",
+      "noMessages": "No messages yet",
+      "historyLoadingBackground": "History is still loading in the background.",
+      "startConversation": "Send a message to start a conversation with Claude"
+    },
+    "suggestion": {
+      "label": "suggest"
+    },
+    "input": {
+      "placeholderClaude": "Message Claude...",
+      "placeholderCodex": "Message Codex..."
+    },
+    "controls": {
+      "effort": "effort:{{value}}",
+      "thinking": "thinking:{{value}}",
+      "sandbox": "sandbox:{{value}}",
+      "approval": "approval:{{value}}",
+      "compact": "compact",
+      "fork": "Fork",
+      "stop": "Stop"
+    },
+    "modal": {
+      "selectModel": "Select Model",
+      "selectThinking": "Select Thinking",
+      "selectEffort": "Select Effort",
+      "selectSandbox": "Select Sandbox",
+      "selectApproval": "Select Approval",
+      "effortOption": "effort: {{value}}",
+      "thinkingOption": "thinking: {{value}}",
+      "sandboxOption": "sandbox: {{value}}",
+      "approvalOption": "approval: {{value}}"
+    },
+    "resume": {
+      "title": "Resume Session",
+      "loading": "Loading sessions...",
+      "noSessions": "No sessions found"
+    }
+  },
+  "permissionDialog": {
+    "title": "Permission Required",
+    "inputDetails": "Input details"
+  },
+  "askUserDialog": {
+    "title": "Claude is asking",
+    "questionFallback": "Question",
+    "optionFallback": "Option {{n}}",
+    "customPlaceholder": "Or type a custom response...",
+    "submit": "Submit"
+  },
+  "toolCall": {
+    "label": "TOOL",
+    "input": "Input:",
+    "result": "Result:"
+  },
+  "messageBubble": {
+    "you": "YOU",
+    "thinking": "THINKING",
+    "message": "MESSAGE",
+    "thinkingToggle": "Thinking"
+  },
+  "chatItem": {
+    "kind": {
+      "you": "You",
+      "message": "Message",
+      "tool": "Tool",
+      "thinking": "Thinking"
+    },
+    "kindPlural": {
+      "you": "you messages",
+      "message": "messages",
+      "tool": "tool calls",
+      "thinking": "thinking blocks"
+    },
+    "hiddenA11y": "Show {{count}} hidden {{label}}",
+    "hiddenLabel": "{{count}} {{label}} hidden · tap to show"
+  },
+  "chatFilter": {
+    "button": "Filter chat messages",
+    "showInThread": "SHOW IN THREAD",
+    "reset": "RESET",
+    "filterA11y": "{{label}} filter"
+  },
+  "streamingText": {
+    "thinking": "Thinking..."
+  },
+  "sessionContext": {
+    "defaultProfile": "Default",
+    "defaultWorkspace": "Workspace"
+  },
+  "terminalToolbar": {
+    "showKeyboard": "Show keyboard"
+  },
+  "filePreview": {
+    "notConnected": "Not connected to server",
+    "unexpectedFormat": "Unexpected response format"
+  }
+}

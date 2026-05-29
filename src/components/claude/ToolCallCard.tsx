@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { LinkedText } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import type { ClaudeToolCall } from '@/types'
@@ -32,6 +33,7 @@ function toolInputSummary(input: Record<string, unknown>): string {
 }
 
 export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
   const dotColor = tool.denied ? appColors.error
@@ -48,7 +50,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
     <View style={styles.container}>
       <View style={styles.kindHeader}>
         <View style={[styles.kindDot, { backgroundColor: '#10b981' }]} />
-        <Text style={styles.kindLabel}>TOOL</Text>
+        <Text style={styles.kindLabel}>{t('toolCall.label')}</Text>
         {timestamp ? <Text style={styles.kindTime}>{timestamp}</Text> : null}
       </View>
 
@@ -67,14 +69,14 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
 
       {expanded && (
         <View style={styles.details}>
-          <Text style={styles.detailLabel}>Input:</Text>
+          <Text style={styles.detailLabel}>{t('toolCall.input')}</Text>
           <Text style={styles.detailCode} selectable>
             {JSON.stringify(tool.input, null, 2)}
           </Text>
 
           {tool.result && (
             <>
-              <Text style={styles.detailLabel}>Result:</Text>
+              <Text style={styles.detailLabel}>{t('toolCall.result')}</Text>
               <ScrollView
                 style={styles.resultScroll}
                 contentContainerStyle={styles.resultContent}

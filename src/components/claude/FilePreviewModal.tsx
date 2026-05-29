@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { getFileName } from '@/utils/path-tokenizer'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -26,6 +27,7 @@ interface Props {
 const LINE_HEIGHT = 18
 
 export function FilePreviewModal({ filePath, visible, onClose }: Props) {
+  const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [lines, setLines] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,7 +38,7 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
     if (!visible) return
     if (!channels) {
       setLoading(false)
-      setError('Not connected to server')
+      setError(t('filePreview.notConnected'))
       return
     }
     setLoading(true)
@@ -52,14 +54,14 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
       } else if (typeof result === 'string') {
         setLines(result.split('\n'))
       } else {
-        setError('Unexpected response format')
+        setError(t('filePreview.unexpectedFormat'))
       }
       setLoading(false)
     }).catch((e: unknown) => {
       setError(String(e))
       setLoading(false)
     })
-  }, [visible, filePath, channels])
+  }, [visible, filePath, channels, t])
 
   const handleCopy = useCallback(() => {
     // TODO: add @react-native-clipboard/clipboard for copy support
@@ -95,7 +97,7 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
               <Text style={styles.filePath} numberOfLines={1}>{filePath}</Text>
             </View>
             <TouchableOpacity style={styles.headerBtn} onPress={handleCopy}>
-              <Text style={styles.headerBtnText}>{copied ? '\u2713' : 'Copy'}</Text>
+              <Text style={styles.headerBtnText}>{copied ? '\u2713' : t('common.copy')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.headerBtn} onPress={onClose}>
               <Text style={styles.headerBtnText}>{'\u2715'}</Text>

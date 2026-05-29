@@ -1,5 +1,6 @@
 import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useChatFilterStore, isAnyFilterOff } from '@/stores/chat-filter-store'
 import { appColors, spacing } from '@/theme/colors'
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export const ChatFilterButton = React.memo(function ChatFilterButton({ sessionId }: Props) {
+  const { t } = useTranslation()
   const isOpen = useChatFilterStore(s => s.isOpen(sessionId))
   const filters = useChatFilterStore(s => s.getFilter(sessionId))
   const toggleOpen = useChatFilterStore(s => s.toggleOpen)
@@ -19,7 +21,7 @@ export const ChatFilterButton = React.memo(function ChatFilterButton({ sessionId
       onPress={() => toggleOpen(sessionId)}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel="Filter chat messages"
+      accessibilityLabel={t('chatFilter.button')}
       accessibilityState={{ expanded: isOpen }}
     >
       <Text style={[styles.glyph, isOpen && styles.glyphActive]}>{'\u2261'}</Text>

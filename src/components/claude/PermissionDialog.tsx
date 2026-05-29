@@ -4,11 +4,13 @@
 
 import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
+import { useTranslation } from 'react-i18next'
 import { useClaudeStore } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 export function PermissionDialog() {
+  const { t } = useTranslation()
   const pending = useClaudeStore(s => s.pendingPermission)
   const clearPermission = useClaudeStore(s => s.clearPermission)
   const channels = useConnectionStore(s => s.channels)
@@ -35,7 +37,7 @@ export function PermissionDialog() {
   return (
     <View style={styles.overlay}>
       <View style={styles.dialog}>
-        <Text style={styles.title}>Permission Required</Text>
+        <Text style={styles.title}>{t('permissionDialog.title')}</Text>
 
         <Text style={styles.toolName}>{pending.toolName}</Text>
 
@@ -48,7 +50,7 @@ export function PermissionDialog() {
           onPress={() => setShowInput(!showInput)}
         >
           <Text style={styles.inputToggleText}>
-            {showInput ? '\u25BC Input details' : '\u25B6 Input details'}
+            {showInput ? '\u25BC ' + t('permissionDialog.inputDetails') : '\u25B6 ' + t('permissionDialog.inputDetails')}
           </Text>
         </TouchableOpacity>
 
@@ -62,10 +64,10 @@ export function PermissionDialog() {
 
         <View style={styles.buttons}>
           <TouchableOpacity style={styles.denyButton} onPress={handleDeny}>
-            <Text style={styles.denyText}>Deny</Text>
+            <Text style={styles.denyText}>{t('common.deny')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.allowButton} onPress={handleAllow}>
-            <Text style={styles.allowText}>Allow</Text>
+            <Text style={styles.allowText}>{t('common.allow')}</Text>
           </TouchableOpacity>
         </View>
       </View>

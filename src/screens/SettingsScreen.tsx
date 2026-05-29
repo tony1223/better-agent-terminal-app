@@ -15,9 +15,16 @@ import {
   Modal,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useHostStore } from '@/stores/host-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useLanguageStore } from '@/stores/language-store'
+import {
+  LANGUAGE_DISPLAY_NAMES,
+  SUPPORTED_LANGUAGES,
+  type LanguagePreference,
+} from '@/i18n/config'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import {
   getDebugLogText,
@@ -28,6 +35,9 @@ import {
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets()
+  const { t } = useTranslation()
+  const languagePreference = useLanguageStore(s => s.preference)
+  const setLanguagePreference = useLanguageStore(s => s.setPreference)
   const { status, host, port, disconnect } = useConnectionStore()
   const activeHostId = useHostStore(s => s.activeHostId)
   const hosts = useHostStore(s => s.hosts)
@@ -40,14 +50,18 @@ export function SettingsScreen() {
 
   const handleDisconnect = () => {
     Alert.alert(
-      'Disconnect',
-      'Are you sure you want to disconnect from this host?',
+      t('settings.disconnectConfirmTitle'),
+      t('settings.disconnectConfirmMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Disconnect', style: 'destructive', onPress: disconnect },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('settings.disconnect'), style: 'destructive', onPress: disconnect },
       ]
     )
   }
+
+  const languageOptions: LanguagePreference[] = ['system', ...SUPPORTED_LANGUAGES]
+  const languageLabel = (option: LanguagePreference) =>
+    option === 'system' ? t('language.system') : LANGUAGE_DISPLAY_NAMES[option]
 
   const handleToggleDebug = (value: boolean) => {
     setDebugEnabled(value)
@@ -61,37 +75,54 @@ export function SettingsScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }}
       >
         {/* Connection Info */}
-        <Text style={styles.sectionTitle}>Connection</Text>
+        <Text style={styles.sectionTitle}>{t('settings.connection')}</Text>
         <View style={styles.card}>
-          <Row label="Host" value={activeHost?.name || host || '-'} />
-          <Row label="Address" value={host ? `${host}:${port}` : '-'} mono />
+          <Row label={t('settings.host')} value={activeHost?.name || host || '-'} />
+          <Row label={t('settings.address')} value={host ? `${host}:${port}` : '-'} mono />
           <Row
-            label="Status"
+            label={t('settings.status')}
             value={status}
             valueColor={status === 'connected' ? appColors.success : appColors.textSecondary}
           />
         </View>
 
         {/* Active Workspace */}
-        <Text style={styles.sectionTitle}>Active Workspace</Text>
+        <Text style={styles.sectionTitle}>{t('settings.activeWorkspace')}</Text>
         <View style={styles.card}>
-          <Row label="Name" value={activeWorkspace?.alias || activeWorkspace?.name || '-'} />
-          <Row label="Path" value={activeWorkspace?.folderPath || '-'} mono />
+          <Row label={t('settings.name')} value={activeWorkspace?.alias || activeWorkspace?.name || '-'} />
+          <Row label={t('settings.path')} value={activeWorkspace?.folderPath || '-'} mono />
+        </View>
+
+        {/* Language */}
+        <Text style={styles.sectionTitle}>{t('language.section')}</Text>
+        <View style={styles.card}>
+          {languageOptions.map((option) => (
+            <TouchableOpacity
+              key={option}
+              style={styles.row}
+              onPress={() => setLanguagePreference(option)}
+            >
+              <Text style={styles.rowLabel}>{languageLabel(option)}</Text>
+              {languagePreference === option && (
+                <Text style={styles.checkMark}>{'✓'}</Text>
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* Actions */}
-        <Text style={styles.sectionTitle}>Actions</Text>
+        <Text style={styles.sectionTitle}>{t('settings.actions')}</Text>
         <View style={styles.card}>
           <TouchableOpacity style={styles.actionRow} onPress={handleDisconnect}>
-            <Text style={[styles.actionText, { color: appColors.error }]}>Disconnect</Text>
+            <Text style={[styles.actionText, { color: appColors.error }]}>{t('settings.disconnect')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Debug */}
-        <Text style={styles.sectionTitle}>Debug</Text>
+        <Text style={styles.sectionTitle}>{t('settings.debug')}</Text>
         <View style={styles.card}>
           <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Debug Mode</Text>
+            <Text style={styles.switchLabel}>{t('settings.debugMode')}</Text>
             <Switch
               value={debugEnabled}
               onValueChange={handleToggleDebug}
@@ -100,42 +131,40 @@ export function SettingsScreen() {
             />
           </View>
           <Text style={styles.switchHint}>
-            {debugEnabled
-              ? 'Logging enabled. Remote invokes, fallback retries, session state counts, and history counts are written to MMKV and logcat.'
-              : 'Only errors are logged. Enable this before reproducing a remote/session issue.'}
+            {debugEnabled ? t('settings.debugHintOn') : t('settings.debugHintOff')}
           </Text>
 
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => setShowLogViewer(true)}
           >
-            <Text style={[styles.actionText, { color: appColors.accent }]}>View Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.accent }]}>{t('settings.viewLogs')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
               const logs = getDebugLogText()
-              Share.share({ message: logs, title: 'BAT Mobile Debug Logs' })
+              Share.share({ message: logs, title: t('settings.shareLogsTitle') })
             }}
           >
-            <Text style={[styles.actionText, { color: appColors.info }]}>Share Debug Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.info }]}>{t('settings.shareLogs')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
               clearDebugLogs()
-              Alert.alert('Cleared', 'Debug logs have been cleared.')
+              Alert.alert(t('settings.clearedTitle'), t('settings.clearedMessage'))
             }}
           >
-            <Text style={[styles.actionText, { color: appColors.textSecondary }]}>Clear Logs</Text>
+            <Text style={[styles.actionText, { color: appColors.textSecondary }]}>{t('settings.clearLogs')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* About */}
-        <Text style={styles.sectionTitle}>About</Text>
+        <Text style={styles.sectionTitle}>{t('settings.about')}</Text>
         <View style={styles.card}>
-          <Row label="App" value="BAT Mobile" />
-          <Row label="Version" value="0.1.0" />
+          <Row label={t('settings.app')} value="BAT Mobile" />
+          <Row label={t('settings.version')} value="0.1.0" />
         </View>
       </ScrollView>
 
@@ -219,6 +248,11 @@ const styles = StyleSheet.create({
   rowLabel: {
     fontSize: fontSize.md,
     color: appColors.text,
+  },
+  checkMark: {
+    fontSize: fontSize.md,
+    color: appColors.accent,
+    fontWeight: '600',
   },
   rowValue: {
     fontSize: fontSize.md,
