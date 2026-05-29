@@ -18,10 +18,11 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     companion object {
+        const val NAME = "TLSWebSocket"
         private val BAT_GZIP_MAGIC = "BATGZIP1\u0000".toByteArray(Charsets.US_ASCII)
     }
 
-    override fun getName() = "TLSWebSocket"
+    override fun getName() = NAME
 
     private var webSocket: WebSocket? = null
     private var client: OkHttpClient? = null
