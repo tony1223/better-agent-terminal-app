@@ -1,13 +1,17 @@
 /**
  * Terminal HTML for WebView
  *
- * This embeds xterm.js via CDN (for simplicity).
- * For offline support, bundle xterm.js files and use source={{ uri }} with local assets.
+ * xterm.js + xterm-addon-fit are vendored (src/components/terminal/xterm-vendor.ts)
+ * and inlined here so the terminal works fully offline — the phone often only has
+ * a LAN/Tailscale path to the desktop and cannot reach a CDN.
+ * Regenerate the vendored bundle with: node scripts/vendor-xterm.mjs
  *
  * Bridge protocol:
  *   RN → WebView: window.handleOutput(data), window.handleResize(), window.handleTheme(colors)
  *   WebView → RN: postMessage({ type: 'input', data }) / { type: 'resize', cols, rows } / { type: 'ready' }
  */
+
+import { XTERM_CSS, XTERM_JS, XTERM_FIT_JS } from './xterm-vendor'
 
 export const terminalHtml = `
 <!DOCTYPE html>
@@ -15,7 +19,7 @@ export const terminalHtml = `
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+  <style>${XTERM_CSS}</style>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -43,8 +47,8 @@ export const terminalHtml = `
 <body>
   <div id="terminal"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script>${XTERM_JS}</script>
+  <script>${XTERM_FIT_JS}</script>
   <script>
     (function() {
       var term = new Terminal({
