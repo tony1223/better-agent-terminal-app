@@ -88,13 +88,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return
     }
 
-    await loadProfileSummary(channels, ({ profiles, activeProfileIds }) => {
-      set({
-        profiles,
-        activeProfileIds,
-      })
+    // Load the active profile's workspaces so the list matches the profile
+    // shown in the header. The host's workspace:load falls back to the
+    // "default" profile when no profileId is supplied, which would otherwise
+    // diverge from the profile selected on the device.
+    let summary: { profiles: ProfileEntry[]; activeProfileIds: string[] } = {
+      profiles: [],
+      activeProfileIds: [],
+    }
+    await loadProfileSummary(channels, value => {
+      summary = value
+      set(value)
     })
 
+    const profilesById = new Map(summary.profiles.map(profile => [profile.id, profile]))
+    const activeProfileId = summary.activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
+      ?? summary.activeProfileIds[0]
+
+    if (activeProfileId) {
+      await get().loadProfileWorkspace(activeProfileId)
+      return
+    }
+
+    // No active profile resolved — fall back to the window/default snapshot.
     let raw: string | null
     try {
       raw = await channels.workspace.load()
