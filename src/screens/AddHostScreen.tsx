@@ -149,10 +149,16 @@ export function AddHostScreen({ navigation }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { paddingBottom: insets.bottom }]}
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: Math.max(insets.bottom, spacing.xxl) + spacing.xxl },
+        ]}
+      >
         <Text style={styles.label}>Connection String</Text>
         <TextInput
           style={[styles.input, styles.connectionInput]}
