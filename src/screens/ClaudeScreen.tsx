@@ -10,7 +10,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Dimensions,
+  Keyboard,
   Platform,
   FlatList,
   ScrollView,
@@ -18,8 +19,10 @@ import {
   Image,
   Alert,
 } from 'react-native'
+import type { KeyboardEvent } from 'react-native'
 import { launchImageLibrary } from 'react-native-image-picker'
 import { useTranslation } from 'react-i18next'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -238,6 +241,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const terminalModel = terminal?.model
   const terminalSandboxMode = terminal?.agentParams?.sandboxMode
   const terminalApprovalPolicy = terminal?.agentParams?.approvalPolicy
+  const insets = useSafeAreaInsets()
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const keyboardBottomInset = Platform.OS === 'ios' ? Math.max(0, keyboardHeight) : 0
+  const inputAreaPaddingBottom = keyboardHeight > 0
+    ? spacing.sm
+    : Math.max(insets.bottom, spacing.lg)
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -269,6 +278,37 @@ export function ClaudeScreen({ route, navigation }: Props) {
       navigation.goBack()
     }
   }, [loadStatus, navigation, terminal])
+
+  useEffect(() => {
+    const updateKeyboardInset = (event: KeyboardEvent) => {
+      Keyboard.scheduleLayoutAnimation?.(event)
+      const screenY = event.endCoordinates?.screenY
+      const frameHeight = typeof screenY === 'number'
+        ? Math.max(0, Dimensions.get('screen').height - screenY)
+        : 0
+      const fallbackHeight = Math.max(0, event.endCoordinates?.height ?? 0)
+      setKeyboardHeight(frameHeight > 0 ? frameHeight : fallbackHeight)
+    }
+
+    const resetKeyboardInset = (event: KeyboardEvent) => {
+      Keyboard.scheduleLayoutAnimation?.(event)
+      setKeyboardHeight(0)
+    }
+
+    const subscriptions = Platform.OS === 'ios'
+      ? [
+          Keyboard.addListener('keyboardWillChangeFrame', updateKeyboardInset),
+          Keyboard.addListener('keyboardWillHide', resetKeyboardInset),
+        ]
+      : [
+          Keyboard.addListener('keyboardDidShow', updateKeyboardInset),
+          Keyboard.addListener('keyboardDidHide', resetKeyboardInset),
+        ]
+
+    return () => {
+      subscriptions.forEach(subscription => subscription.remove())
+    }
+  }, [])
 
   useFocusEffect(
     useCallback(() => {
@@ -939,7 +979,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     ? terminal.sdkSessionId.slice(0, 8) : null
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior="padding">
+    <View style={styles.container}>
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
@@ -988,7 +1028,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
       </View>
 
       {/* Input area */}
-      <View style={styles.inputArea}>
+      <View
+        style={[
+          styles.inputArea,
+          {
+            marginBottom: keyboardBottomInset,
+            paddingBottom: inputAreaPaddingBottom,
+          },
+        ]}
+      >
         {/* Prompt suggestions */}
         {promptSuggestions.length > 0 && !session.isStreaming && (
           <View style={styles.suggestions}>
@@ -1308,7 +1356,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           </View>
         </TouchableOpacity>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
