@@ -1,0 +1,84 @@
+default_platform(:ios)
+
+APP_IDENTIFIER = "com.tonyq.betteragentterminal"
+PROFILE_NAME = "match AppStore #{APP_IDENTIFIER}"
+XCODEPROJ = "BATMobile.xcodeproj"
+WORKSPACE = "BATMobile.xcworkspace"
+SCHEME = "BATMobile"
+TEAM_ID = "LFKZQH9KG8"
+
+platform :ios do
+  desc "Build a Release IPA and upload it to TestFlight"
+  lane :beta do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY_P8_BASE64"),
+      is_key_content_base64: true,
+      in_house: false,
+    )
+
+    # Pull the distribution cert + appstore profile from the match repo (read-only on CI).
+    match(
+      type: "appstore",
+      app_identifier: APP_IDENTIFIER,
+      readonly: true,
+      api_key: api_key,
+    )
+
+    # CI has no logged-in Xcode account, so switch the app target to manual signing
+    # pointing at the profile match just installed. Only affects the CI working copy.
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: XCODEPROJ,
+      targets: [SCHEME],
+      team_id: TEAM_ID,
+      code_sign_identity: "Apple Distribution",
+      bundle_identifier: APP_IDENTIFIER,
+      profile_name: PROFILE_NAME,
+    )
+
+    # Optional marketing version override (e.g. 1.0.1).
+    marketing = ENV["MARKETING_VERSION"]
+    unless marketing.nil? || marketing.strip.empty?
+      increment_version_number(xcodeproj: XCODEPROJ, version_number: marketing.strip)
+    end
+
+    version = get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
+
+    # Pick a build number that is guaranteed higher than what TestFlight already has.
+    build_number =
+      begin
+        latest = latest_testflight_build_number(
+          api_key: api_key,
+          app_identifier: APP_IDENTIFIER,
+          version: version,
+          initial_build_number: 0,
+        )
+        (latest.to_i + 1).to_s
+      rescue => e
+        UI.important("Falling back on build number (#{e.message})")
+        env_bn = ENV["BUILD_NUMBER"]
+        (env_bn.nil? || env_bn.strip.empty?) ? Time.now.strftime("%Y%m%d%H%M") : env_bn.strip
+      end
+
+    increment_build_number(xcodeproj: XCODEPROJ, build_number: build_number)
+
+    build_app(
+      workspace: WORKSPACE,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          APP_IDENTIFIER => PROFILE_NAME,
+        },
+      },
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+end
