@@ -10,8 +10,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Animated,
-  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   FlatList,
   ScrollView,
@@ -38,7 +37,6 @@ import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import { isToolCall } from '@/types'
 import { useFocusEffect } from '@react-navigation/native'
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 type Props = NativeStackScreenProps<any, 'Claude'>
@@ -264,32 +262,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
       ),
     })
   }, [navigation, sessionId, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name, t])
-
-  // Lift the input area above the keyboard. The tab bar reserves space at the
-  // bottom, so the keyboard only overlaps the input by (keyboardHeight - tabBarHeight).
-  const tabBarHeight = useBottomTabBarHeight()
-  const keyboardPad = useRef(new Animated.Value(0)).current
-
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return
-    const animateTo = (toValue: number, duration: number) => {
-      Animated.timing(keyboardPad, {
-        toValue,
-        duration: duration > 0 ? duration : 250,
-        useNativeDriver: false,
-      }).start()
-    }
-    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
-      animateTo(Math.max((e.endCoordinates?.height ?? 0) - tabBarHeight, 0), e.duration)
-    })
-    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
-      animateTo(0, e.duration)
-    })
-    return () => {
-      showSub.remove()
-      hideSub.remove()
-    }
-  }, [tabBarHeight, keyboardPad])
 
   useEffect(() => {
     if ((loadStatus === 'ok' || loadStatus === 'empty') && !terminal) {
@@ -967,7 +939,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     ? terminal.sdkSessionId.slice(0, 8) : null
 
   return (
-    <Animated.View style={[styles.container, { paddingBottom: keyboardPad }]}>
+    <KeyboardAvoidingView style={styles.container} behavior="padding">
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
@@ -1336,7 +1308,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           </View>
         </TouchableOpacity>
       </Modal>
-    </Animated.View>
+    </KeyboardAvoidingView>
   )
 }
 

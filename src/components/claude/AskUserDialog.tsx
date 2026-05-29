@@ -10,6 +10,8 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useClaudeStore } from '@/stores/claude-store'
@@ -59,6 +61,10 @@ export function AskUserDialog() {
 
   return (
     <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.avoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <View style={styles.dialog}>
         <Text style={styles.title}>{t('askUserDialog.title')}</Text>
 
@@ -110,6 +116,7 @@ export function AskUserDialog() {
           <Text style={styles.submitText}>{t('askUserDialog.submit')}</Text>
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
     </View>
   )
 }
@@ -118,9 +125,12 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.7)',
+    zIndex: 1000,
+  },
+  avoider: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
   },
   dialog: {
     backgroundColor: appColors.surface,
