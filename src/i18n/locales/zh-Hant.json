@@ -107,6 +107,9 @@
       "connect": "連線",
       "connectFailedFallback": "無法連線。主機已儲存供稍後使用。"
     },
+    "namePrompt": {
+      "label": "名稱"
+    },
     "permission": {
       "required": "掃描 QR Code 需要相機權限。",
       "grant": "授予權限"

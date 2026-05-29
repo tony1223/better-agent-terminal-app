@@ -12,6 +12,10 @@ import {
   TouchableOpacity,
   Linking,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import {
   Camera,
@@ -27,8 +31,16 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { dlog } from '@/utils/debug-log'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import type { SavedHost } from '@/types'
 
 type Props = NativeStackScreenProps<any, 'ScanQR'>
+
+interface NamePrompt {
+  payload: BATQRPayload
+  existing: SavedHost | null
+  title: string
+  message: string
+}
 
 export function ScanQRScreen({ navigation }: Props) {
   const { t } = useTranslation()
@@ -39,11 +51,13 @@ export function ScanQRScreen({ navigation }: Props) {
   const [scanStatus, setScanStatus] = useState(t('scanQR.status.initial'))
   const scannedRef = useRef(false)
 
-  const { upsertHost, findByAddress, setActiveHost } = useHostStore()
+  const { upsertHost, updateHost, findByAddress, setActiveHost } = useHostStore()
   const { connect } = useConnectionStore()
   const connectionStatus = useConnectionStore(s => s.status)
   const connectionError = useConnectionStore(s => s.error)
   const [connecting, setConnecting] = useState<{ host: string; port: number } | null>(null)
+  const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null)
+  const [nameValue, setNameValue] = useState('')
 
   const closeScanner = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -58,7 +72,7 @@ export function ScanQRScreen({ navigation }: Props) {
     })
   }, [navigation])
 
-  const handlePayload = useCallback(async (payload: BATQRPayload) => {
+  const handlePayload = useCallback((payload: BATQRPayload) => {
     dlog('QR', `parsed OK: ${payload.host}:${payload.port} tls=${payload.useTLS} fp=${payload.fingerprint ? payload.fingerprint.slice(0, 12) + '...' : 'none'} mode=${payload.mode}`)
     setScanStatus(t('scanQR.status.found', { host: payload.host, port: payload.port }))
 
@@ -74,75 +88,79 @@ export function ScanQRScreen({ navigation }: Props) {
         (fingerprintChanged ? t('scanQR.alerts.fingerprintChanged') : '')
       : t('scanQR.alerts.connectMessage', { name: payload.name, tlsLabel, host: payload.host, port: payload.port })
 
-    const doSave = async (): Promise<{ id: string; created: boolean }> => {
-      const result = await upsertHost(
-        {
-          name: existing?.name ?? payload.name,
-          address: payload.host,
-          port: payload.port,
-          fingerprint: payload.fingerprint ?? undefined,
-          useTLS: payload.useTLS,
-          context: payload.context,
-        },
-        payload.token,
-      )
-      dlog('QR', `${result.created ? 'created' : 'updated'} host ${result.id}`)
-      return result
-    }
+    setNameValue(existing?.name ?? payload.name)
+    setNamePrompt({ payload, existing, title, message })
+  }, [findByAddress, t])
 
-    Alert.alert(title, message, [
+  const persistHost = useCallback(async (prompt: NamePrompt, rawName: string) => {
+    const name = rawName.trim() || prompt.payload.name
+    const result = await upsertHost(
       {
-        text: t('common.cancel'),
-        style: 'cancel',
-        onPress: () => {
-          dlog('QR', 'user cancelled')
-          scannedRef.current = false
-          setScanned(false)
-          setScanStatus(t('scanQR.status.initial'))
-        },
+        name,
+        address: prompt.payload.host,
+        port: prompt.payload.port,
+        fingerprint: prompt.payload.fingerprint ?? undefined,
+        useTLS: prompt.payload.useTLS,
+        context: prompt.payload.context,
       },
-      {
-        text: existing ? t('scanQR.alerts.updateOnly') : t('scanQR.alerts.saveOnly'),
-        onPress: async () => {
-          try {
-            await doSave()
-            closeScanner()
-          } catch (e) {
-            dlog('QR', `save error: ${e}`)
-          }
-        },
-      },
-      {
-        text: t('scanQR.alerts.connect'),
-        style: 'default',
-        onPress: async () => {
-          try {
-            const { id } = await doSave()
-            setActiveHost(id)
-            setConnecting({ host: payload.host, port: payload.port })
-            dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
-            const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context, payload.useTLS)
-            dlog('QR', `connect result: ${ok}`)
-            if (ok) {
-              setConnecting(null)
-              closeScanner()
-            } else {
-              const err = useConnectionStore.getState().error
-              dlog('QR', `connect failed: ${err}`)
-              setConnecting(null)
-              scannedRef.current = false
-              setScanned(false)
-              setScanStatus(t('scanQR.status.connectionFailed'))
-              Alert.alert(t('common.connectionFailed'), err || t('scanQR.alerts.connectFailedFallback'))
-            }
-          } catch (e) {
-            dlog('QR', `connect error: ${e}`)
-            setConnecting(null)
-          }
-        },
-      },
-    ])
-  }, [upsertHost, findByAddress, connect, closeScanner, setActiveHost, t])
+      prompt.payload.token,
+    )
+    // upsertHost preserves the existing host's name on merge, so apply the
+    // edited name explicitly when updating an existing host.
+    if (!result.created && prompt.existing && name !== prompt.existing.name) {
+      await updateHost(result.id, { name })
+    }
+    dlog('QR', `${result.created ? 'created' : 'updated'} host ${result.id} name="${name}"`)
+    return result
+  }, [upsertHost, updateHost])
+
+  const handlePromptCancel = useCallback(() => {
+    dlog('QR', 'user cancelled')
+    setNamePrompt(null)
+    scannedRef.current = false
+    setScanned(false)
+    setScanStatus(t('scanQR.status.initial'))
+  }, [t])
+
+  const handlePromptSave = useCallback(async () => {
+    if (!namePrompt) return
+    try {
+      await persistHost(namePrompt, nameValue)
+      setNamePrompt(null)
+      closeScanner()
+    } catch (e) {
+      dlog('QR', `save error: ${e}`)
+    }
+  }, [namePrompt, nameValue, persistHost, closeScanner])
+
+  const handlePromptConnect = useCallback(async () => {
+    if (!namePrompt) return
+    const { payload } = namePrompt
+    try {
+      const { id } = await persistHost(namePrompt, nameValue)
+      setActiveHost(id)
+      setNamePrompt(null)
+      setConnecting({ host: payload.host, port: payload.port })
+      dlog('QR', `connecting to ${payload.host}:${payload.port} (tls=${payload.useTLS})...`)
+      const ok = await connect(payload.host, payload.port, payload.token, payload.fingerprint, payload.context, payload.useTLS)
+      dlog('QR', `connect result: ${ok}`)
+      if (ok) {
+        setConnecting(null)
+        closeScanner()
+      } else {
+        const err = useConnectionStore.getState().error
+        dlog('QR', `connect failed: ${err}`)
+        setConnecting(null)
+        scannedRef.current = false
+        setScanned(false)
+        setScanStatus(t('scanQR.status.connectionFailed'))
+        Alert.alert(t('common.connectionFailed'), err || t('scanQR.alerts.connectFailedFallback'))
+      }
+    } catch (e) {
+      dlog('QR', `connect error: ${e}`)
+      setConnecting(null)
+    }
+  }, [namePrompt, nameValue, persistHost, connect, closeScanner, setActiveHost, t])
 
   const codeScanner = useCodeScanner({
     codeTypes: ['qr'],
@@ -250,6 +268,57 @@ export function ScanQRScreen({ navigation }: Props) {
           </View>
         </View>
       )}
+
+      <Modal
+        visible={!!namePrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={handlePromptCancel}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{namePrompt?.title}</Text>
+            {!!namePrompt?.message && (
+              <Text style={styles.modalMessage}>{namePrompt.message}</Text>
+            )}
+            <Text style={styles.modalLabel}>{t('scanQR.namePrompt.label')}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={nameValue}
+              onChangeText={setNameValue}
+              autoFocus
+              selectTextOnFocus
+              placeholder={namePrompt?.payload.name}
+              placeholderTextColor={appColors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handlePromptConnect}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtn} onPress={handlePromptCancel}>
+                <Text style={styles.modalBtnText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtn} onPress={handlePromptSave}>
+                <Text style={styles.modalBtnText}>
+                  {namePrompt?.existing ? t('scanQR.alerts.updateOnly') : t('scanQR.alerts.saveOnly')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnPrimary]}
+                onPress={handlePromptConnect}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>
+                  {t('scanQR.alerts.connect')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   )
 }
@@ -370,5 +439,76 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 8,
     overflow: 'hidden',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: appColors.surface,
+    borderRadius: 12,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    color: appColors.text,
+    fontWeight: '700',
+  },
+  modalMessage: {
+    fontSize: fontSize.sm,
+    color: appColors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  modalLabel: {
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  modalInput: {
+    backgroundColor: appColors.background,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: fontSize.md,
+    color: appColors.text,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xl,
+  },
+  modalBtn: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 8,
+    backgroundColor: appColors.background,
+    borderWidth: 1,
+    borderColor: appColors.border,
+  },
+  modalBtnPrimary: {
+    backgroundColor: appColors.accent,
+    borderColor: appColors.accent,
+  },
+  modalBtnText: {
+    fontSize: fontSize.sm,
+    color: appColors.text,
+    fontWeight: '700',
+  },
+  modalBtnTextPrimary: {
+    color: '#fff',
   },
 })

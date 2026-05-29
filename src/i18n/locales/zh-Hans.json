@@ -107,6 +107,9 @@
       "connect": "连接",
       "connectFailedFallback": "无法连接。主机已保存供稍后使用。"
     },
+    "namePrompt": {
+      "label": "名称"
+    },
     "permission": {
       "required": "扫描二维码需要相机权限。",
       "grant": "授予权限"

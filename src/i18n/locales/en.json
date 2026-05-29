@@ -107,6 +107,9 @@
       "connect": "Connect",
       "connectFailedFallback": "Could not connect. Host saved for later."
     },
+    "namePrompt": {
+      "label": "Name"
+    },
     "permission": {
       "required": "Camera permission is required to scan QR codes.",
       "grant": "Grant Permission"
