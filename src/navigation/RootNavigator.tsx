@@ -201,7 +201,11 @@ export function RootNavigator() {
         {isConnected ? (
           <RootStack.Screen name="Main" component={MainTabs} />
         ) : (
-          <RootStack.Screen name="Connect" component={ConnectScreen} />
+          <RootStack.Screen
+            name="Connect"
+            component={ConnectScreen}
+            options={{ animationTypeForReplace: 'pop' }}
+          />
         )}
         <RootStack.Screen
           name="AddHost"
