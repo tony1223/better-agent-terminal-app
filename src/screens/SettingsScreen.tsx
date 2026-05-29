@@ -171,7 +171,7 @@ export function SettingsScreen() {
       {/* Log viewer modal */}
       <Modal visible={showLogViewer} animationType="slide" onRequestClose={() => setShowLogViewer(false)}>
         <View style={styles.logViewerContainer}>
-          <View style={styles.logViewerHeader}>
+          <View style={[styles.logViewerHeader, { paddingTop: insets.top + spacing.md }]}>
             <Text style={styles.logViewerTitle}>Debug Logs</Text>
             <TouchableOpacity onPress={() => setShowLogViewer(false)}>
               <Text style={styles.logViewerClose}>{'\u2715'}</Text>
