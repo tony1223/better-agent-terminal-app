@@ -2,7 +2,7 @@
  * WorkspaceListScreen - List and switch workspaces
  */
 
-import React, { useEffect, useLayoutEffect, useMemo } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -13,9 +13,10 @@ import {
   Modal,
   ActivityIndicator,
   TextInput,
+  BackHandler,
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useNavigation } from '@react-navigation/native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -42,10 +43,23 @@ export function WorkspaceListScreen() {
   const [profileError, setProfileError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState('')
   const channels = useConnectionStore(s => s.channels)
+  const disconnect = useConnectionStore(s => s.disconnect)
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Workspaces is the first tab / app root: back exits to the home (Connect)
+  // screen by disconnecting, which flips RootNavigator back to ConnectScreen.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        disconnect()
+        return true
+      })
+      return () => sub.remove()
+    }, [disconnect]),
+  )
 
   const activeProfiles = useMemo(
     () => activeProfileIds
@@ -81,6 +95,14 @@ export function WorkspaceListScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => disconnect()}
+        >
+          <Text style={styles.backButtonText}>{'←'}</Text>
+        </TouchableOpacity>
+      ),
       headerRight: () => (
         <TouchableOpacity
           style={styles.profileChip}
@@ -94,7 +116,7 @@ export function WorkspaceListScreen() {
         </TouchableOpacity>
       ),
     })
-  }, [navigation, profileLabel])
+  }, [navigation, profileLabel, disconnect])
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -363,6 +385,17 @@ const styles = StyleSheet.create({
   list: {
     padding: spacing.lg,
     flexGrow: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    color: appColors.text,
+    fontSize: 28,
+    lineHeight: 32,
   },
   profileChip: {
     maxWidth: 180,

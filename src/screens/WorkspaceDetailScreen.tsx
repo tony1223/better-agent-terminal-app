@@ -162,7 +162,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     setActiveTerminal(terminal.id)
     const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
     const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
-    navigation.getParent?.()?.navigate('Terminals', { screen, params })
+    navigation.getParent?.()?.navigate('Terminals', { screen, params, initial: false })
   }
 
   const addSession = async (presetId: string) => {
@@ -183,7 +183,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
       setShowAddModal(false)
       const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
       const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
-      navigation.getParent?.()?.navigate('Terminals', { screen, params })
+      navigation.getParent?.()?.navigate('Terminals', { screen, params, initial: false })
     } catch (e) {
       if (createRequestRef.current === requestId) {
         Alert.alert(t('workspaceDetail.alerts.addSessionFailed'), String(e))
