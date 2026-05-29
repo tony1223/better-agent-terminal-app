@@ -192,7 +192,9 @@ interface ClaudeState {
   handleStatus: (sessionId: string, meta: SessionMeta) => void
   handleSessionState: (sessionId: string, snapshot: SessionStateSnapshot | null | undefined) => void
   handlePermissionRequest: (sessionId: string, data: PermissionRequest) => void
+  handlePermissionResolved: (sessionId: string, toolUseId: string) => void
   handleAskUser: (sessionId: string, data: AskUserRequest) => void
+  handleAskUserResolved: (sessionId: string, toolUseId: string) => void
   handleHistory: (sessionId: string, items: (ClaudeMessage | ClaudeToolCall)[]) => void
   handleModeChange: (sessionId: string, mode: string) => void
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
@@ -479,8 +481,30 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     set({ pendingPermission: { ...data, sessionId } })
   },
 
+  handlePermissionResolved: (sessionId, toolUseId) => {
+    const { pendingPermission } = get()
+    if (
+      pendingPermission &&
+      pendingPermission.sessionId === sessionId &&
+      pendingPermission.toolUseId === toolUseId
+    ) {
+      set({ pendingPermission: null })
+    }
+  },
+
   handleAskUser: (sessionId, data) => {
     set({ pendingAskUser: { ...data, sessionId } })
+  },
+
+  handleAskUserResolved: (sessionId, toolUseId) => {
+    const { pendingAskUser } = get()
+    if (
+      pendingAskUser &&
+      pendingAskUser.sessionId === sessionId &&
+      pendingAskUser.toolUseId === toolUseId
+    ) {
+      set({ pendingAskUser: null })
+    }
   },
 
   handleHistory: (sessionId, items) => {
@@ -555,7 +579,9 @@ export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
   unsubs.push(claude.onError((sid, error) => useClaudeStore.getState().handleError(sid, error)))
   unsubs.push(claude.onStatus((sid, meta) => useClaudeStore.getState().handleStatus(sid, meta)))
   unsubs.push(claude.onPermissionRequest((sid, data) => useClaudeStore.getState().handlePermissionRequest(sid, data)))
+  unsubs.push(claude.onPermissionResolved((sid, toolUseId) => useClaudeStore.getState().handlePermissionResolved(sid, toolUseId)))
   unsubs.push(claude.onAskUser((sid, data) => useClaudeStore.getState().handleAskUser(sid, data)))
+  unsubs.push(claude.onAskUserResolved((sid, toolUseId) => useClaudeStore.getState().handleAskUserResolved(sid, toolUseId)))
   unsubs.push(claude.onHistory((sid, items) => useClaudeStore.getState().handleHistory(sid, items)))
   unsubs.push(claude.onModeChange((sid, mode) => useClaudeStore.getState().handleModeChange(sid, mode)))
   unsubs.push(claude.onPromptSuggestion((sid, sug) => useClaudeStore.getState().handlePromptSuggestion(sid, sug)))
