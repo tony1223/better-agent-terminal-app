@@ -45,6 +45,7 @@ type RemoteCompression = typeof REMOTE_COMPRESSION_GZIP | typeof REMOTE_COMPRESS
 
 export interface RemoteClientContext {
   windowId?: string | null
+  clientInfo?: object | null
 }
 
 const AUTH_TIMEOUT_MS = 10_000

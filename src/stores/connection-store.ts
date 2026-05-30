@@ -7,6 +7,7 @@ import { create } from 'zustand'
 import { WebSocketClient, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
 import { createChannels, type Channels } from '@/api/channels'
 import { dlog } from '@/utils/debug-log'
+import { getRemoteClientIdentity } from '@/utils/client-identity'
 
 interface ConnectionState {
   status: ConnectionStatus
@@ -53,7 +54,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     set({ client, host, port, tls, status: 'connecting', error: null })
 
     try {
-      const ok = await client.connect(host, port, token, 'BAT-Mobile', fingerprint, context, tls)
+      const identity = getRemoteClientIdentity()
+      const clientContext = {
+        ...(context ?? {}),
+        clientInfo: identity,
+      }
+      const ok = await client.connect(host, port, token, identity.label, fingerprint, clientContext, tls)
       dlog(ok ? 'CONN' : '!CONN', `client.connect returned: ${ok}`)
 
       if (ok) {
