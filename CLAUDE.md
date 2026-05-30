@@ -2,14 +2,15 @@
 
 ## Related Projects
 
-- **BAT Desktop (原始碼)**: `/Users/tonyqwang/clones/lineage/better-agent-terminal/`
-  - Electron + React + TypeScript 桌面版 Better Agent Terminal
-  - WebSocket 協定定義: `electron/remote/protocol.ts`
-  - Remote Server 實作: `electron/remote/remote-server.ts`
-  - Remote Client 參考實作: `electron/remote/remote-client.ts`
-  - 核心類型定義: `src/types/index.ts`, `src/types/claude-agent.ts`, `src/types/agent-presets.ts`
-  - UI 元件參考: `src/components/`
-  - Store 模式參考: `src/stores/workspace-store.ts`, `src/stores/settings-store.ts`
+- **BAT Desktop (原始碼)**: `/Users/tonyqwang/clones/tonyq/better-agent-terminal/`
+  - Tauri (Rust `src-tauri/`) + React renderer (`renderer/`) + Node sidecar (`node-sidecar/`) 桌面版 Better Agent Terminal
+  - Remote Server 實作 (Rust): `src-tauri/src/remote_server.rs`
+  - Remote 協定/frame 編解碼與 channel 對應 (Rust): `src-tauri/src/remote_core.rs`
+  - Node sidecar agent handlers: `node-sidecar/src/handlers/`（例如 `claude-session.mjs`、`claude-history.mjs`）
+  - 通知中心參考: `src-tauri/src/commands/notification.rs`、`renderer/src/stores/notification-store.ts`、`renderer/src/components/NotificationBell.tsx`
+  - Renderer host API / 型別: `renderer/src/host-api.ts`
+  - UI 元件參考: `renderer/src/components/`
+  - Store 模式參考: `renderer/src/stores/`
 
 ## Project Overview
 
