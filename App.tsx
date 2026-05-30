@@ -39,9 +39,7 @@ function App() {
         useWorkspaceStore.getState().applyReload(payload)
       })
       const unsubscribeProfileChanged = channels.profile.onChanged((payload) => {
-        const workspaceStore = useWorkspaceStore.getState()
-        workspaceStore.applyProfileChanged(payload)
-        workspaceStore.loadActiveProfileWorkspace().catch(() => {})
+        useWorkspaceStore.getState().handleProfileChanged(payload)
       })
       unsubRef.current = () => {
         unsubscribeClaude()

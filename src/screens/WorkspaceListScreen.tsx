@@ -2,7 +2,7 @@
  * WorkspaceListScreen - List and switch workspaces
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -45,20 +45,21 @@ export function WorkspaceListScreen() {
   const channels = useConnectionStore(s => s.channels)
   const disconnect = useConnectionStore(s => s.disconnect)
 
-  useEffect(() => {
-    load()
-  }, [load])
-
-  // Workspaces is the first tab / app root: back exits to the home (Connect)
-  // screen by disconnecting, which flips RootNavigator back to ConnectScreen.
+  // Pull workspaces fresh from the host whenever this screen regains focus so
+  // sessions added/closed on another device (or the desktop) show up without a
+  // manual pull-to-refresh.
   useFocusEffect(
     useCallback(() => {
+      load()
+
+      // Workspaces is the first tab / app root: back exits to the home (Connect)
+      // screen by disconnecting, which flips RootNavigator back to ConnectScreen.
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
         disconnect()
         return true
       })
       return () => sub.remove()
-    }, [disconnect]),
+    }, [disconnect, load]),
   )
 
   const activeProfiles = useMemo(

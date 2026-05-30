@@ -212,6 +212,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const loadSeqRef = useRef(0)
   const loadedSessionKeyRef = useRef<string | null>(null)
   const inFlightSessionKeyRef = useRef<string | null>(null)
+  const focusRefreshedRef = useRef(false)
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree'
   const isClaudeCodeAgent = agentPreset === 'claude-code' || agentPreset === 'claude-code-v2' || agentPreset === 'claude-code-worktree'
@@ -310,6 +311,24 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [])
 
+  // Re-pull the host's live session state when the screen regains focus so
+  // messages/status that changed while we were away show up. No archived
+  // fallback: handleSessionState only replaces messages when the host returns
+  // some, so this can't clobber the local conversation with a stale subset.
+  const refreshSessionState = useCallback(async () => {
+    if (!channels || !terminalCwd) return
+    try {
+      const state = await channels.claude.getSessionState(sessionId)
+      if (!state) return
+      useClaudeStore.getState().handleSessionState(sessionId, state)
+      if (state.meta) {
+        useClaudeStore.getState().handleStatus(sessionId, state.meta)
+      }
+    } catch (e) {
+      dlog('CLAUDE_SCREEN', `focus refresh getSessionState error: ${e}`)
+    }
+  }, [channels, sessionId, terminalCwd])
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false
@@ -324,12 +343,20 @@ export function ClaudeScreen({ route, navigation }: Props) {
         }).catch(e => {
           dlog('!CLAUDE_SCREEN', `focus health check error sessionId=${sessionId}: ${e}`)
         })
+
+        // Skip the first focus (the mount effect already loads/resumes the
+        // session); on later refocuses, re-pull the live state.
+        if (focusRefreshedRef.current) {
+          refreshSessionState()
+        } else {
+          focusRefreshedRef.current = true
+        }
       }
 
       return () => {
         cancelled = true
       }
-    }, [checkConnection, connectionStatus, sessionId]),
+    }, [checkConnection, connectionStatus, refreshSessionState, sessionId]),
   )
 
   // Init session in store and load history
@@ -455,7 +482,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
               },
             ),
           )
-          await loadSessionState()
+          // resumeSession pushes the full conversation via claude:history; never
+          // run the archived fallback here or it clobbers that with a stale subset.
+          await loadSessionState({ archivedFallback: false })
           loadedSessionKeyRef.current = loadKey
         } finally {
           if (inFlightSessionKeyRef.current === loadKey) {
@@ -859,6 +888,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       return
     }
     try {
+      // resumeSession pushes the full conversation via claude:history. Only refresh
+      // meta/status from getSessionState here; do NOT fall back to loadArchived, which
+      // returns a stale newest-N subset that would clobber the freshly-pushed history.
       const state = await channels.claude.getSessionState(sessionId)
       const stateMessageCount = Array.isArray(state?.messages) ? state.messages.length : 0
       dlog('CLAUDE_SCREEN', `resumeSelect getSessionState messages=${stateMessageCount} sdkSessionId=${sdkSessionId}`)
@@ -866,17 +898,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
         useClaudeStore.getState().handleSessionState(sessionId, state)
         if (state.meta) {
           useClaudeStore.getState().handleStatus(sessionId, state.meta)
-        }
-      }
-      if (stateMessageCount === 0) {
-        const archived = await channels.claude.loadArchived(sessionId).catch(e => {
-          dlog('CLAUDE_SCREEN', `resumeSelect loadArchived error: ${e}`)
-          return null
-        })
-        const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
-        dlog('CLAUDE_SCREEN', `resumeSelect loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
-        if (archivedMessages.length > 0) {
-          useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
         }
       }
     } catch (e) {

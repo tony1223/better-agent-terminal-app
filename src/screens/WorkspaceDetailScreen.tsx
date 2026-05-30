@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { useFocusEffect } from '@react-navigation/native'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -71,6 +72,17 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (workspaceId) switchWorkspace(workspaceId)
   }, [switchWorkspace, workspaceId])
+
+  // Refresh workspace/terminal state from the host on focus, then keep the
+  // viewed workspace active, so sessions changed elsewhere stay in sync.
+  useFocusEffect(
+    useCallback(() => {
+      const store = useWorkspaceStore.getState()
+      store.load()
+        .then(() => { if (workspaceId) store.switchWorkspace(workspaceId) })
+        .catch(() => {})
+    }, [workspaceId]),
+  )
 
   useEffect(() => {
     navigation.setOptions({

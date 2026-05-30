@@ -7,6 +7,7 @@ import { View, StyleSheet, TouchableOpacity, Text, TextInput } from 'react-nativ
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useFocusEffect } from '@react-navigation/native'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -57,6 +58,7 @@ export function TerminalScreen({ route, navigation }: Props) {
   const ptyCreateStartedRef = useRef(false)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const bufferReplayedRef = useRef(false)
+  const focusedOnceRef = useRef(false)
   const deferredOutputRef = useRef('')
   const [viewportState, setViewportState] = useState<TerminalViewportState>(DEFAULT_VIEWPORT_STATE)
   const [keyboardFocused, setKeyboardFocused] = useState(false)
@@ -163,6 +165,25 @@ export function TerminalScreen({ route, navigation }: Props) {
       writeToTerminal(deferred)
     }
   }, [channels, terminal, terminalId, writeToTerminal])
+
+  // Re-pull the host's PTY buffer when the screen regains focus so the terminal
+  // recovers any output it missed while backgrounded (e.g. across a WebSocket
+  // reconnect). The xterm is reset first so the re-fetched scrollback doesn't
+  // stack on top of the existing one — this causes a brief redraw flicker.
+  const refreshTerminalBuffer = useCallback(async () => {
+    if (!channels || !webViewRef.current) return
+    // Let the initial mount replay finish before re-pulling.
+    if (!bufferReplayedRef.current) return
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
+    webViewRef.current.injectJavaScript('window.clearTerminal && window.clearTerminal(); true;')
+    bufferReplayedRef.current = false
+    deferredOutputRef.current = ''
+    outputBufferRef.current = ''
+    await replayTerminalBuffer()
+  }, [channels, replayTerminalBuffer])
 
   const applyViewportState = useCallback((state: TerminalViewportState) => {
     viewportStateRef.current = state
@@ -273,6 +294,18 @@ export function TerminalScreen({ route, navigation }: Props) {
   useEffect(() => {
     ensurePty()
   }, [ensurePty])
+
+  // Skip the first focus (initial mount already replays via ensurePty); on
+  // every later refocus, re-pull the buffer so the terminal stays current.
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnceRef.current) {
+        focusedOnceRef.current = true
+        return
+      }
+      refreshTerminalBuffer()
+    }, [refreshTerminalBuffer]),
+  )
 
   // Send special key from toolbar
   const handleSpecialKey = useCallback((data: string) => {

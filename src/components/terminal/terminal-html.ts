@@ -93,6 +93,11 @@ export const terminalHtml = `
         term.write(data);
       };
 
+      // ---- RN → WebView: wipe scrollback before a buffer re-replay ----
+      window.clearTerminal = function() {
+        term.reset();
+      };
+
       // ---- RN → WebView: keep xterm cursor focus in sync with native keyboard proxy ----
       window.focusTerminal = function() {
         term.focus();

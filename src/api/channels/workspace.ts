@@ -10,11 +10,15 @@ export function createWorkspaceChannel(ws: WebSocketClient) {
   )
 
   return {
-    save: (data: string) =>
+    // When a profileId is supplied, save targets that profile's snapshot
+    // directly instead of relying on the connection's windowId (which the
+    // Tauri host does not provide to mobile, causing saves to fall back to the
+    // "default" profile and flip the active profile).
+    save: (data: string, profileId?: string) =>
       ws.invokeParams<boolean>(
         'workspace:save',
-        { ...contextParams(), data },
-        [undefined, data, ws.clientContext?.windowId],
+        { ...(profileId ? { profileId } : contextParams()), data },
+        [undefined, data, profileId ?? ws.clientContext?.windowId],
       ),
     // When a profileId is supplied, load that profile's workspace without
     // binding to the connection's windowId. The host returns the profile's

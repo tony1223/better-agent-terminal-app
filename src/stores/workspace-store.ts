@@ -54,12 +54,11 @@ interface WorkspaceState {
 
   // Actions
   load: () => Promise<void>
-  loadActiveProfileWorkspace: () => Promise<void>
   loadProfileWorkspace: (profileId: string) => Promise<void>
   applySnapshot: (raw: string) => void
   applyReload: (payload: unknown) => void
   applyState: (state: AppState) => void
-  applyProfileChanged: (payload: unknown) => void
+  handleProfileChanged: (payload: unknown) => void
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
   requestAddSession: (workspaceId: string, agentPreset?: AgentPresetId) => Promise<TerminalInstance>
@@ -101,9 +100,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set(value)
     })
 
-    const profilesById = new Map(summary.profiles.map(profile => [profile.id, profile]))
-    const activeProfileId = summary.activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
-      ?? summary.activeProfileIds[0]
+    const activeProfileId = resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
 
     if (activeProfileId) {
       await get().loadProfileWorkspace(activeProfileId)
@@ -128,33 +125,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     get().applySnapshot(raw)
-  },
-
-  loadActiveProfileWorkspace: async () => {
-    const channels = useConnectionStore.getState().channels
-    if (!channels) {
-      set({ loadStatus: 'no-channel', loadError: null })
-      return
-    }
-
-    let summary: { profiles: ProfileEntry[]; activeProfileIds: string[] } = {
-      profiles: [],
-      activeProfileIds: [],
-    }
-    await loadProfileSummary(channels, value => {
-      summary = value
-      set(value)
-    })
-
-    const profilesById = new Map(summary.profiles.map(profile => [profile.id, profile]))
-    const profileId = summary.activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
-      ?? summary.activeProfileIds[0]
-    if (!profileId) {
-      set({ workspaces: [], terminals: [], loadStatus: 'empty', loadError: null })
-      return
-    }
-
-    await get().loadProfileWorkspace(profileId)
   },
 
   loadProfileWorkspace: async (profileId) => {
@@ -214,6 +184,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     if (payload && typeof payload === 'object') {
       const record = payload as Record<string, unknown>
+      // The host broadcasts workspace:reload to every connected client, so a
+      // payload may belong to a profile this device isn't viewing. When the host
+      // stamps a profileId, drop reloads for any other profile; apply only when
+      // it matches our active local profile (or when no profileId is present,
+      // for hosts that predate this field).
+      const targetProfileId = typeof record.profileId === 'string' ? record.profileId : null
+      if (targetProfileId) {
+        const activeProfileId = resolveActiveLocalProfileId(
+          get().profiles,
+          get().activeProfileIds,
+        )
+        if (activeProfileId && activeProfileId !== targetProfileId) {
+          return
+        }
+      }
       const snapshot = record.snapshot ?? record.data ?? record.workspace
       if (typeof snapshot === 'string') {
         get().applySnapshot(snapshot)
@@ -257,10 +242,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     })
   },
 
-  applyProfileChanged: (payload: unknown) => {
+  handleProfileChanged: (payload: unknown) => {
     const summary = profileSummaryFromPayload(payload)
     if (!summary) return
+
+    // Always pull the active profile's workspace fresh from the host rather
+    // than trusting local state. The host serves workspace:load from the same
+    // live window a profile-targeted workspace:save writes to, so a session
+    // this device just added is included in the reload instead of being wiped.
     set(summary)
+    const activeId = resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
+    if (activeId) {
+      get().loadProfileWorkspace(activeId).catch(() => {})
+    } else {
+      set({ workspaces: [], terminals: [], loadStatus: 'empty', loadError: null })
+    }
   },
 
   switchWorkspace: (id: string) => {
@@ -325,7 +321,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     get().applyState(nextState)
 
     try {
-      const saved = await channels.workspace.save(JSON.stringify(nextState))
+      const activeProfileId = resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+      const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
       if (!saved) throw new Error('Host rejected workspace save')
     } catch (e) {
       get().applyState(previousState)
@@ -368,7 +365,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       focusedTerminalId: nextActiveTerminalId,
     }
 
-    const saved = await channels.workspace.save(JSON.stringify(nextState))
+    const activeProfileId = resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+    const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
     if (!saved) throw new Error('Host rejected workspace save')
     await get().load()
   },
@@ -510,6 +508,15 @@ async function loadProfileSummary(
   } catch {
     apply({ profiles: [], activeProfileIds: [] })
   }
+}
+
+function resolveActiveLocalProfileId(
+  profiles: ProfileEntry[],
+  activeProfileIds: string[],
+): string | undefined {
+  const profilesById = new Map(profiles.map(profile => [profile.id, profile]))
+  return activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
+    ?? activeProfileIds[0]
 }
 
 function profileSummaryFromPayload(payload: unknown): { profiles: ProfileEntry[]; activeProfileIds: string[] } | null {

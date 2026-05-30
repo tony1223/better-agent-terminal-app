@@ -14,6 +14,7 @@ import {
   StyleSheet,
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
+import { useFocusEffect } from '@react-navigation/native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
@@ -74,6 +75,14 @@ export function TerminalListScreen({ navigation }: Props) {
   }, [channels, t])
 
   useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
+
+  // Pull the workspace/terminal list fresh from the host on focus so sessions
+  // added or closed elsewhere are reflected without relying on cached state.
+  useFocusEffect(
+    useCallback(() => {
+      useWorkspaceStore.getState().load()
+    }, []),
+  )
 
   const handlePress = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)
