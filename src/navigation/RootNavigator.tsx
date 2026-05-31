@@ -154,6 +154,15 @@ function MainTabs() {
         name="Workspaces"
         component={WorkspacesStack}
         options={{ tabBarLabel: t('nav.workspaces') }}
+        listeners={({ navigation }) => ({
+          // Tapping the Workspaces tab always returns to the workspace list,
+          // instead of stranding the user on a WorkspaceDetail they opened
+          // earlier and then switched away from.
+          tabPress: (e) => {
+            e.preventDefault()
+            navigation.navigate('Workspaces', { screen: 'WorkspaceList' })
+          },
+        })}
       />
       <Tab.Screen
         name="Terminals"
