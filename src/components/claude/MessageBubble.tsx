@@ -14,11 +14,6 @@ interface Props {
   message: ClaudeMessage
 }
 
-function fmtTime(timestamp: number): string {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
 function tint(hex: string, opacity: number): string {
   const value = hex.replace('#', '')
   const normalized = value.length === 3 ? value.split('').map(char => char + char).join('') : value
@@ -42,9 +37,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
 
   const isUser = message.role === 'user'
   const isThinkingOnly = message.role === 'assistant' && !!message.thinking && !message.content.trim()
-  const kindLabel = isUser ? t('messageBubble.you') : isThinkingOnly ? t('messageBubble.thinking') : t('messageBubble.message')
+  // Tints the assistant bubble background/border by role; the textual role
+  // label header was removed since the bubble layout already conveys it.
   const kindColor = isUser ? appColors.info : isThinkingOnly ? appColors.warning : appColors.textSecondary
-  const timestamp = fmtTime(message.timestamp)
 
   return (
     <View
@@ -61,12 +56,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
           ],
       ]}
     >
-      <View style={[styles.kindHeader, isUser && styles.kindHeaderUser]}>
-        <View style={[styles.kindDot, { backgroundColor: kindColor }]} />
-        <Text style={styles.kindLabel}>{kindLabel}</Text>
-        {timestamp ? <Text style={styles.kindTime}>{timestamp}</Text> : null}
-      </View>
-
       {/* Thinking toggle */}
       {message.thinking && (
         <TouchableOpacity
@@ -126,32 +115,6 @@ const styles = StyleSheet.create({
   userText: {
     fontSize: fontSize.md,
     color: appColors.text,
-  },
-  kindHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  kindHeaderUser: {
-    justifyContent: 'flex-end',
-  },
-  kindDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  kindLabel: {
-    fontFamily: 'monospace',
-    fontSize: fontSize.xs,
-    color: appColors.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  kindTime: {
-    fontFamily: 'monospace',
-    fontSize: fontSize.xs,
-    color: appColors.textMuted,
   },
   systemText: {
     fontSize: fontSize.xs,

@@ -14,11 +14,6 @@ interface Props {
   tool: ClaudeToolCall
 }
 
-function fmtTime(timestamp: number): string {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return ''
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
 const TOOL_RESULT_MAX_HEIGHT = 220
 
 /** Compact one-line summary of tool input (matches desktop toolInputSummary) */
@@ -44,16 +39,9 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
   // Description from input.description, or fall back to input summary
   const desc = tool.input?.description ? String(tool.input.description) : null
   const summary = desc || toolInputSummary(tool.input)
-  const timestamp = fmtTime(tool.timestamp)
 
   return (
     <View style={styles.container}>
-      <View style={styles.kindHeader}>
-        <View style={[styles.kindDot, { backgroundColor: '#10b981' }]} />
-        <Text style={styles.kindLabel}>{t('toolCall.label')}</Text>
-        {timestamp ? <Text style={styles.kindTime}>{timestamp}</Text> : null}
-      </View>
-
       <TouchableOpacity
         style={styles.header}
         onPress={() => setExpanded(!expanded)}
@@ -99,29 +87,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     minHeight: 40,
     justifyContent: 'center',
-  },
-  kindHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  kindDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  kindLabel: {
-    fontFamily: 'monospace',
-    fontSize: fontSize.xs,
-    color: appColors.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  kindTime: {
-    fontFamily: 'monospace',
-    fontSize: fontSize.xs,
-    color: appColors.textMuted,
   },
   header: {
     flexDirection: 'row',
