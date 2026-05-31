@@ -28,9 +28,16 @@ type Props = {
 
 const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 
+// A transient "not connected" during the initial connect or a reconnect blip is
+// not a real failure, so we shouldn't surface it as a blocking alert.
+function isNotConnectedError(e: unknown): boolean {
+  return e instanceof Error && /not connected to remote server/i.test(e.message)
+}
+
 export function TerminalListScreen({ navigation }: Props) {
   const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
+  const connectionStatus = useConnectionStore(s => s.status)
   const {
     activeWorkspaceId,
     workspaces,
@@ -67,6 +74,9 @@ export function TerminalListScreen({ navigation }: Props) {
       const ids = await channels.agent.getSupportedSessionTypes()
       setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
+      // Leave the list unloaded so the status-driven effect retries once we're
+      // connected again, instead of blocking with an alert on a transient blip.
+      if (isNotConnectedError(e)) return
       setAvailableSessionTypes([])
       Alert.alert(t('terminalList.alerts.loadTypesFailedTitle'), String(e))
     } finally {
@@ -74,7 +84,11 @@ export function TerminalListScreen({ navigation }: Props) {
     }
   }, [channels, t])
 
-  useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
+  // Only load (and reload) once the socket is actually connected, so the initial
+  // connect / reconnect race can't fire an invoke before the server is ready.
+  useEffect(() => {
+    if (connectionStatus === 'connected') loadSupportedSessionTypes()
+  }, [connectionStatus, loadSupportedSessionTypes])
 
   // Pull the workspace/terminal list fresh from the host on focus so sessions
   // added or closed elsewhere are reflected without relying on cached state.

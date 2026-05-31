@@ -127,9 +127,16 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
   )
 }
 
+// A transient "not connected" during the initial connect or a reconnect blip is
+// not a real failure, so we shouldn't surface it as a blocking alert.
+function isNotConnectedError(e: unknown): boolean {
+  return e instanceof Error && /not connected to remote server/i.test(e.message)
+}
+
 function SessionsPane({ workspaceId, navigation }: { workspaceId: string; navigation: any }) {
   const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
+  const connectionStatus = useConnectionStore(s => s.status)
   const allTerminals = useWorkspaceStore(s => s.terminals)
   const setActiveTerminal = useWorkspaceStore(s => s.setActiveTerminal)
   const requestAddSession = useWorkspaceStore(s => s.requestAddSession)
@@ -161,6 +168,9 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
       const ids = await channels.agent.getSupportedSessionTypes()
       setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
     } catch (e) {
+      // Leave the list unloaded so the status-driven effect retries once we're
+      // connected again, instead of blocking with an alert on a transient blip.
+      if (isNotConnectedError(e)) return
       setAvailableSessionTypes([])
       Alert.alert(t('workspaceDetail.alerts.loadSessionTypesFailed'), String(e))
     } finally {
@@ -168,7 +178,11 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     }
   }, [channels, t])
 
-  useEffect(() => { loadSupportedSessionTypes() }, [loadSupportedSessionTypes])
+  // Only load (and reload) once the socket is actually connected, so the initial
+  // connect / reconnect race can't fire an invoke before the server is ready.
+  useEffect(() => {
+    if (connectionStatus === 'connected') loadSupportedSessionTypes()
+  }, [connectionStatus, loadSupportedSessionTypes])
 
   const openSession = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)
