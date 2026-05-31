@@ -244,7 +244,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const terminalApprovalPolicy = terminal?.agentParams?.approvalPolicy
   const insets = useSafeAreaInsets()
   const [keyboardHeight, setKeyboardHeight] = useState(0)
-  const keyboardBottomInset = Platform.OS === 'ios' ? Math.max(0, keyboardHeight) : 0
+  // Lift the input above the keyboard on both platforms. Android can't rely on
+  // windowSoftInputMode=adjustResize here: RN 0.84 enables edge-to-edge by
+  // default, which stops the window from resizing for the keyboard, so we apply
+  // the measured keyboard height as a bottom margin just like iOS does.
+  const keyboardBottomInset = Math.max(0, keyboardHeight)
   const inputAreaPaddingBottom = keyboardHeight > 0
     ? spacing.sm
     : Math.max(insets.bottom, spacing.lg)
