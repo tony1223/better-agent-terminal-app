@@ -365,7 +365,8 @@
     "optionFallback": "Option {{n}}",
     "customPlaceholder": "Or type a custom response...",
     "submit": "Submit",
-    "interrupt": "Interrupt"
+    "interrupt": "Interrupt",
+    "multiSelectHint": "Select all that apply"
   },
   "toolCall": {
     "label": "TOOL",

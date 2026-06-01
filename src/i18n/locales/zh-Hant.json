@@ -365,7 +365,8 @@
     "optionFallback": "選項 {{n}}",
     "customPlaceholder": "或輸入自訂回覆…",
     "submit": "送出",
-    "interrupt": "中斷"
+    "interrupt": "中斷",
+    "multiSelectHint": "可多選"
   },
   "toolCall": {
     "label": "工具",

@@ -30,26 +30,56 @@ export function AskUserDialog() {
   const clearAskUser = useClaudeStore(s => s.clearAskUser)
   const channels = useConnectionStore(s => s.channels)
 
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  // Single-select questions hold one label (string); multi-select questions
+  // hold an array of selected labels. Keyed by question text.
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [customText, setCustomText] = useState('')
 
   if (!pending) return null
 
   const questions = Array.isArray(pending.questions) ? pending.questions : []
 
-  const handleSelect = (question: string, value: string) => {
-    setAnswers(prev => ({ ...prev, [question]: value }))
+  const handleSelect = (question: string, value: string, multi: boolean) => {
+    if (multi) {
+      setAnswers(prev => {
+        const cur = prev[question]
+        const arr = Array.isArray(cur) ? cur : (typeof cur === 'string' && cur ? [cur] : [])
+        const next = arr.includes(value) ? arr.filter(l => l !== value) : [...arr, value]
+        return { ...prev, [question]: next }
+      })
+    } else {
+      setAnswers(prev => ({ ...prev, [question]: value }))
+    }
+  }
+
+  const isSelected = (question: string, label: string) => {
+    const cur = answers[question]
+    return Array.isArray(cur) ? cur.includes(label) : cur === label
   }
 
   const handleSubmit = async () => {
     if (!channels) return
 
-    // Use custom text as the answer for first question if provided
-    const finalAnswers = { ...answers }
+    // The resolve protocol expects string values per question, so multi-select
+    // arrays are joined into one comma-separated string.
+    const finalAnswers: Record<string, string> = {}
+    for (const [key, val] of Object.entries(answers)) {
+      if (Array.isArray(val)) {
+        if (val.length) finalAnswers[key] = val.join(', ')
+      } else if (val) {
+        finalAnswers[key] = val
+      }
+    }
+
+    // Use custom text for the first question: append for multi-select, fill if empty otherwise.
     if (customText.trim() && questions.length > 0) {
       const firstQ = textValue(questions[0].question, 'question')
-      if (!finalAnswers[firstQ]) {
-        finalAnswers[firstQ] = customText.trim()
+      const trimmed = customText.trim()
+      const isMulti = questions[0].multiSelect === true
+      if (isMulti) {
+        finalAnswers[firstQ] = finalAnswers[firstQ] ? `${finalAnswers[firstQ]}, ${trimmed}` : trimmed
+      } else if (!finalAnswers[firstQ]) {
+        finalAnswers[firstQ] = trimmed
       }
     }
 
@@ -90,16 +120,19 @@ export function AskUserDialog() {
               <View key={qi} style={styles.questionBlock}>
                 <Text style={styles.header}>{header}</Text>
                 <Text style={styles.question}>{question}</Text>
+                {q.multiSelect === true && (
+                  <Text style={styles.multiHint}>{t('askUserDialog.multiSelectHint')}</Text>
+                )}
 
                 {options.map((opt, oi) => {
                   const label = textValue(opt.label, t('askUserDialog.optionFallback', { n: oi + 1 }))
                   const description = textValue(opt.description)
-                  const selected = answers[question] === label
+                  const selected = isSelected(question, label)
                   return (
                     <TouchableOpacity
                       key={oi}
                       style={[styles.option, selected && styles.optionSelected]}
-                      onPress={() => handleSelect(question, label)}
+                      onPress={() => handleSelect(question, label, q.multiSelect === true)}
                     >
                       <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>
                         {label}
@@ -178,6 +211,12 @@ const styles = StyleSheet.create({
   question: {
     fontSize: fontSize.md,
     color: appColors.text,
+    marginBottom: spacing.md,
+  },
+  multiHint: {
+    fontSize: fontSize.xs,
+    color: appColors.accent,
+    marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },
   option: {
