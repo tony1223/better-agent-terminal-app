@@ -285,8 +285,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
   }, [loadStatus, navigation, terminal])
 
   useEffect(() => {
+    // Note: deliberately not calling Keyboard.scheduleLayoutAnimation here.
+    // On the New Architecture (Fabric) LayoutAnimation drives a mount tick that
+    // can crash in RCTPerformMountInstructions; we update the inset directly and
+    // let the keyboard track without an interpolated layout animation.
     const updateKeyboardInset = (event: KeyboardEvent) => {
-      Keyboard.scheduleLayoutAnimation?.(event)
       const screenY = event.endCoordinates?.screenY
       const frameHeight = typeof screenY === 'number'
         ? Math.max(0, Dimensions.get('screen').height - screenY)
@@ -295,8 +298,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       setKeyboardHeight(frameHeight > 0 ? frameHeight : fallbackHeight)
     }
 
-    const resetKeyboardInset = (event: KeyboardEvent) => {
-      Keyboard.scheduleLayoutAnimation?.(event)
+    const resetKeyboardInset = () => {
       setKeyboardHeight(0)
     }
 

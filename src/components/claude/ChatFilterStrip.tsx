@@ -1,21 +1,14 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import {
-  LayoutAnimation,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
-  UIManager,
   View,
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useChatFilterStore, isAnyFilterOff } from '@/stores/chat-filter-store'
 import { CHAT_KINDS, type ChatItemKind } from '@/utils/classify-chat-item'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true)
-}
 
 const KIND_COLOR: Record<ChatItemKind, string> = {
   you: appColors.info,
@@ -37,15 +30,8 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
   const reset = useChatFilterStore(s => s.reset)
   const anyOff = isAnyFilterOff(filters)
 
-  useEffect(() => {
-    LayoutAnimation.configureNext({
-      duration: 220,
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-    })
-  }, [isOpen])
-
+  // No LayoutAnimation on open/close: under the New Architecture (Fabric) it can
+  // crash in RCTPerformMountInstructions while mounting/unmounting this strip.
   if (!isOpen) return null
 
   return (
