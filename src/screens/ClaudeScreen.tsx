@@ -725,17 +725,26 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (text) contentParts.push(text)
     if (images.length > 0) contentParts.push(`[${images.length} image${images.length > 1 ? 's' : ''} attached]`)
 
+    const localId = `user-local-${Date.now()}`
     useClaudeStore.getState().handleMessage(sessionId, {
-      id: `user-local-${Date.now()}`,
+      id: localId,
       sessionId,
       role: 'user',
       content: contentParts.join('\n'),
       timestamp: Date.now(),
+      status: 'sending',
     })
 
     channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined)
+      .then(() => {
+        // Host acked receipt (invoke-result) → solidify the ghosted message.
+        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'sent')
+      })
       .catch(e => {
+        // invoke-error or timeout → the send did not land; surface it so the
+        // user notices instead of assuming it was delivered.
         console.warn('[Claude] sendMessage error:', e)
+        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'failed')
       })
       .finally(() => {
         sendInFlightRef.current = false

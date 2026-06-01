@@ -200,6 +200,11 @@ export interface ClaudeMessage {
   thinking?: string
   parentToolUseId?: string
   timestamp: number
+  // Optimistic-send lifecycle for locally-originated user messages over the
+  // remote protocol: 'sending' (ghosted) until the host acks via invoke-result,
+  // then 'sent' (solid); 'failed' on invoke-error/timeout. Absent =
+  // confirmed / host-originated message.
+  status?: 'sending' | 'sent' | 'failed'
 }
 
 export interface ClaudeToolCall {

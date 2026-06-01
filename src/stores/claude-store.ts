@@ -199,6 +199,7 @@ interface ClaudeState {
   handleModeChange: (sessionId: string, mode: string) => void
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
   handleSessionReset: (sessionId: string) => void
+  setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status']) => void
 
   // UI Actions
   clearPermission: () => void
@@ -276,6 +277,22 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         },
       },
     })
+  },
+
+  // Flip a still-pending optimistic user message to 'sent' / 'failed'. No-op if
+  // the message was already replaced by the host's echoed copy (id not found),
+  // so a late invoke timeout cannot resurrect an already-confirmed message.
+  setUserMessageStatus: (sessionId, id, status) => {
+    const { sessions } = get()
+    const session = sessions[sessionId]
+    if (!session) return
+    const idx = session.messages.findIndex(m => m.id === id)
+    if (idx < 0) return
+    const existing = session.messages[idx]
+    if ('toolName' in existing || existing.status === status) return
+    const messages = [...session.messages]
+    messages[idx] = { ...existing, status }
+    set({ sessions: { ...sessions, [sessionId]: { ...session, messages } } })
   },
 
   handleToolUse: (sessionId, rawTool) => {

@@ -36,6 +36,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
   }
 
   const isUser = message.role === 'user'
+  const pending = isUser && message.status === 'sending'
+  const failed = isUser && message.status === 'failed'
   const isThinkingOnly = message.role === 'assistant' && !!message.thinking && !message.content.trim()
   // Tints the assistant bubble background/border by role; the textual role
   // label header was removed since the bubble layout already conveys it.
@@ -54,6 +56,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
               borderLeftColor: kindColor,
             },
           ],
+        pending && styles.pendingBubble,
+        failed && styles.failedBubble,
       ]}
     >
       {/* Thinking toggle */}
@@ -81,6 +85,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
           {message.content}
         </Markdown>
       ) : null}
+
+      {failed && (
+        <Text style={styles.failedText} selectable>{t('messageBubble.failedToSend')}</Text>
+      )}
     </View>
   )
 })
@@ -96,6 +104,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderBottomRightRadius: 4,
     padding: spacing.md,
+  },
+  pendingBubble: {
+    opacity: 0.55,
+  },
+  failedBubble: {
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  failedText: {
+    marginTop: spacing.xs,
+    fontSize: fontSize.xs,
+    color: '#ef4444',
   },
   assistantContainer: {
     alignSelf: 'flex-start',
