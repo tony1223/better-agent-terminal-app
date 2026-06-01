@@ -272,7 +272,7 @@ export interface PermissionResult {
 export interface AskUserQuestion {
   question: string
   header: string
-  options: Array<{ label: string; description: string; markdown?: string }>
+  options: Array<{ label: string; description: string; preview?: string; markdown?: string }>
   multiSelect: boolean
 }
 

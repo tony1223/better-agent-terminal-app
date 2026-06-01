@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native'
+import { WebView } from 'react-native-webview'
 import { useTranslation } from 'react-i18next'
 import { useClaudeStore } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -22,6 +23,16 @@ function textValue(value: unknown, fallback = ''): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return fallback
+}
+
+// Wrap the option's HTML preview fragment in a minimal, mobile-scaled document.
+// JavaScript stays disabled on the WebView (matching the desktop iframe) and a
+// strict CSP blocks all remote subresources (the navigation guard alone cannot
+// stop passive <img>/<link>/font fetches), so the model-generated fragment
+// renders as inert, self-contained markup only.
+function wrapPreviewHtml(inner: string): string {
+  const csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'none'"
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><style>html,body{margin:0;padding:8px;background:transparent;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;color:#222;}</style></head><body>${inner}</body></html>`
 }
 
 export function AskUserDialog() {
@@ -116,6 +127,18 @@ export function AskUserDialog() {
             const header = textValue(q.header, t('askUserDialog.questionFallback'))
             const options = Array.isArray(q.options) ? q.options : []
 
+            // Preview tracks the current single pick, or the most-recently-toggled
+            // option for multi-select. The SDK delivers the HTML on `preview`
+            // (`markdown` kept as a legacy alias).
+            const sel = answers[question]
+            const previewLabel = Array.isArray(sel)
+              ? (sel.length ? sel[sel.length - 1] : undefined)
+              : (typeof sel === 'string' ? sel : undefined)
+            const previewOpt = previewLabel
+              ? options.find((o, i) => textValue(o.label, t('askUserDialog.optionFallback', { n: i + 1 })) === previewLabel)
+              : undefined
+            const previewHtml = previewOpt ? (previewOpt.preview ?? previewOpt.markdown) : undefined
+
             return (
               <View key={qi} style={styles.questionBlock}>
                 <Text style={styles.header}>{header}</Text>
@@ -143,6 +166,28 @@ export function AskUserDialog() {
                     </TouchableOpacity>
                   )
                 })}
+
+                {!!previewHtml && (
+                  <View style={styles.previewBox}>
+                    <WebView
+                      originWhitelist={['*']}
+                      source={{ html: wrapPreviewHtml(previewHtml) }}
+                      style={styles.previewWeb}
+                      javaScriptEnabled={false}
+                      scrollEnabled
+                      // Let the WebView own vertical drags so its scroll doesn't fight
+                      // the outer ScrollView on Android (matches ToolCallCard usage).
+                      nestedScrollEnabled
+                      // Allow only the initial inline document; block every real
+                      // navigation (links, meta-refresh, http(s)/file/data/intent…)
+                      // since the HTML is model-generated.
+                      onShouldStartLoadWithRequest={req => {
+                        const u = req.url || ''
+                        return u === '' || u === 'about:blank'
+                      }}
+                    />
+                  </View>
+                )}
               </View>
             )
           })}
@@ -243,6 +288,20 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: appColors.textSecondary,
     marginTop: 2,
+  },
+  previewBox: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    height: 240,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: appColors.border,
+    backgroundColor: appColors.background,
+  },
+  previewWeb: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   customInput: {
     backgroundColor: appColors.background,
