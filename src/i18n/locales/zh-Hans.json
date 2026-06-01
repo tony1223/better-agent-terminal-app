@@ -112,7 +112,7 @@
     },
     "permission": {
       "required": "扫描二维码需要相机权限。",
-      "grant": "授予权限"
+      "grant": "继续"
     },
     "error": {
       "noCamera": "找不到相机设备。"
@@ -376,7 +376,8 @@
     "you": "你",
     "thinking": "思考",
     "message": "消息",
-    "thinkingToggle": "思考"
+    "thinkingToggle": "思考",
+    "failedToSend": "发送失败"
   },
   "chatItem": {
     "kind": {

@@ -39,8 +39,6 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Better Agent Terminal needs camera access to scan QR codes for quick host connection setup.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Better Agent Terminal uses your location only when needed to discover and connect to nearby development hosts.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Better Agent Terminal needs photo library access so you can attach images to your agent sessions.</string>
 	<key>RCTNewArchEnabled</key>

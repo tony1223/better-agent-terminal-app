@@ -112,7 +112,7 @@
     },
     "permission": {
       "required": "Camera permission is required to scan QR codes.",
-      "grant": "Grant Permission"
+      "grant": "Continue"
     },
     "error": {
       "noCamera": "No camera device found."
@@ -376,7 +376,8 @@
     "you": "YOU",
     "thinking": "THINKING",
     "message": "MESSAGE",
-    "thinkingToggle": "Thinking"
+    "thinkingToggle": "Thinking",
+    "failedToSend": "Failed to send"
   },
   "chatItem": {
     "kind": {
