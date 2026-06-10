@@ -178,7 +178,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   applyReload: (payload: unknown) => {
     if (typeof payload === 'string') {
-      get().applySnapshot(payload)
+      // Bare-string reloads (legacy hosts <= v3.1.8) carry no profileId, so
+      // the snapshot may belong to a profile this device isn't viewing. Per
+      // the v2 protocol they are never adopted directly — re-fetch through
+      // our own workspace:load routing instead.
+      const activeProfileId = resolveActiveLocalProfileId(
+        get().profiles,
+        get().activeProfileIds,
+      )
+      if (activeProfileId) {
+        get().loadProfileWorkspace(activeProfileId).catch(() => {})
+      } else {
+        get().load().catch(() => {})
+      }
       return
     }
 

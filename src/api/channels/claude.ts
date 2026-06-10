@@ -59,6 +59,12 @@ export function createClaudeChannel(ws: WebSocketClient) {
       agentPreset?: string
       codexSandboxMode?: string
       codexApprovalPolicy?: string
+      // Worktree sessions must pass these so the host sidecar validates the
+      // (host-side) worktree folder and fails loudly when it is missing
+      // instead of silently running unisolated in the original cwd.
+      useWorktree?: boolean
+      worktreePath?: string
+      worktreeBranch?: string
     }) => ws.invokeParams('agent:start-session', { sessionId, options }, [sessionId, options]),
 
     sendMessage: (sessionId: string, prompt: string, images?: string[]) =>
@@ -79,6 +85,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
       effort?: string
       codexSandboxMode?: string
       codexApprovalPolicy?: string
+      useWorktree?: boolean
+      worktreePath?: string
+      worktreeBranch?: string
     }) =>
       ws.invokeParams(
         'agent:resume-session',
@@ -93,6 +102,13 @@ export function createClaudeChannel(ws: WebSocketClient) {
             codexApprovalPolicy: options?.codexApprovalPolicy,
             permissionMode: options?.permissionMode,
             effort: options?.effort,
+            ...(options?.useWorktree
+              ? {
+                useWorktree: true,
+                worktreePath: options.worktreePath,
+                worktreeBranch: options.worktreeBranch,
+              }
+              : {}),
           },
         },
         [
@@ -101,9 +117,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
           cwd,
           model,
           undefined,
-          undefined,
-          undefined,
-          undefined,
+          options?.useWorktree ? true : undefined,
+          options?.worktreePath,
+          options?.worktreeBranch,
           options?.agentPreset,
           options?.codexSandboxMode,
           options?.codexApprovalPolicy,

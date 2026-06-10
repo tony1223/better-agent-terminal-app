@@ -240,6 +240,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const terminalCwd = terminal?.cwd
   const terminalSdkSessionId = terminal?.sdkSessionId
   const terminalModel = terminal?.model
+  const terminalWorktreePath = terminal?.worktreePath
+  const terminalBranchName = terminal?.branchName
   const terminalSandboxMode = terminal?.agentParams?.sandboxMode
   const terminalApprovalPolicy = terminal?.agentParams?.approvalPolicy
   const insets = useSafeAreaInsets()
@@ -419,6 +421,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
       const codexApprovalPolicy = approval === 'untrusted' || approval === 'on-request' || approval === 'never'
         ? approval
         : undefined
+      // Worktree sessions must declare useWorktree + the host-side worktree
+      // path so the host sidecar validates the folder and fails loudly when
+      // it is missing instead of silently running in the original checkout.
+      const worktreeOptions = terminalWorktreePath
+        ? { useWorktree: true, worktreePath: terminalWorktreePath, worktreeBranch: terminalBranchName }
+        : {}
       const buildLoadKey = (sdkSessionIdToResume: string | null) => JSON.stringify({
         sessionId,
         cwd: terminalCwd,
@@ -485,6 +493,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 ...(isClaudeCodeAgent ? { permissionMode } : {}),
                 codexSandboxMode,
                 codexApprovalPolicy,
+                ...worktreeOptions,
               },
             ),
           )
@@ -546,6 +555,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                       agentPreset,
                       codexSandboxMode,
                       codexApprovalPolicy,
+                      ...worktreeOptions,
                     }),
                   )
                   loadedSessionKeyRef.current = loadKey
@@ -581,6 +591,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
     terminalCwd,
     terminalSdkSessionId,
     terminalModel,
+    terminalWorktreePath,
+    terminalBranchName,
     terminalSandboxMode,
     terminalApprovalPolicy,
     agentPreset,
@@ -895,6 +907,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
         effort: effortLevel,
         codexSandboxMode,
         codexApprovalPolicy,
+        ...(terminal.worktreePath
+          ? { useWorktree: true, worktreePath: terminal.worktreePath, worktreeBranch: terminal.branchName }
+          : {}),
       })
       useChatFilterStore.getState().clearSession(sessionId)
     } catch (e) {

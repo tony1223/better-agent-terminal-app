@@ -572,10 +572,13 @@ export class WebSocketClient {
     channel: string,
     params: unknown,
     legacyArgs: unknown[] = [],
+    opts?: { timeoutMs?: number },
   ): Promise<T> {
     if (!this.isConnected) {
       return Promise.reject(new Error('Not connected to remote server'))
     }
+
+    const timeoutMs = opts?.timeoutMs ?? INVOKE_TIMEOUT_MS
 
     const makeFrame = (frameChannel: string): RemoteFrame => this.protocol === REMOTE_PROTOCOL_V2
       ? {
@@ -602,7 +605,7 @@ export class WebSocketClient {
           this.pending.delete(frame.id)
           dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
           reject(new Error(`Remote invoke timeout: ${channel}`))
-        }, INVOKE_TIMEOUT_MS)
+        }, timeoutMs)
 
         this.pending.set(frame.id, {
           resolve: (result: unknown) => {
