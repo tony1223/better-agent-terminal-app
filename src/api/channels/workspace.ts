@@ -5,30 +5,32 @@
 import type { WebSocketClient } from '../websocket-client'
 
 export function createWorkspaceChannel(ws: WebSocketClient) {
-  const contextParams = () => (
-    ws.clientContext?.windowId ? { windowId: ws.clientContext.windowId } : {}
-  )
-
+  // Per the v2 protocol, clients SHOULD omit windowId entirely on
+  // workspace:load/workspace:save. Client-side window ids never name a host
+  // registry entry: validated hosts ignore them, and pre-validation hosts
+  // fabricate an empty phantom registry entry from the unknown id on
+  // workspace:load — serving an empty list on every reconnect while the
+  // previously saved data stays stranded under the phantom entry. Omitting
+  // windowId routes both load and save through the host's profile-level
+  // snapshot, the host-owned source of truth.
   return {
     // When a profileId is supplied, save targets that profile's snapshot
-    // directly instead of relying on the connection's windowId (which the
-    // Tauri host does not provide to mobile, causing saves to fall back to the
-    // "default" profile and flip the active profile).
+    // directly; otherwise the host falls back to its default profile.
     save: (data: string, profileId?: string) =>
       ws.invokeParams<boolean>(
         'workspace:save',
-        { ...(profileId ? { profileId } : contextParams()), data },
-        [undefined, data, profileId ?? ws.clientContext?.windowId],
+        { ...(profileId ? { profileId } : {}), data },
+        [undefined, data, profileId],
       ),
-    // When a profileId is supplied, load that profile's workspace without
-    // binding to the connection's windowId. The host returns the profile's
-    // live window state (current sdkSessionIds / running sessions) when one
-    // exists, falling back to the persisted snapshot otherwise.
+    // When a profileId is supplied, load that profile's workspace. The host
+    // returns the profile's live window state (current sdkSessionIds /
+    // running sessions) when one exists, falling back to the persisted
+    // snapshot otherwise.
     load: (profileId?: string) =>
       ws.invokeParams<string | null>(
         'workspace:load',
-        profileId ? { profileId } : contextParams(),
-        profileId ? [undefined, undefined, profileId] : [undefined, ws.clientContext?.windowId],
+        profileId ? { profileId } : {},
+        profileId ? [undefined, undefined, profileId] : [undefined],
       ),
 
     // Events
