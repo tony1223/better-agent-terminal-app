@@ -447,7 +447,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       })
       const loadSessionState = async (
         options?: { archivedFallback?: boolean },
-      ): Promise<{ exists: boolean; liveCount: number }> => {
+      ): Promise<{ exists: boolean; liveCount: number; isStreaming: boolean }> => {
         const archivedFallback = options?.archivedFallback !== false
         try {
           const state = await timedLoadStep(
@@ -456,7 +456,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           )
           if (!state) {
             dlog('CLAUDE_SCREEN', `getSessionState returned null sessionId=${sessionId}`)
-            return { exists: false, liveCount: 0 }
+            return { exists: false, liveCount: 0, isStreaming: false }
           }
           const stateMessageCount = Array.isArray(state.messages) ? state.messages.length : 0
           dlog('CLAUDE_SCREEN', `getSessionState messages=${stateMessageCount} streaming=${state.isStreaming === true}`)
@@ -475,10 +475,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
               useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
             }
           }
-          return { exists: true, liveCount: stateMessageCount }
+          return { exists: true, liveCount: stateMessageCount, isStreaming: state.isStreaming === true }
         } catch (e) {
           dlog('CLAUDE_SCREEN', `getSessionState error: ${e}`)
-          return { exists: false, liveCount: 0 }
+          return { exists: false, liveCount: 0, isStreaming: false }
         }
       }
       const resumeWithSdkSessionId = async (sdkSessionIdToResume: string) => {
@@ -521,8 +521,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
         try {
           if (terminalSdkSessionId) {
             const state = await loadSessionState({ archivedFallback: false })
-            if (state.exists && state.liveCount > 0) {
-              dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId}`)
+            // Never resume a session with a turn in flight: the host's
+            // resumeSession aborts the running query, so merely opening the
+            // view would kill the turn. A streaming session is attached by
+            // definition — live events flow in without any resume.
+            if (state.exists && (state.liveCount > 0 || state.isStreaming)) {
+              dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId} streaming=${state.isStreaming}`)
             } else {
               dlog('CLAUDE_SCREEN', `no live host messages (liveCount=${state.liveCount}); resuming sdkSessionId=${terminalSdkSessionId}`)
               await resumeWithSdkSessionId(terminalSdkSessionId)
@@ -540,7 +544,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 metaLoaded = true
                 useClaudeStore.getState().handleStatus(sessionId, meta)
                 if (meta.sdkSessionId) {
-                  await resumeWithSdkSessionId(meta.sdkSessionId)
+                  // Same guard as the sdkSessionId path above: when the host
+                  // session is already live (streaming or holding messages),
+                  // attach read-only instead of resuming — resume tears down
+                  // the running query.
+                  const live = await loadSessionState({ archivedFallback: false })
+                  if (live.exists && (live.liveCount > 0 || live.isStreaming)) {
+                    dlog('CLAUDE_SCREEN', `host session already live; skip resumeSession sdkSessionId=${meta.sdkSessionId} streaming=${live.isStreaming}`)
+                  } else {
+                    await resumeWithSdkSessionId(meta.sdkSessionId)
+                  }
                   return
                 }
               }
