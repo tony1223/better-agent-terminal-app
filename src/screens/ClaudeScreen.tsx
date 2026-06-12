@@ -445,6 +445,17 @@ export function ClaudeScreen({ route, navigation }: Props) {
         codexSandboxMode: codexSandboxMode ?? null,
         codexApprovalPolicy: codexApprovalPolicy ?? null,
       })
+      const backfillArchivedHistory = async () => {
+        const archived = await channels.claude.loadArchived(sessionId).catch(e => {
+          dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
+          return null
+        })
+        const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
+        dlog('CLAUDE_SCREEN', `loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
+        if (archivedMessages.length > 0) {
+          useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
+        }
+      }
       const loadSessionState = async (
         options?: { archivedFallback?: boolean },
       ): Promise<{ exists: boolean; liveCount: number; isStreaming: boolean }> => {
@@ -465,15 +476,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             useClaudeStore.getState().handleStatus(sessionId, state.meta)
           }
           if (stateMessageCount === 0 && archivedFallback) {
-            const archived = await channels.claude.loadArchived(sessionId).catch(e => {
-              dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
-              return null
-            })
-            const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
-            dlog('CLAUDE_SCREEN', `loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
-            if (archivedMessages.length > 0) {
-              useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
-            }
+            await backfillArchivedHistory()
           }
           return { exists: true, liveCount: stateMessageCount, isStreaming: state.isStreaming === true }
         } catch (e) {
@@ -527,6 +530,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
             // definition — live events flow in without any resume.
             if (state.exists && (state.liveCount > 0 || state.isStreaming)) {
               dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId} streaming=${state.isStreaming}`)
+              // Mid-turn attach with the history archived away: resume is
+              // off-limits, so backfill the prior conversation directly.
+              if (state.liveCount === 0) await backfillArchivedHistory()
             } else {
               dlog('CLAUDE_SCREEN', `no live host messages (liveCount=${state.liveCount}); resuming sdkSessionId=${terminalSdkSessionId}`)
               await resumeWithSdkSessionId(terminalSdkSessionId)
@@ -551,6 +557,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   const live = await loadSessionState({ archivedFallback: false })
                   if (live.exists && (live.liveCount > 0 || live.isStreaming)) {
                     dlog('CLAUDE_SCREEN', `host session already live; skip resumeSession sdkSessionId=${meta.sdkSessionId} streaming=${live.isStreaming}`)
+                    if (live.liveCount === 0) await backfillArchivedHistory()
                   } else {
                     await resumeWithSdkSessionId(meta.sdkSessionId)
                   }
