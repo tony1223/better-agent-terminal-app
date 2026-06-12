@@ -23,6 +23,9 @@ interface SessionState {
   streamingText: string
   streamingThinking: string
   meta: SessionMeta | null
+  // Local-clock timestamp of the last meta.runtimeStatus change —
+  // meta.runtimeStatusStartedAt is host time and may be skewed.
+  runtimeStatusSince: number | null
 }
 
 export const EMPTY_SESSION: SessionState = {
@@ -31,6 +34,7 @@ export const EMPTY_SESSION: SessionState = {
   streamingText: '',
   streamingThinking: '',
   meta: null,
+  runtimeStatusSince: null,
 }
 
 function createEmptySession(): SessionState {
@@ -40,7 +44,16 @@ function createEmptySession(): SessionState {
     streamingText: '',
     streamingThinking: '',
     meta: null,
+    runtimeStatusSince: null,
   }
+}
+
+// The host broadcasts the cleared status itself, but also drop it locally on
+// any frame that proves the model responded (stream/result/turn-end/error) so
+// a missed event can't leave a stale "waiting" banner.
+function clearedRuntimeMeta(meta: SessionMeta | null): SessionMeta | null {
+  if (!meta?.runtimeStatus && !meta?.runtimeMessage && !meta?.runtimeStatusStartedAt) return meta
+  return { ...meta, runtimeStatus: null, runtimeMessage: null, runtimeStatusStartedAt: null }
 }
 
 function stringifyForDisplay(value: unknown): string {
@@ -362,6 +375,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           streamingThinking: data.thinking
             ? session.streamingThinking + data.thinking
             : session.streamingThinking,
+          meta: clearedRuntimeMeta(session.meta),
+          runtimeStatusSince: null,
         },
       },
     })
@@ -409,6 +424,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
+          meta: clearedRuntimeMeta(session.meta),
+          runtimeStatusSince: null,
         },
       },
     })
@@ -425,6 +442,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
+          meta: clearedRuntimeMeta(session.meta),
+          runtimeStatusSince: null,
         },
       },
     })
@@ -450,6 +469,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           isStreaming: false,
           streamingText: '',
           messages: [...session.messages, errorMsg],
+          meta: clearedRuntimeMeta(session.meta),
+          runtimeStatusSince: null,
         },
       },
     })
@@ -458,11 +479,16 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   handleStatus: (sessionId, meta) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
+    const runtimeStatusSince = meta?.runtimeStatus
+      ? (session.meta?.runtimeStatus === meta.runtimeStatus
+        ? (session.runtimeStatusSince ?? Date.now())
+        : Date.now())
+      : null
 
     set({
       sessions: {
         ...sessions,
-        [sessionId]: { ...session, meta },
+        [sessionId]: { ...session, meta, runtimeStatusSince },
       },
     })
 

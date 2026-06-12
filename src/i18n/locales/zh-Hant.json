@@ -353,6 +353,12 @@
       "title": "繼續工作階段",
       "loading": "載入工作階段中…",
       "noSessions": "找不到工作階段"
+    },
+    "runtimeStatus": {
+      "preparing": "主機已收到,準備請求中",
+      "waiting": "等待模型回應中",
+      "compacting": "正在壓縮上下文",
+      "queued": "主機排隊中"
     }
   },
   "permissionDialog": {
@@ -378,7 +384,9 @@
     "thinking": "思考",
     "message": "訊息",
     "thinkingToggle": "思考",
-    "failedToSend": "傳送失敗"
+    "failedToSend": "傳送失敗",
+    "sending": "傳送中…",
+    "sentToHost": "已送達主機"
   },
   "chatItem": {
     "kind": {

@@ -240,6 +240,13 @@ export interface SessionMeta {
   numTurns: number
   contextWindow: number
   permissionMode?: string
+  // Host-side turn lifecycle between the user send and the first model
+  // frame: 'starting' (host received, preparing the request), 'queued',
+  // 'waiting_for_api', 'compacting'. The host broadcasts null once the
+  // model starts responding.
+  runtimeStatus?: 'starting' | 'queued' | 'waiting_for_api' | 'compacting' | string | null
+  runtimeMessage?: string | null
+  runtimeStatusStartedAt?: number | null
 }
 
 export interface SessionStateSnapshot {

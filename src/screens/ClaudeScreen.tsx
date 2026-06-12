@@ -33,6 +33,7 @@ import { StreamingText } from '@/components/claude/StreamingText'
 import { ChatFilterButton } from '@/components/claude/ChatFilterButton'
 import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
+import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
@@ -1177,6 +1178,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
           },
         ]}
       >
+        {/* Host-side turn status (received / waiting for model / compacting) */}
+        {session.meta?.runtimeStatus && (
+          <RuntimeStatusBar status={session.meta.runtimeStatus} since={session.runtimeStatusSince} />
+        )}
+
         {/* Prompt suggestions */}
         {promptSuggestions.length > 0 && !session.isStreaming && (
           <View style={styles.suggestions}>

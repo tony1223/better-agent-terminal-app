@@ -353,6 +353,12 @@
       "title": "Resume Session",
       "loading": "Loading sessions...",
       "noSessions": "No sessions found"
+    },
+    "runtimeStatus": {
+      "preparing": "Host received · preparing request",
+      "waiting": "Waiting for model response",
+      "compacting": "Compacting context",
+      "queued": "Queued on host"
     }
   },
   "permissionDialog": {
@@ -378,7 +384,9 @@
     "thinking": "THINKING",
     "message": "MESSAGE",
     "thinkingToggle": "Thinking",
-    "failedToSend": "Failed to send"
+    "failedToSend": "Failed to send",
+    "sending": "Sending…",
+    "sentToHost": "Delivered to host"
   },
   "chatItem": {
     "kind": {

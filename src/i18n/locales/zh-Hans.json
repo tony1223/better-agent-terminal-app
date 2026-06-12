@@ -353,6 +353,12 @@
       "title": "恢复会话",
       "loading": "加载会话中…",
       "noSessions": "找不到会话"
+    },
+    "runtimeStatus": {
+      "preparing": "主机已收到,准备请求中",
+      "waiting": "等待模型回应中",
+      "compacting": "正在压缩上下文",
+      "queued": "主机排队中"
     }
   },
   "permissionDialog": {
@@ -378,7 +384,9 @@
     "thinking": "思考",
     "message": "消息",
     "thinkingToggle": "思考",
-    "failedToSend": "发送失败"
+    "failedToSend": "发送失败",
+    "sending": "发送中…",
+    "sentToHost": "已送达主机"
   },
   "chatItem": {
     "kind": {
