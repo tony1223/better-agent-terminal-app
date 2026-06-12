@@ -67,6 +67,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pods-
 
+      # RN's ccache-clang.sh wrapper execs `$CCACHE_BINARY clang`. Pod install
+      # writes CCACHE_BINARY as a Pods build setting, but Xcode does not export
+      # build settings into compiler subprocess environments, so without this
+      # the wrapper silently falls back to plain clang (zero cache hits).
+      - name: Expose ccache to Xcode
+        run: echo "CCACHE_BINARY=$(command -v ccache)" >> "$GITHUB_ENV"
+
       - name: Install CocoaPods
         working-directory: ios
         env:
