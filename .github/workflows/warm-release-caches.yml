@@ -117,6 +117,11 @@ jobs:
 
       - name: Build Release (unsigned, cache warm only)
         working-directory: ios
+        env:
+          # RN's ccache-clang wrapper overrides CCACHE_CONFIGPATH, which would
+          # silently move the cache to ~/Library/Caches/ccache — away from the
+          # directory ccache-action saves. The env var outranks any config file.
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           set -o pipefail
           xcodebuild build \

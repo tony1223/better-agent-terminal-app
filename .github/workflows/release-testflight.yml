@@ -116,6 +116,10 @@ jobs:
           PROVISIONING_PROFILE_PATH: ${{ runner.temp }}/signing/profile.mobileprovision
           BUILD_NUMBER: ${{ github.run_number }}
           MARKETING_VERSION: ${{ steps.version.outputs.marketing_version }}
+          # RN's ccache-clang wrapper overrides CCACHE_CONFIGPATH, which would
+          # silently move the cache away from the directory ccache-action
+          # restores. The env var outranks any config file.
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: bundle exec fastlane ios beta
 
       - name: Cleanup signing assets
