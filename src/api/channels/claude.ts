@@ -18,6 +18,18 @@ import type {
 
 type ClaudeHistoryItem = ClaudeMessage | ClaudeToolCall
 
+export interface CodexAccountEntry {
+  /** Account entry id; pass this to codexAccountSwitch (named codexHome on the wire). */
+  id: string
+  label?: string
+  email?: string | null
+  accountId?: string | null
+  codexHome?: string
+  authenticated?: boolean
+  active?: boolean
+  isDefault?: boolean
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -252,6 +264,12 @@ export function createClaudeChannel(ws: WebSocketClient) {
     accountSwitch: (accountId: string) => ws.invokeParams('agent:account-switch', { accountId }, [accountId]),
     accountRemove: (accountId: string) => ws.invokeParams('agent:account-remove', { accountId }, [accountId]),
     accountMarkWarningShown: (accountId: string) => ws.invokeParams('agent:account-mark-warning-shown', { accountId }, [accountId]),
+
+    // ---- Codex accounts (host-owned, mirrors the Claude account channels) ----
+    codexAccountList: () =>
+      ws.invokeParams<{ accounts?: CodexAccountEntry[]; activeCodexHome?: string | null }>('codex:account-list', {}, []),
+    codexAccountSwitch: (codexHome: string) =>
+      ws.invokeParams('codex:account-switch', { codexHome }, [codexHome]),
 
     // ---- Events ----
     onMessage: (cb: (sessionId: string, msg: ClaudeMessage) => void) =>

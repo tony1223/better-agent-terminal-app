@@ -38,6 +38,7 @@ import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
+import type { CodexAccountEntry } from '@/api/channels/claude'
 import { isToolCall } from '@/types'
 import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
@@ -69,6 +70,9 @@ const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as con
 const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const
 const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const
 const MAX_IMAGES = 5
+// ~2 MiB decoded. Larger images go through fs:upload-tmp-* to the host's tmp
+// dir instead of riding inline in the agent:send-message frame.
+const MAX_INLINE_IMAGE_BASE64_CHARS = 2 * 1398104
 const INITIAL_LOAD_UI_TIMEOUT_MS = 6_000
 
 function selectedTint(color: string): string {
@@ -195,6 +199,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showEffortPicker, setShowEffortPicker] = useState(false)
   const [showSandboxPicker, setShowSandboxPicker] = useState(false)
   const [showApprovalPicker, setShowApprovalPicker] = useState(false)
+  const [showCodexAccountPicker, setShowCodexAccountPicker] = useState(false)
+  const [codexAccounts, setCodexAccounts] = useState<CodexAccountEntry[]>([])
+  const [codexAccountsLoading, setCodexAccountsLoading] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
   const [supportedEffortOptions, setSupportedEffortOptions] = useState<string[]>([])
   const [supportedSandboxOptions, setSupportedSandboxOptions] = useState<string[]>([])
@@ -735,6 +742,31 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setInputText('')
     setAttachedImages([])
 
+    // Images above ~2 MiB are streamed to the host's tmp dir and referenced
+    // by host path (the agent reads them from disk); smaller ones stay inline
+    // as data URLs. Upload failures fall back to inline.
+    const inlineImages: string[] = []
+    const hostPaths: string[] = []
+    for (const dataUrl of images) {
+      const commaIndex = dataUrl.indexOf(',')
+      const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : ''
+      if (base64.length <= MAX_INLINE_IMAGE_BASE64_CHARS) {
+        inlineImages.push(dataUrl)
+        continue
+      }
+      const ext = /^data:image\/png/.test(dataUrl) ? 'png' : 'jpg'
+      try {
+        hostPaths.push(await channels.fs.uploadToHostTmp(`photo-${Date.now()}.${ext}`, base64))
+      } catch (e) {
+        console.warn('[Claude] uploadToHostTmp failed, sending inline:', e)
+        inlineImages.push(dataUrl)
+      }
+    }
+
+    const messageText = hostPaths.length > 0
+      ? [text, ...hostPaths.map(p => `[attached image: ${p}]`)].filter(Boolean).join('\n')
+      : text
+
     const contentParts: string[] = []
     if (text) contentParts.push(text)
     if (images.length > 0) contentParts.push(`[${images.length} image${images.length > 1 ? 's' : ''} attached]`)
@@ -749,7 +781,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       status: 'sending',
     })
 
-    channels.claude.sendMessage(sessionId, text, images.length > 0 ? images : undefined)
+    channels.claude.sendMessage(sessionId, messageText, inlineImages.length > 0 ? inlineImages : undefined)
       .then(() => {
         // Host acked receipt (invoke-result) → solidify the ghosted message.
         useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'sent')
@@ -861,6 +893,32 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels) return
     await channels.openai.compactNow(sessionId)
   }, [channels, sessionId])
+
+  const openCodexAccountPicker = useCallback(async () => {
+    if (!channels) return
+    setShowCodexAccountPicker(true)
+    setCodexAccountsLoading(true)
+    try {
+      const result = await channels.claude.codexAccountList()
+      setCodexAccounts(Array.isArray(result?.accounts) ? result.accounts : [])
+    } catch (e) {
+      setCodexAccounts([])
+      dlog('CLAUDE_SCREEN', `codexAccountList error: ${e}`)
+    } finally {
+      setCodexAccountsLoading(false)
+    }
+  }, [channels])
+
+  const handleCodexAccountSelect = useCallback(async (entry: CodexAccountEntry) => {
+    if (!channels) return
+    setShowCodexAccountPicker(false)
+    if (entry.active) return
+    try {
+      await channels.claude.codexAccountSwitch(entry.id)
+    } catch (e) {
+      Alert.alert('Unable to switch Codex account', String(e))
+    }
+  }, [channels])
 
   const handleModelPress = useCallback(async () => {
     if (!channels) return
@@ -1209,6 +1267,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
               <TouchableOpacity style={styles.controlBtn} onPress={() => setShowApprovalPicker(true)}>
                 <Text style={styles.controlText}>{t('claude.controls.approval', { value: codexApprovalPolicy })}</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.controlBtn} onPress={openCodexAccountPicker}>
+                <Text style={styles.controlText}>account</Text>
+              </TouchableOpacity>
             </>
           )}
 
@@ -1383,6 +1444,39 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               )}
             />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Codex account picker modal */}
+      <Modal visible={showCodexAccountPicker} transparent animationType="fade" onRequestClose={() => setShowCodexAccountPicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCodexAccountPicker(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Codex Account</Text>
+            {codexAccountsLoading ? (
+              <ActivityIndicator style={{ margin: 16 }} />
+            ) : codexAccounts.length === 0 ? (
+              <Text style={[styles.modelItemText, { padding: 16 }]}>No signed-in Codex accounts on host</Text>
+            ) : (
+              <FlatList
+                data={codexAccounts}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.modelItem, item.active && { backgroundColor: agentSelectedBg }]}
+                    onPress={() => handleCodexAccountSelect(item)}
+                  >
+                    <Text style={[styles.modelItemText, item.active && { color: agentColor }]}>
+                      {item.label || item.email || item.id}
+                      {item.authenticated === false ? ' (needs login)' : ''}
+                    </Text>
+                    {item.active && (
+                      <Text style={[styles.modelCheck, { color: agentColor }]}>{'✓'}</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
           </View>
         </TouchableOpacity>
       </Modal>

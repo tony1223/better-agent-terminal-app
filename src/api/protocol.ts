@@ -64,6 +64,8 @@ export const PROXIED_CHANNELS = new Set([
   'agent:account-login-new', 'agent:account-switch',
   'agent:account-remove', 'agent:account-mark-warning-shown',
   'agent:get-cli-path',
+  // Codex accounts (host-owned)
+  'codex:account-list', 'codex:account-switch',
   // PTY
   'pty:create', 'pty:write', 'pty:read-buffer', 'pty:resize',
   'pty:get-viewport-state', 'pty:set-viewport-mode', 'pty:set-viewport-size',
@@ -82,6 +84,7 @@ export const PROXIED_CHANNELS = new Set([
   // FS
   'fs:readdir', 'fs:readFile', 'fs:search', 'fs:watch', 'fs:unwatch',
   'fs:home', 'fs:list-dirs', 'fs:mkdir', 'fs:quick-locations',
+  'fs:upload-tmp-begin', 'fs:upload-tmp-chunk', 'fs:upload-tmp-end', 'fs:upload-tmp-abort',
   'image:read-as-data-url',
   // OpenAI direct agent settings
   'openai:list-sessions', 'openai:get-api-key-status', 'openai:set-api-key',
