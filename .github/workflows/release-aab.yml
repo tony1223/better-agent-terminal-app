@@ -38,6 +38,9 @@ jobs:
         with:
           key: android-release
           max-size: 1G
+          # Tag-ref caches are unreadable by other tags; the warm-release-caches
+          # workflow saves this cache on main instead.
+          save: ${{ github.ref_type != 'tag' }}
 
       - uses: actions/setup-node@v6
         with:

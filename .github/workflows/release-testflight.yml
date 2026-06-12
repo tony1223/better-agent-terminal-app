@@ -41,6 +41,9 @@ jobs:
         with:
           key: ios-release
           max-size: 1.5G
+          # Tag-ref caches are unreadable by other tags; the warm-release-caches
+          # workflow saves this cache on main instead.
+          save: ${{ github.ref_type != 'tag' }}
 
       - name: Enable corepack
         run: corepack enable

@@ -1,0 +1,130 @@
+name: Warm Release Caches
+run-name: warm release caches
+
+# GitHub Actions caches are scoped per ref: a tag run can only restore
+# caches saved on its own ref or on the default branch. The release
+# workflows run exclusively on tags, so anything they save is unreadable
+# by the next tag. This workflow runs the same builds on main (unsigned,
+# nothing uploaded) so the gradle/ccache/pods/node_modules caches live on
+# a ref every release can fall back to. The weekly cron guards against
+# the 7-day unused-cache eviction during quiet weeks.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 19 * * 0" # Mon 03:17 Asia/Taipei
+  push:
+    branches: [main]
+    paths:
+      - yarn.lock
+      - android/**
+      - ios/Podfile
+      - ios/Podfile.lock
+      - .github/workflows/warm-release-caches.yml
+
+concurrency:
+  group: warm-release-caches
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-release
+          max-size: 1G
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: yarn
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: yarn install --immutable
+
+      # No release keystore env — build.gradle falls back to debug signing.
+      - name: Build release AAB (cache warm only)
+        working-directory: android
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: ./gradlew bundleRelease --no-daemon
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: yarn
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1.3"
+          bundler-cache: true
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ios-release
+          max-size: 1.5G
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}
+
+      - name: Install JS dependencies
+        run: yarn install --immutable
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods
+        working-directory: ios
+        env:
+          USE_CCACHE: "1"
+        run: bundle exec pod install
+
+      - name: Build Release (unsigned, cache warm only)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace BATMobile.xcworkspace \
+            -scheme BATMobile \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | tail -100
