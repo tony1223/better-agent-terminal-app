@@ -98,6 +98,9 @@ jobs:
           # compile through ccache.
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          # Hash the compiler binary, not its mtime — runner image updates
+          # would otherwise invalidate the whole cache.
+          CCACHE_COMPILERCHECK: content
         run: ./gradlew bundleRelease --no-daemon
 
       - name: Upload AAB artifact

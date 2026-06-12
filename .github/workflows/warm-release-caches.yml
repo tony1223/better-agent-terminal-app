@@ -60,6 +60,9 @@ jobs:
         env:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          # Default compiler_check=mtime invalidates everything whenever the
+          # runner image rolls a new NDK timestamp; hash the binary instead.
+          CCACHE_COMPILERCHECK: content
         run: ./gradlew bundleRelease --no-daemon
 
   ios:
@@ -122,19 +125,25 @@ jobs:
           USE_CCACHE: "1"
         run: bundle exec pod install
 
-      - name: Build Release (unsigned, cache warm only)
+      # `archive` (not `build`): the release run archives via fastlane gym,
+      # and archive intermediates live under ArchiveIntermediates/ — generated
+      # header include paths differ from a plain build, so objects warmed by
+      # `build` never hit on the release run's compile hashes.
+      - name: Archive Release (unsigned, cache warm only)
         working-directory: ios
         env:
           # RN's ccache-clang wrapper overrides CCACHE_CONFIGPATH, which would
           # silently move the cache to ~/Library/Caches/ccache — away from the
           # directory ccache-action saves. The env var outranks any config file.
           CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_COMPILERCHECK: content
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild archive \
             -workspace BATMobile.xcworkspace \
             -scheme BATMobile \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/warm.xcarchive" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             | tail -100

@@ -127,6 +127,7 @@ jobs:
           # silently move the cache away from the directory ccache-action
           # restores. The env var outranks any config file.
           CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_COMPILERCHECK: content
         run: bundle exec fastlane ios beta
 
       - name: Cleanup signing assets
