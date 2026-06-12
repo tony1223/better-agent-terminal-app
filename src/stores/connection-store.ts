@@ -3,6 +3,7 @@
  * Supports TLS connections with certificate fingerprint pinning.
  */
 
+import { AppState } from 'react-native'
 import { create } from 'zustand'
 import { WebSocketClient, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
 import { createChannels, type Channels } from '@/api/channels'
@@ -111,3 +112,16 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     })
   },
 }))
+
+// Background suspension freezes JS timers and the OS kills idle sockets, so
+// when the app comes back to the foreground the connection may be dead while
+// the status still says 'connected' — or a reconnect attempt may be parked on
+// a stale backoff timer. Kick the client immediately on every foreground.
+AppState.addEventListener('change', (state) => {
+  if (state !== 'active') return
+  const { client } = useConnectionStore.getState()
+  if (client) {
+    dlog('CONN', 'app foregrounded — probing connection')
+    client.resume()
+  }
+})

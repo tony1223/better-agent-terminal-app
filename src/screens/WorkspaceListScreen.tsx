@@ -35,6 +35,7 @@ export function WorkspaceListScreen() {
     switchWorkspace,
     profiles,
     activeProfileIds,
+    activeLocalProfileId,
   } = useWorkspaceStore()
   const navigation = useNavigation<any>()
   const [refreshing, setRefreshing] = React.useState(false)
@@ -70,11 +71,14 @@ export function WorkspaceListScreen() {
   )
 
   const profileLabel = useMemo(() => {
-    if (activeProfiles.length === 0) return t('workspaceList.profile.defaultLabel')
-    if (activeProfiles.length === 1) return activeProfiles[0].name || activeProfiles[0].id
-    const first = activeProfiles[0].name || activeProfiles[0].id
-    return `${first} +${activeProfiles.length - 1}`
-  }, [activeProfiles, t])
+    // Label with the profile this device is viewing; the host's active set
+    // may contain other windows' profiles.
+    const viewing = activeLocalProfileId
+      ? profiles.find(profile => profile.id === activeLocalProfileId)
+      : activeProfiles[0]
+    if (!viewing) return t('workspaceList.profile.defaultLabel')
+    return viewing.name || viewing.id
+  }, [activeLocalProfileId, profiles, activeProfiles, t])
 
   const filteredWorkspaces = useMemo(() => {
     const needle = query.trim().toLowerCase()

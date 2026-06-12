@@ -17,12 +17,17 @@ export function SessionContextBar({ workspaceId, detail, right }: Props) {
   )
   const profiles = useWorkspaceStore(s => s.profiles)
   const activeProfileIds = useWorkspaceStore(s => s.activeProfileIds)
+  const activeLocalProfileId = useWorkspaceStore(s => s.activeLocalProfileId)
 
-  const activeProfiles = activeProfileIds
-    .map(id => profiles.find(profile => profile.id === id))
-    .filter((profile): profile is NonNullable<typeof profile> => !!profile)
-  const profileLabel = activeProfiles.length > 0
-    ? activeProfiles.map(profile => profile.name || profile.id).join(', ')
+  // Every workspace belongs to exactly one profile — show the one this
+  // device is viewing, not the host's full active set (the host may have
+  // several profiles active at once across desktop windows).
+  const viewingProfileId = activeLocalProfileId ?? activeProfileIds[0]
+  const viewingProfile = viewingProfileId
+    ? profiles.find(profile => profile.id === viewingProfileId)
+    : undefined
+  const profileLabel = viewingProfile
+    ? (viewingProfile.name || viewingProfile.id)
     : t('sessionContext.defaultProfile')
   const workspaceLabel = workspace?.alias || workspace?.name || t('sessionContext.defaultWorkspace')
   const folder = workspace?.folderPath || detail || ''

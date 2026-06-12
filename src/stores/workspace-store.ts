@@ -49,6 +49,11 @@ interface WorkspaceState {
   activeTerminalId: string | null
   profiles: ProfileEntry[]
   activeProfileIds: string[]
+  // The single profile this device is viewing. The host may have several
+  // active profiles at once (one per desktop window); each workspace list
+  // belongs to exactly one of them, so the device pins its choice here and
+  // host-side profile switching no longer yanks the view to another profile.
+  activeLocalProfileId: string | null
   loadStatus: WorkspaceLoadStatus
   loadError: string | null
 
@@ -77,6 +82,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   activeTerminalId: null,
   profiles: [],
   activeProfileIds: [],
+  activeLocalProfileId: null,
   loadStatus: 'idle',
   loadError: null,
 
@@ -100,12 +106,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set(value)
     })
 
-    const activeProfileId = resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
+    // Keep the device's pinned profile across refreshes; only re-resolve
+    // from the host's active set when no pin exists or it disappeared.
+    const sticky = get().activeLocalProfileId
+    const activeProfileId = (sticky && summary.profiles.some(p => p.id === sticky))
+      ? sticky
+      : resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
 
     if (activeProfileId) {
       await get().loadProfileWorkspace(activeProfileId)
       return
     }
+    set({ activeLocalProfileId: null })
 
     // No active profile resolved — fall back to the window/default snapshot.
     let raw: string | null
@@ -133,6 +145,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ loadStatus: 'no-channel', loadError: null })
       return
     }
+    set({ activeLocalProfileId: profileId })
 
     await loadProfileSummary(channels, ({ profiles, activeProfileIds }) => {
       set({ profiles, activeProfileIds })
@@ -182,10 +195,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // the snapshot may belong to a profile this device isn't viewing. Per
       // the v2 protocol they are never adopted directly — re-fetch through
       // our own workspace:load routing instead.
-      const activeProfileId = resolveActiveLocalProfileId(
-        get().profiles,
-        get().activeProfileIds,
-      )
+      const activeProfileId = get().activeLocalProfileId
+        ?? resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
       if (activeProfileId) {
         get().loadProfileWorkspace(activeProfileId).catch(() => {})
       } else {
@@ -203,10 +214,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // for hosts that predate this field).
       const targetProfileId = typeof record.profileId === 'string' ? record.profileId : null
       if (targetProfileId) {
-        const activeProfileId = resolveActiveLocalProfileId(
-          get().profiles,
-          get().activeProfileIds,
-        )
+        const activeProfileId = get().activeLocalProfileId
+          ?? resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
         if (activeProfileId && activeProfileId !== targetProfileId) {
           return
         }
@@ -262,12 +271,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // than trusting local state. The host serves workspace:load from the same
     // live window a profile-targeted workspace:save writes to, so a session
     // this device just added is included in the reload instead of being wiped.
+    // Host-side profile activation changes don't move the device off its
+    // pinned profile — only its disappearance forces a re-resolve.
     set(summary)
-    const activeId = resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
+    const sticky = get().activeLocalProfileId
+    const activeId = (sticky && summary.profiles.some(p => p.id === sticky))
+      ? sticky
+      : resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
     if (activeId) {
       get().loadProfileWorkspace(activeId).catch(() => {})
     } else {
-      set({ workspaces: [], terminals: [], loadStatus: 'empty', loadError: null })
+      set({ workspaces: [], terminals: [], loadStatus: 'empty', loadError: null, activeLocalProfileId: null })
     }
   },
 

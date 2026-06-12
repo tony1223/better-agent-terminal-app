@@ -447,6 +447,35 @@ export class WebSocketClient {
   //   Reconnection (exponential backoff + jitter)
   // ============================================
 
+  // Called when the app returns to the foreground. Background suspension
+  // freezes timers and the OS silently kills sockets: a dead socket can
+  // still report 'connected' (the close was never delivered), and a
+  // scheduled reconnect may sit on a stale backoff delay. Probe the former
+  // with a ping (a timeout closes the socket, which triggers the normal
+  // reconnect path) and fast-forward the latter to an immediate attempt.
+  resume(): void {
+    if (!this.shouldReconnect) return
+    if (this._status === 'connected') {
+      void this.checkConnection()
+      return
+    }
+    // Only fast-forward when an attempt is actually parked on a timer —
+    // no timer in 'reconnecting' means a doConnect is already in flight.
+    if (this._status === 'reconnecting' && this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+      this.reconnectAttempt = 0
+      const gen = this.generation
+      void this.doConnect()
+        .then(ok => {
+          if (!ok && this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
+        })
+        .catch(() => {
+          if (this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
+        })
+    }
+  }
+
   private scheduleReconnect(gen: number) {
     if (this.reconnectTimer) return
     if (gen !== this.generation) return
