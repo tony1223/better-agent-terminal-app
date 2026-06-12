@@ -28,7 +28,8 @@ target 'BATMobile' do
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
-      # :ccache_enabled => true
+      # Opt-in (CI sets USE_CCACHE=1) so local builds keep plain clang.
+      :ccache_enabled => ENV['USE_CCACHE'] == '1'
     )
   end
 end

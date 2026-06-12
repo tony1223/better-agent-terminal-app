@@ -28,7 +28,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
+
+      # Replaces setup-java's `cache: gradle` — also caches the Gradle build
+      # cache, so unchanged compile tasks are reused across releases.
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Compiler cache for the NDK/CMake C++ builds (RN codegen, native libs).
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-release
+          max-size: 1G
 
       - uses: actions/setup-node@v6
         with:
@@ -82,6 +91,10 @@ jobs:
           UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
           UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+          # CMake honors these from the environment — routes every NDK
+          # compile through ccache.
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: ./gradlew bundleRelease --no-daemon
 
       - name: Upload AAB artifact
