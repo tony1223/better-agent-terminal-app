@@ -37,7 +37,7 @@ jobs:
 
       # Compiler cache for the Xcode pod builds. RN's ccache-clang wrappers
       # (enabled via USE_CCACHE at pod install) pick this up from PATH.
-      - uses: hendrikmuhs/ccache-action@v1.2
+      - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ios-release
           max-size: 1.5G
@@ -49,7 +49,7 @@ jobs:
         run: corepack enable
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}
@@ -58,7 +58,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Cache CocoaPods
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ios/Pods

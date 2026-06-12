@@ -38,7 +38,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - uses: hendrikmuhs/ccache-action@v1.2
+      - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: android-release
           max-size: 1G
@@ -82,7 +82,7 @@ jobs:
           ruby-version: "3.1.3"
           bundler-cache: true
 
-      - uses: hendrikmuhs/ccache-action@v1.2
+      - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ios-release
           max-size: 1.5G
@@ -91,7 +91,7 @@ jobs:
         run: corepack enable
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('yarn.lock') }}
@@ -100,7 +100,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Cache CocoaPods
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ios/Pods
