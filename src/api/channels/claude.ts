@@ -172,8 +172,15 @@ export function createClaudeChannel(ws: WebSocketClient) {
     setCodexApprovalPolicy: (sessionId: string, policy: string) =>
       ws.invokeParams('agent:set-codex-approval-policy', { sessionId, policy }, [sessionId, policy]),
 
-    setModel: (sessionId: string, model: string) =>
-      ws.invokeParams('agent:set-model', { sessionId, model }, [sessionId, model]),
+    // A numeric autoCompactWindow makes the host rebuild the query, which is
+    // also where auto-compact preset ids get mapped back to real SDK model
+    // ids — without it the host hands the raw string to the live session.
+    setModel: (sessionId: string, model: string, autoCompactWindow?: number) =>
+      ws.invokeParams(
+        'agent:set-model',
+        { sessionId, model, ...(typeof autoCompactWindow === 'number' ? { autoCompactWindow } : {}) },
+        [sessionId, model, autoCompactWindow],
+      ),
 
     setEffort: (sessionId: string, effort: string) =>
       ws.invokeParams('agent:set-effort', { sessionId, effort }, [sessionId, effort]),

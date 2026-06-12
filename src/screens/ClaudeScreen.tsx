@@ -37,6 +37,7 @@ import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
+import { setModelArgsForClaudeSelection } from '@/utils/claude-model-presets'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import type { CodexAccountEntry } from '@/api/channels/claude'
 import { isToolCall } from '@/types'
@@ -936,7 +937,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels) return
     setShowModelPicker(false)
     try {
-      await channels.claude.setModel(sessionId, model.value)
+      const { model: resolvedModel, autoCompactWindow } = setModelArgsForClaudeSelection(model.value)
+      await channels.claude.setModel(sessionId, resolvedModel, autoCompactWindow)
     } catch (e) {
       console.warn('[Claude] setModel error:', e)
       Alert.alert(t('claude.errors.switchModelFailed'), String(e))
