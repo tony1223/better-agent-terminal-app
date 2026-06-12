@@ -6,13 +6,11 @@ run-name: warm release caches
 # workflows run exclusively on tags, so anything they save is unreadable
 # by the next tag. This workflow runs the same builds on main (unsigned,
 # nothing uploaded) so the gradle/ccache/pods/node_modules caches live on
-# a ref every release can fall back to. The weekly cron guards against
-# the 7-day unused-cache eviction during quiet weeks.
+# a ref every release can fall back to. Note caches unused for 7 days are
+# evicted, so a release after a quiet stretch starts cold again.
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 19 * * 0" # Mon 03:17 Asia/Taipei
   push:
     branches: [main]
     paths:
