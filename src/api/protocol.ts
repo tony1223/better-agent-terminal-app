@@ -37,8 +37,9 @@ export const REMOTE_COMPRESSION_NONE = 'none'
 
 // Channels proxied to remote host (client can invoke)
 export const PROXIED_CHANNELS = new Set([
-  // App metadata
+  // App metadata + host self-update (drive the desktop host's updater remotely)
   'app:get-version',
+  'app:check-update', 'app:install-update', 'app:relaunch',
   // Agent runtime (v2 canonical namespace)
   'agent:get-supported-session-types', 'agent:list-presets',
   'agent:start-session', 'agent:resume-session', 'agent:send-message',

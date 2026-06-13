@@ -2,13 +2,14 @@
  * SettingsScreen - Connection info, profile, hosts, appearance, debug
  */
 
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  ActivityIndicator,
   Alert,
   Share,
   Switch,
@@ -85,6 +86,10 @@ export function SettingsScreen() {
             valueColor={status === 'connected' ? appColors.success : appColors.textSecondary}
           />
         </View>
+
+        {/* Host update */}
+        <Text style={styles.sectionTitle}>{t('settings.hostUpdate')}</Text>
+        <HostUpdateSection />
 
         {/* Active Workspace */}
         <Text style={styles.sectionTitle}>{t('settings.activeWorkspace')}</Text>
@@ -188,6 +193,167 @@ export function SettingsScreen() {
   )
 }
 
+// Drives the desktop host's self-update over the remote protocol: read the
+// host version, check the stable manifest, then download+install+relaunch.
+// Older hosts that predate the app:* update channels reject the invoke; we
+// surface that as "update the host once manually, then this works".
+function HostUpdateSection() {
+  const { t } = useTranslation()
+  const channels = useConnectionStore(s => s.channels)
+  const status = useConnectionStore(s => s.status)
+  const connected = status === 'connected' && !!channels
+
+  const [hostVersion, setHostVersion] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [checkResult, setCheckResult] = useState<{ available: boolean; version?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const loadVersion = useCallback(() => {
+    if (!channels) return
+    channels.app.getVersion()
+      .then(v => setHostVersion(v?.version ?? null))
+      .catch(() => setHostVersion(null))
+  }, [channels])
+
+  useEffect(() => {
+    if (connected) loadVersion()
+  }, [connected, loadVersion])
+
+  // An older host has no app:check-update handler, so the invoke times out or
+  // is rejected; tell the user to update once by hand rather than show a raw
+  // protocol error.
+  const explainError = (e: unknown) => {
+    const msg = String(e)
+    if (/timeout|not connected|unknown|unsupported|no handler|method/i.test(msg)) {
+      return t('settings.hostUpdateUnsupported')
+    }
+    return msg
+  }
+
+  const handleCheck = async () => {
+    if (!channels) return
+    setChecking(true)
+    setCheckResult(null)
+    try {
+      const result = await channels.app.checkUpdate()
+      setCheckResult({ available: !!result?.available, version: result?.version })
+      if (result?.currentVersion) setHostVersion(result.currentVersion)
+    } catch (e) {
+      Alert.alert(t('settings.hostUpdateFailed'), explainError(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const relaunchHost = async () => {
+    if (!channels) return
+    try {
+      await channels.app.relaunch()
+    } catch {
+      // The host tears the socket down as it restarts, so a rejected/timed-out
+      // relaunch invoke is expected — not an error worth surfacing.
+    }
+    Alert.alert(t('settings.hostRestarting'), '')
+  }
+
+  const handleUpdateAndRestart = () => {
+    const version = checkResult?.version
+    Alert.alert(
+      t('settings.hostUpdateConfirmTitle'),
+      t('settings.hostUpdateConfirmMessage', { version: version ?? '' }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.updateAndRestart'),
+          onPress: async () => {
+            if (!channels) return
+            setBusy(true)
+            try {
+              const result = await channels.app.installUpdate()
+              if (!result?.installed) {
+                Alert.alert(t('settings.hostUpdateFailed'), t('settings.upToDate'))
+                setCheckResult({ available: false })
+                return
+              }
+              await relaunchHost()
+              setCheckResult(null)
+            } catch (e) {
+              Alert.alert(t('settings.hostUpdateFailed'), explainError(e))
+            } finally {
+              setBusy(false)
+            }
+          },
+        },
+      ],
+    )
+  }
+
+  const handleRestartOnly = () => {
+    Alert.alert(
+      t('settings.restartConfirmTitle'),
+      t('settings.restartConfirmMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.restartHost'),
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true)
+            try {
+              await relaunchHost()
+            } finally {
+              setBusy(false)
+            }
+          },
+        },
+      ],
+    )
+  }
+
+  if (!connected) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.hostHint}>{t('settings.notConnected')}</Text>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.card}>
+      <Row label={t('settings.hostVersion')} value={hostVersion ?? '-'} />
+      {checkResult && (
+        <Text style={styles.hostHint}>
+          {checkResult.available
+            ? t('settings.updateAvailable', { version: checkResult.version ?? '?' })
+            : t('settings.upToDate')}
+        </Text>
+      )}
+
+      <TouchableOpacity style={styles.actionRow} onPress={handleCheck} disabled={checking || busy}>
+        <Text style={[styles.actionText, { color: appColors.accent }]}>
+          {checking ? t('settings.checking') : t('settings.checkUpdate')}
+        </Text>
+        {checking && <ActivityIndicator size="small" color={appColors.accent} />}
+      </TouchableOpacity>
+
+      {checkResult?.available && (
+        <TouchableOpacity style={styles.actionRow} onPress={handleUpdateAndRestart} disabled={busy}>
+          <Text style={[styles.actionText, { color: appColors.success }]}>
+            {busy ? t('settings.installing') : t('settings.updateAndRestart')}
+          </Text>
+          {busy && <ActivityIndicator size="small" color={appColors.success} />}
+        </TouchableOpacity>
+      )}
+
+      <TouchableOpacity style={styles.actionRow} onPress={handleRestartOnly} disabled={busy}>
+        <Text style={[styles.actionText, { color: appColors.textSecondary }]}>
+          {t('settings.restartHost')}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  )
+}
+
 function Row({
   label,
   value,
@@ -265,11 +431,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: appColors.border,
+  },
+  hostHint: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
   },
   actionText: {
     fontSize: fontSize.md,
