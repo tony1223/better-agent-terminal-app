@@ -145,7 +145,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ loadStatus: 'no-channel', loadError: null })
       return
     }
-    set({ activeLocalProfileId: profileId })
+    // Clear the pinned workspace when switching to a different profile so
+    // applyState's sticky-active logic doesn't latch onto a coincidentally
+    // matching id from the previous profile.
+    const prevProfileId = get().activeLocalProfileId
+    if (prevProfileId && prevProfileId !== profileId) {
+      set({ activeLocalProfileId: profileId, activeWorkspaceId: null })
+    } else {
+      set({ activeLocalProfileId: profileId })
+    }
 
     await loadProfileSummary(channels, ({ profiles, activeProfileIds }) => {
       set({ profiles, activeProfileIds })
@@ -243,10 +251,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       ...t,
       scrollbackBuffer: Array.isArray(t.scrollbackBuffer) ? t.scrollbackBuffer.slice(-500) : [],
     }))
-    const activeWorkspaceId = state.activeWorkspaceId &&
-      workspaces.some(w => w.id === state.activeWorkspaceId)
-      ? state.activeWorkspaceId
-      : workspaces[0]?.id ?? null
+    // Keep the device's pinned workspace across host reloads (focus-driven
+    // load(), profile:changed broadcasts, etc.) instead of yanking the user
+    // back to whatever workspace the desktop window is on. switchWorkspace
+    // is device-only — the host's activeWorkspaceId never sees it — so
+    // trusting the host's value would silently undo every tap. The choice
+    // is dropped only when that workspace disappears from the snapshot
+    // (typically because the profile itself changed).
+    const localActive = get().activeWorkspaceId
+    const activeWorkspaceId =
+      localActive && workspaces.some(w => w.id === localActive)
+        ? localActive
+        : state.activeWorkspaceId && workspaces.some(w => w.id === state.activeWorkspaceId)
+          ? state.activeWorkspaceId
+          : workspaces[0]?.id ?? null
     const activeTerminalExists = state.activeTerminalId
       ? terminals.some(t => t.id === state.activeTerminalId)
       : false
