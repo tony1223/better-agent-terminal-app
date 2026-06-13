@@ -269,7 +269,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       headerLeft: () => (
         <TouchableOpacity
           style={styles.headerBackButton}
-          onPress={() => navigation.navigate('TerminalList')}
+          onPress={() => navigation.goBack()}
         >
           <Text style={styles.headerBackText}>{'\u2190'}</Text>
         </TouchableOpacity>
@@ -793,6 +793,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (text) contentParts.push(text)
     if (images.length > 0) contentParts.push(`[${images.length} image${images.length > 1 ? 's' : ''} attached]`)
 
+    const sendImages = inlineImages.length > 0 ? inlineImages : undefined
     const localId = `user-local-${Date.now()}`
     useClaudeStore.getState().handleMessage(sessionId, {
       id: localId,
@@ -801,9 +802,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
       content: contentParts.join('\n'),
       timestamp: Date.now(),
       status: 'sending',
+      sendPayload: { messageText, images: sendImages },
     })
 
-    channels.claude.sendMessage(sessionId, messageText, inlineImages.length > 0 ? inlineImages : undefined)
+    channels.claude.sendMessage(sessionId, messageText, sendImages)
       .then(() => {
         // Host acked receipt (invoke-result) → solidify the ghosted message.
         useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'sent')

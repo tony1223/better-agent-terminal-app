@@ -385,6 +385,7 @@
     "message": "訊息",
     "thinkingToggle": "思考",
     "failedToSend": "傳送失敗",
+    "tapToRetry": "點擊重試",
     "sending": "傳送中…",
     "sentToHost": "已送達主機"
   },

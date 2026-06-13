@@ -205,6 +205,10 @@ export interface ClaudeMessage {
   // then 'sent' (solid); 'failed' on invoke-error/timeout. Absent =
   // confirmed / host-originated message.
   status?: 'sending' | 'sent' | 'failed'
+  // Raw payload as actually sent to the host (host image paths folded into the
+  // text, inline images separate) so a 'failed' message can be re-delivered
+  // without rebuilding it from the display content.
+  sendPayload?: { messageText: string; images?: string[] }
 }
 
 export interface ClaudeToolCall {

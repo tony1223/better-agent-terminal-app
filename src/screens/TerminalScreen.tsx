@@ -75,7 +75,7 @@ export function TerminalScreen({ route, navigation }: Props) {
       headerRight: () => (
         <View style={styles.headerActions}>
           <TouchableOpacity
-            onPress={() => navigation.navigate('TerminalList')}
+            onPress={() => navigation.goBack()}
             style={styles.headerButton}
           >
             <Text style={styles.headerButtonText}>{t('terminal.sessions')}</Text>

@@ -15,6 +15,7 @@ import type {
   ClaudeResult,
 } from '@/types'
 import type { ClaudeChannel } from '@/api/channels/claude'
+import { useConnectionStore } from '@/stores/connection-store'
 import { dlog } from '@/utils/debug-log'
 
 interface SessionState {
@@ -213,6 +214,8 @@ interface ClaudeState {
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
   handleSessionReset: (sessionId: string) => void
   setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status']) => void
+  // Re-deliver a 'failed' optimistic user message using its stored payload.
+  retryUserMessage: (sessionId: string, id: string) => void
 
   // UI Actions
   clearPermission: () => void
@@ -306,6 +309,28 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const messages = [...session.messages]
     messages[idx] = { ...existing, status }
     set({ sessions: { ...sessions, [sessionId]: { ...session, messages } } })
+  },
+
+  retryUserMessage: (sessionId, id) => {
+    const session = get().sessions[sessionId]
+    if (!session) return
+    const existing = session.messages.find(m => m.id === id)
+    if (!existing || 'toolName' in existing || existing.status !== 'failed' || !existing.sendPayload) return
+    const channels = useConnectionStore.getState().channels
+    if (!channels) return
+
+    const { messageText, images } = existing.sendPayload
+    // Flip back to the ghosted state, then run the same deliver path as a
+    // fresh send: success solidifies it, another failure re-arms retry.
+    get().setUserMessageStatus(sessionId, id, 'sending')
+    channels.claude.sendMessage(sessionId, messageText, images)
+      .then(() => {
+        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'sent')
+      })
+      .catch(e => {
+        dlog('CLAUDE_STORE', `retryUserMessage error: ${e}`)
+        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'failed')
+      })
   },
 
   handleToolUse: (sessionId, rawTool) => {

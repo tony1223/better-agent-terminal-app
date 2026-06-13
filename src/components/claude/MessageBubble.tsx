@@ -8,6 +8,7 @@ import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
 import { pathLinkerRules } from './LinkedText'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { useClaudeStore } from '@/stores/claude-store'
 import type { ClaudeMessage } from '@/types'
 
 interface Props {
@@ -94,7 +95,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
         <Text style={styles.deliveryText}>{'✓ '}{t('messageBubble.sentToHost')}</Text>
       )}
       {failed && (
-        <Text style={styles.failedText} selectable>{t('messageBubble.failedToSend')}</Text>
+        message.sendPayload ? (
+          <TouchableOpacity
+            onPress={() => useClaudeStore.getState().retryUserMessage(message.sessionId, message.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.failedText}>
+              {t('messageBubble.failedToSend')}{'  ·  '}
+              <Text style={styles.retryText}>{t('messageBubble.tapToRetry')}</Text>
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.failedText} selectable>{t('messageBubble.failedToSend')}</Text>
+        )
       )}
     </View>
   )
@@ -123,6 +136,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     fontSize: fontSize.xs,
     color: '#ef4444',
+  },
+  retryText: {
+    fontSize: fontSize.xs,
+    color: '#ef4444',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   deliveryText: {
     marginTop: spacing.xs,

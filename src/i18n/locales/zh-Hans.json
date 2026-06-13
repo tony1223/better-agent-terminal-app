@@ -385,6 +385,7 @@
     "message": "消息",
     "thinkingToggle": "思考",
     "failedToSend": "发送失败",
+    "tapToRetry": "点击重试",
     "sending": "发送中…",
     "sentToHost": "已送达主机"
   },

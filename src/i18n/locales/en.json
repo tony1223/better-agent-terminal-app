@@ -385,6 +385,7 @@
     "message": "MESSAGE",
     "thinkingToggle": "Thinking",
     "failedToSend": "Failed to send",
+    "tapToRetry": "Tap to retry",
     "sending": "Sending…",
     "sentToHost": "Delivered to host"
   },

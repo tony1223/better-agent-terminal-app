@@ -4,7 +4,10 @@
  * ConnectScreen (when disconnected)
  * MainTabs (when connected)
  *   ├─ WorkspacesStack
- *   │    └─ WorkspaceListScreen
+ *   │    ├─ WorkspaceListScreen
+ *   │    ├─ WorkspaceDetailScreen
+ *   │    ├─ TerminalScreen   (sessions opened from a workspace push here, so
+ *   │    └─ ClaudeScreen      back returns to the workspace, then the list)
  *   ├─ TerminalsStack
  *   │    ├─ TerminalListScreen
  *   │    ├─ TerminalScreen
@@ -96,6 +99,18 @@ function WorkspacesStack() {
         name="WorkspaceDetail"
         component={WorkspaceDetailScreen}
         options={{ title: t('nav.workspace') }}
+      />
+      {/* Sessions opened from a workspace push onto this stack (not the
+          Terminals tab), so back goes Session → WorkspaceDetail → list. */}
+      <WorkspacesNav.Screen
+        name="Terminal"
+        component={TerminalScreen}
+        options={{ title: t('nav.terminal'), headerShown: true }}
+      />
+      <WorkspacesNav.Screen
+        name="Claude"
+        component={ClaudeScreen}
+        options={{ title: t('nav.claude') }}
       />
     </WorkspacesNav.Navigator>
   )
