@@ -445,12 +445,22 @@ export function ClaudeScreen({ route, navigation }: Props) {
         codexSandboxMode: codexSandboxMode ?? null,
         codexApprovalPolicy: codexApprovalPolicy ?? null,
       })
+      // Always-on load diagnostic (logged even with debug mode off, via the
+      // '!' tag) so a "尚無訊息 but history should exist" report can be traced
+      // from Settings → Share Debug Logs without a repro session over the wire.
+      const diag: Record<string, unknown> = {
+        sid: sessionId.slice(0, 8),
+        preset: agentPreset ?? null,
+        hasSdkId: !!terminalSdkSessionId,
+        path: 'none',
+      }
       const backfillArchivedHistory = async () => {
         const archived = await channels.claude.loadArchived(sessionId).catch(e => {
           dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
           return null
         })
         const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
+        diag.archived = archivedMessages.length
         dlog('CLAUDE_SCREEN', `loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
         if (archivedMessages.length > 0) {
           useClaudeStore.getState().handleHistory(sessionId, archivedMessages as (ClaudeMessage | ClaudeToolCall)[])
@@ -466,10 +476,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
             () => channels.claude.getSessionState(sessionId),
           )
           if (!state) {
+            diag.gss = 'null'
             dlog('CLAUDE_SCREEN', `getSessionState returned null sessionId=${sessionId}`)
             return { exists: false, liveCount: 0, isStreaming: false }
           }
           const stateMessageCount = Array.isArray(state.messages) ? state.messages.length : 0
+          diag.gss = {
+            msgs: stateMessageCount,
+            streaming: state.isStreaming === true,
+            metaSdkId: !!state.meta?.sdkSessionId,
+          }
           dlog('CLAUDE_SCREEN', `getSessionState messages=${stateMessageCount} streaming=${state.isStreaming === true}`)
           useClaudeStore.getState().handleSessionState(sessionId, state)
           if (state.meta) {
@@ -493,7 +509,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         dlog('CLAUDE_SCREEN', `resuming session sdkSessionId=${sdkSessionIdToResume}`)
         inFlightSessionKeyRef.current = loadKey
         try {
-          await timedLoadStep(
+          const resumeResult = await timedLoadStep(
             `resumeSession sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
             () => channels.claude.resumeSession(
               sessionId,
@@ -509,6 +525,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
               },
             ),
           )
+          // Capture only the host's resume verdict (ok/stale/alreadyLive); the
+          // payload may be large, so don't log it wholesale.
+          diag.resume = resumeResult && typeof resumeResult === 'object'
+            ? {
+                ok: (resumeResult as Record<string, unknown>).ok ?? null,
+                stale: (resumeResult as Record<string, unknown>).stale ?? null,
+                alreadyLive: (resumeResult as Record<string, unknown>).alreadyLive ?? null,
+              }
+            : resumeResult ?? null
           // resumeSession pushes the full conversation via claude:history; never
           // run the archived fallback here or it clobbers that with a stale subset.
           await loadSessionState({ archivedFallback: false })
@@ -529,11 +554,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
             // view would kill the turn. A streaming session is attached by
             // definition — live events flow in without any resume.
             if (state.exists && (state.liveCount > 0 || state.isStreaming)) {
+              diag.path = state.liveCount === 0 ? 'sdkId/live-backfill' : 'sdkId/live'
               dlog('CLAUDE_SCREEN', `loaded existing host state; skip resumeSession sdkSessionId=${terminalSdkSessionId} streaming=${state.isStreaming}`)
               // Mid-turn attach with the history archived away: resume is
               // off-limits, so backfill the prior conversation directly.
               if (state.liveCount === 0) await backfillArchivedHistory()
             } else {
+              diag.path = 'sdkId/resume'
               dlog('CLAUDE_SCREEN', `no live host messages (liveCount=${state.liveCount}); resuming sdkSessionId=${terminalSdkSessionId}`)
               await resumeWithSdkSessionId(terminalSdkSessionId)
             }
@@ -556,9 +583,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   // the running query.
                   const live = await loadSessionState({ archivedFallback: false })
                   if (live.exists && (live.liveCount > 0 || live.isStreaming)) {
+                    diag.path = live.liveCount === 0 ? 'meta/live-backfill' : 'meta/live'
                     dlog('CLAUDE_SCREEN', `host session already live; skip resumeSession sdkSessionId=${meta.sdkSessionId} streaming=${live.isStreaming}`)
                     if (live.liveCount === 0) await backfillArchivedHistory()
                   } else {
+                    diag.path = 'meta/resume'
                     await resumeWithSdkSessionId(meta.sdkSessionId)
                   }
                   return
@@ -568,6 +597,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
             }
             stateLoaded = (await loadSessionState()).exists
+            diag.path = metaLoaded ? 'meta/no-sdkId-state' : stateLoaded ? 'state-only' : 'fresh'
             if (!metaLoaded && !stateLoaded) {
               dlog('CLAUDE_SCREEN', 'no existing backend session, starting fresh')
               const loadKey = buildLoadKey(null)
@@ -597,8 +627,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
             }
           }
         } catch (e) {
+          diag.error = String(e)
           dlog('CLAUDE_SCREEN', `loadHistory error: ${e}`)
         } finally {
+          diag.finalMsgs = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
+          // '!' tag → always written, even with Debug Mode off, so the user can
+          // reproduce once and Settings → Share Debug Logs to pinpoint why a
+          // session loaded empty (no sdkSessionId? getSessionState null/empty?
+          // resume stale?).
+          dlog('!CLAUDE_DIAG', 'session load summary', diag)
           setBackgroundHistoryLoading(false)
           finishLoading()
         }
