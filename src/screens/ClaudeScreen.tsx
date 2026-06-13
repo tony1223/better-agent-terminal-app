@@ -211,6 +211,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
   const [historyLoadingInBackground, setHistoryLoadingInBackground] = useState(false)
+  // Set when a session's history could not be loaded so the empty view can
+  // explain *why* (connection dropped vs. the host no longer has the rollout)
+  // instead of the misleading "no messages yet".
+  const [loadError, setLoadError] = useState<null | 'connection' | 'missing'>(null)
   const [usage, setUsage] = useState<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null>(null)
   const [showResumeList, setShowResumeList] = useState(false)
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
@@ -401,6 +405,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
         setHistoryLoadingInBackground(value)
       }
     }
+    const reportLoadError = (value: null | 'connection' | 'missing') => {
+      if (!cancelled && seq === loadSeqRef.current) {
+        setLoadError(value)
+      }
+    }
     const timedLoadStep = async <T,>(label: string, run: () => Promise<T>): Promise<T> => {
       const startedAt = Date.now()
       dlog('CLAUDE_TIMING', `${label} started`)
@@ -417,6 +426,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (channels && terminalCwd) {
       setLoading(true)
       setBackgroundHistoryLoading(false)
+      reportLoadError(null)
       loadDeadlineTimer = setTimeout(() => {
         dlog('CLAUDE_SCREEN', `initial history load still pending after ${INITIAL_LOAD_UI_TIMEOUT_MS}ms; showing session UI`)
         setBackgroundHistoryLoading(true)
@@ -629,6 +639,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
         } catch (e) {
           diag.error = String(e)
           dlog('CLAUDE_SCREEN', `loadHistory error: ${e}`)
+          // Tell the empty view why it's empty. "no rollout found" means the
+          // host genuinely can't restore this conversation; everything else we
+          // see in the wild (Not connected / Disconnected / invoke timeout) is
+          // the socket dropping mid-load.
+          const msg = String(e).toLowerCase()
+          reportLoadError(msg.includes('no rollout') ? 'missing' : 'connection')
         } finally {
           diag.finalMsgs = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
           // '!' tag → always written, even with Debug Mode off, so the user can
@@ -1194,14 +1210,26 @@ export function ClaudeScreen({ route, navigation }: Props) {
           </View>
         ) : invertedItems.length === 0 && !showStreaming ? (
           <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyIcon, { color: agentColor }]}>{isCodexAgent ? '\u2B21' : '\u2726'}</Text>
+            <Text style={[styles.emptyIcon, { color: loadError ? appColors.error : agentColor }]}>
+              {loadError ? '\u26A0' : isCodexAgent ? '\u2B21' : '\u2726'}
+            </Text>
             <Text style={styles.emptyText}>
-              {historyLoadingInBackground ? t('claude.empty.syncingHistory') : t('claude.empty.noMessages')}
+              {loadError === 'connection'
+                ? t('claude.empty.loadFailed')
+                : loadError === 'missing'
+                  ? t('claude.empty.historyUnavailable')
+                  : historyLoadingInBackground
+                    ? t('claude.empty.syncingHistory')
+                    : t('claude.empty.noMessages')}
             </Text>
             <Text style={styles.emptySubtext}>
-              {historyLoadingInBackground
-                ? t('claude.empty.historyLoadingBackground')
-                : t('claude.empty.startConversation')}
+              {loadError === 'connection'
+                ? t('claude.empty.loadFailedHint')
+                : loadError === 'missing'
+                  ? t('claude.empty.historyUnavailableHint')
+                  : historyLoadingInBackground
+                    ? t('claude.empty.historyLoadingBackground')
+                    : t('claude.empty.startConversation')}
             </Text>
           </View>
         ) : (

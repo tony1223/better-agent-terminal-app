@@ -336,7 +336,11 @@
       "syncingHistory": "Syncing history...",
       "noMessages": "No messages yet",
       "historyLoadingBackground": "History is still loading in the background.",
-      "startConversation": "Send a message to start a conversation with Claude"
+      "startConversation": "Send a message to start a conversation with Claude",
+      "loadFailed": "Couldn't load history",
+      "loadFailedHint": "The connection to the host dropped while loading. Check your connection and reopen this session.",
+      "historyUnavailable": "History no longer available",
+      "historyUnavailableHint": "The host can't find this conversation's record anymore. You can keep chatting, but the earlier messages can't be restored."
     },
     "suggestion": {
       "label": "suggest"

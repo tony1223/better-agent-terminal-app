@@ -336,7 +336,11 @@
       "syncingHistory": "同步历史中…",
       "noMessages": "尚无消息",
       "historyLoadingBackground": "历史仍在后台加载中。",
-      "startConversation": "发送消息以开始与 Claude 对话"
+      "startConversation": "发送消息以开始与 Claude 对话",
+      "loadFailed": "无法加载历史",
+      "loadFailedHint": "加载时与主机的连接中断了。请检查连接后重新打开此对话。",
+      "historyUnavailable": "历史已不存在",
+      "historyUnavailableHint": "主机已找不到此对话的记录。你仍可以继续对话，但之前的消息无法还原。"
     },
     "suggestion": {
       "label": "建议"

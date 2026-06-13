@@ -336,7 +336,11 @@
       "syncingHistory": "同步歷史中…",
       "noMessages": "尚無訊息",
       "historyLoadingBackground": "歷史仍在背景載入中。",
-      "startConversation": "傳送訊息以開始與 Claude 對話"
+      "startConversation": "傳送訊息以開始與 Claude 對話",
+      "loadFailed": "無法載入歷史",
+      "loadFailedHint": "載入時與主機的連線中斷了。請檢查連線後重新開啟此對話。",
+      "historyUnavailable": "歷史已不存在",
+      "historyUnavailableHint": "主機已找不到此對話的紀錄。你仍可以繼續對話，但先前的訊息無法還原。"
     },
     "suggestion": {
       "label": "建議"
