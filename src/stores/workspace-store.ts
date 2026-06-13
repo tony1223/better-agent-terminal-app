@@ -447,7 +447,17 @@ function createTerminalForWorkspace(workspace: Workspace, agentPreset?: AgentPre
 }
 
 function generateSessionId(): string {
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  // The host now owns worktree folder/branch naming (it allocates a unique
+  // slot itself), so this id no longer influences the worktree path. We still
+  // lead with random hex — matching the desktop's uuid-based terminal ids and
+  // the host's [0-9a-f]+ folder regex — so that older desktops (which still
+  // derive the folder from sessionId.slice(0, 8)) don't collapse every session
+  // onto one path. A fixed textual prefix used to make every worktree resolve
+  // to the same ".bat-worktrees/session-" path, so only the first could be
+  // created and the rest failed with "Worktree already exists".
+  const hex8 = () =>
+    Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0')
+  return `${hex8()}${hex8()}-${Date.now().toString(36)}`
 }
 
 function normalizeAgentParams(agentPreset?: AgentPresetId): TerminalInstance['agentParams'] {
