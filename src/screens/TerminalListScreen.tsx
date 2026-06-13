@@ -19,7 +19,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { getAgentPreset, normalizeAgentPresetsFromHost } from '@/types'
-import type { AgentPreset, AgentPresetId, TerminalInstance } from '@/types'
+import type { AgentPreset, AgentPresetId, ClaudeMessage, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
 type Props = {
@@ -51,6 +51,7 @@ export function TerminalListScreen({ navigation }: Props) {
   const [loadingTypes, setLoadingTypes] = useState(false)
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
+  const [previews, setPreviews] = useState<Record<string, string>>({})
   const createRequestRef = useRef(0)
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
@@ -90,12 +91,64 @@ export function TerminalListScreen({ navigation }: Props) {
     if (connectionStatus === 'connected') loadSupportedSessionTypes()
   }, [connectionStatus, loadSupportedSessionTypes])
 
-  // Pull the workspace/terminal list fresh from the host on focus so sessions
-  // added or closed elsewhere are reflected without relying on cached state.
+  // Per-session preview = first user prompt of the live SDK agent session.
+  // Keyed by terminal id so a fresh start with the same id overwrites a stale
+  // preview, and so closed terminals' previews are dropped on refresh.
+  // sdkAgentIdsKey is a stable string we can use as an effect dependency
+  // (the underlying array is a new ref each render).
+  const sdkAgentIdsKey = workspaceTerminals
+    .filter(t => t.agentPreset && SDK_AGENT_PRESETS.has(t.agentPreset))
+    .map(t => t.id)
+    .join('\0')
+
+  const refreshPreviews = useCallback(async () => {
+    if (!channels) return
+    const store = useWorkspaceStore.getState()
+    const ids = store.terminals
+      .filter(t => t.workspaceId === store.activeWorkspaceId
+        && t.agentPreset
+        && SDK_AGENT_PRESETS.has(t.agentPreset))
+      .map(t => t.id)
+    if (ids.length === 0) {
+      setPreviews(prev => (Object.keys(prev).length === 0 ? prev : {}))
+      return
+    }
+    const entries = await Promise.all(ids.map(async (id) => {
+      try {
+        const state = await channels.claude.getSessionState(id)
+        const messages = state?.messages ?? []
+        const firstUser = messages.find(
+          (m): m is ClaudeMessage => 'role' in m && (m as ClaudeMessage).role === 'user',
+        )
+        return [id, firstUser?.content?.trim() ?? ''] as const
+      } catch {
+        return [id, ''] as const
+      }
+    }))
+    setPreviews(prev => {
+      const next: Record<string, string> = {}
+      for (const [id, content] of entries) {
+        if (content) next[id] = content
+        else if (prev[id]) next[id] = prev[id]
+      }
+      return next
+    })
+  }, [channels])
+
+  useEffect(() => {
+    if (connectionStatus === 'connected') refreshPreviews()
+    // sdkAgentIdsKey changes when the set of SDK sessions changes; that's the
+    // signal to refetch (the array itself is a new ref every render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus, sdkAgentIdsKey, refreshPreviews])
+
+  // Refresh terminals AND previews on focus so sessions added/used elsewhere
+  // (and their first prompts) are reflected without relying on cached state.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
-    }, []),
+      refreshPreviews()
+    }, [refreshPreviews]),
   )
 
   const handlePress = (terminal: TerminalInstance) => {
@@ -171,6 +224,7 @@ export function TerminalListScreen({ navigation }: Props) {
   const renderTerminal = ({ item }: { item: TerminalInstance }) => {
     const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
     const isClosing = closingId === item.id
+    const preview = previews[item.id]
 
     return (
       <TouchableOpacity
@@ -191,6 +245,11 @@ export function TerminalListScreen({ navigation }: Props) {
             <Text style={styles.cwd} numberOfLines={1}>
               {item.cwd}
             </Text>
+            {preview ? (
+              <Text style={styles.preview} numberOfLines={2}>
+                {preview}
+              </Text>
+            ) : null}
           </View>
           <View style={[styles.statusDot, {
             backgroundColor: item.pid ? appColors.success : appColors.textMuted,
@@ -347,6 +406,12 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontFamily: 'monospace',
     marginTop: 2,
+  },
+  preview: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+    marginTop: spacing.xs,
+    lineHeight: fontSize.sm,
   },
   statusDot: {
     width: 8,
