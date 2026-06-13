@@ -1170,6 +1170,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   const showStreaming = session.isStreaming && (session.streamingText || session.streamingThinking)
 
+  // A turn is interruptible for its whole span — request sent / tool running /
+  // thinking / responding — not only while text streams. Mirror RuntimeStatusBar's
+  // "active" so the Stop button is available the entire time the bar shows Working.
+  const turnActive = session.isStreaming || session.turnStartedAt != null || !!session.meta?.runtimeStatus
+
   // Inverted FlatList: data is reversed so newest = index 0 = visible at bottom
   const invertedItems = useMemo(() => [...filteredEntries].reverse(), [filteredEntries])
 
@@ -1389,7 +1394,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             </Text>
           </TouchableOpacity>
 
-          {session.isStreaming && (
+          {turnActive && (
             <TouchableOpacity
               style={[styles.controlBtn, { backgroundColor: stopArmed ? appColors.warning : appColors.error, borderColor: stopArmed ? appColors.warning : appColors.error }]}
               onPress={handleStop}
