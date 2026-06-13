@@ -358,7 +358,10 @@
       "preparing": "Host received · preparing request",
       "waiting": "Waiting for model response",
       "compacting": "Compacting context",
-      "queued": "Queued on host"
+      "queued": "Queued on host",
+      "working": "Working…",
+      "thinking": "Thinking…",
+      "responding": "Responding…"
     }
   },
   "permissionDialog": {

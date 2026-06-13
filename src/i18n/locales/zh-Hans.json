@@ -358,7 +358,10 @@
       "preparing": "主机已收到,准备请求中",
       "waiting": "等待模型回应中",
       "compacting": "正在压缩上下文",
-      "queued": "主机排队中"
+      "queued": "主机排队中",
+      "working": "处理中…",
+      "thinking": "思考中…",
+      "responding": "回应中…"
     }
   },
   "permissionDialog": {

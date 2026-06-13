@@ -27,6 +27,10 @@ interface SessionState {
   // Local-clock timestamp of the last meta.runtimeStatus change —
   // meta.runtimeStatusStartedAt is host time and may be skewed.
   runtimeStatusSince: number | null
+  // Local-clock timestamp the current turn started working, spanning the whole
+  // turn (waiting → thinking → responding → tools) until turn-end — drives the
+  // persistent "Working… · Xs" bar, mirroring the host's turn status line.
+  turnStartedAt: number | null
 }
 
 export const EMPTY_SESSION: SessionState = {
@@ -36,6 +40,7 @@ export const EMPTY_SESSION: SessionState = {
   streamingThinking: '',
   meta: null,
   runtimeStatusSince: null,
+  turnStartedAt: null,
 }
 
 function createEmptySession(): SessionState {
@@ -46,6 +51,7 @@ function createEmptySession(): SessionState {
     streamingThinking: '',
     meta: null,
     runtimeStatusSince: null,
+    turnStartedAt: null,
   }
 }
 
@@ -281,6 +287,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       return
     }
 
+    // An optimistic local send opens a turn so the working bar appears the
+    // instant the user hits send, before the host's first status frame.
+    const startsTurn = msg.role === 'user' && msg.status === 'sending'
     set({
       sessions: {
         ...sessions,
@@ -290,6 +299,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
+          turnStartedAt: startsTurn ? (session.turnStartedAt ?? Date.now()) : session.turnStartedAt,
         },
       },
     })
@@ -346,6 +356,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         [sessionId]: {
           ...session,
           messages: [...session.messages, tool],
+          // Tool execution is part of the active turn; keep the bar alive
+          // through tool gaps where nothing is streaming.
+          turnStartedAt: session.turnStartedAt ?? Date.now(),
         },
       },
     })
@@ -402,6 +415,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             : session.streamingThinking,
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
+          turnStartedAt: session.turnStartedAt ?? Date.now(),
         },
       },
     })
@@ -451,6 +465,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           streamingThinking: '',
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
+          turnStartedAt: null,
         },
       },
     })
@@ -469,6 +484,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           streamingThinking: '',
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
+          turnStartedAt: null,
         },
       },
     })
@@ -496,6 +512,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           messages: [...session.messages, errorMsg],
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
+          turnStartedAt: null,
         },
       },
     })
@@ -509,11 +526,16 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ? (session.runtimeStatusSince ?? Date.now())
         : Date.now())
       : null
+    // A runtime status means the host is working this turn; keep the existing
+    // turn start so elapsed spans the whole turn. Clearing happens on turn-end.
+    const turnStartedAt = meta?.runtimeStatus
+      ? (session.turnStartedAt ?? Date.now())
+      : session.turnStartedAt
 
     set({
       sessions: {
         ...sessions,
-        [sessionId]: { ...session, meta, runtimeStatusSince },
+        [sessionId]: { ...session, meta, runtimeStatusSince, turnStartedAt },
       },
     })
 
@@ -530,6 +552,17 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const shouldReplaceMessages = rawMessages !== null && (nextMessages.length > 0 || session.messages.length === 0)
     dlog('CLAUDE_STORE', `handleSessionState sid=${sessionId} messages=${rawMessages?.length ?? 'n/a'} streaming=${snapshot.isStreaming === true}`)
 
+    // Authoritative correction on (re)focus: if the host is clearly working,
+    // make sure the bar shows; if it's clearly idle, drop a turn that may have
+    // ended while we were away. Ambiguous snapshots leave the local turn alone.
+    const hostActive = snapshot.isStreaming === true || !!snapshot.meta?.runtimeStatus
+    const hostIdle = snapshot.isStreaming === false && snapshot.meta != null && !snapshot.meta.runtimeStatus
+    const turnStartedAt = hostActive
+      ? (session.turnStartedAt ?? Date.now())
+      : hostIdle
+        ? null
+        : session.turnStartedAt
+
     set({
       sessions: {
         ...sessions,
@@ -540,6 +573,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           streamingText: snapshot.streamingText ?? session.streamingText,
           streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
           meta: snapshot.meta ?? session.meta,
+          turnStartedAt,
         },
       },
     })

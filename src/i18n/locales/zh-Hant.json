@@ -358,7 +358,10 @@
       "preparing": "主機已收到,準備請求中",
       "waiting": "等待模型回應中",
       "compacting": "正在壓縮上下文",
-      "queued": "主機排隊中"
+      "queued": "主機排隊中",
+      "working": "處理中…",
+      "thinking": "思考中…",
+      "responding": "回應中…"
     }
   },
   "permissionDialog": {

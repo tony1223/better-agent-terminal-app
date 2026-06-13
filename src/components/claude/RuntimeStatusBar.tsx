@@ -1,10 +1,13 @@
 /**
- * RuntimeStatusBar - host-side turn lifecycle indicator.
+ * RuntimeStatusBar - persistent turn "working" indicator, mirroring the host.
  *
- * Fills the gap between "message delivered to the host" and the first model
- * frame: the host broadcasts runtimeStatus ('starting' → 'waiting_for_api',
- * plus 'compacting'/'queued') over agent:status and clears it once the model
- * starts responding — after that the streaming/thinking output takes over.
+ * Spans the whole turn (turnStartedAt → turn-end) with an elapsed counter, and
+ * a verb that tracks the live phase:
+ *   - host runtimeStatus override (compacting/queued immediately; preparing /
+ *     waiting only after a short grace period, matching the desktop's 8s delay)
+ *   - else Responding… when assistant text is streaming
+ *   - else Thinking… when only thinking is streaming
+ *   - else Working… (request sent / tool running, nothing streamed yet)
  */
 
 import React, { useEffect, useState } from 'react'
@@ -13,29 +16,56 @@ import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
-  status: string
-  since: number | null
+  runtimeStatus: string | null
+  runtimeSince: number | null
+  turnStartedAt: number | null
+  responding: boolean
+  thinking: boolean
 }
 
-const STATUS_KEYS: Record<string, string> = {
-  starting: 'claude.runtimeStatus.preparing',
-  queued: 'claude.runtimeStatus.queued',
-  waiting_for_api: 'claude.runtimeStatus.waiting',
+// compacting/queued are surfaced immediately; preparing/waiting only after this
+// grace period so a fast turn doesn't flash an alarming "still waiting" message.
+const WAITING_GRACE_MS = 8000
+
+const IMMEDIATE_STATUS_KEYS: Record<string, string> = {
   compacting: 'claude.runtimeStatus.compacting',
+  queued: 'claude.runtimeStatus.queued',
+}
+const DELAYED_STATUS_KEYS: Record<string, string> = {
+  starting: 'claude.runtimeStatus.preparing',
+  waiting_for_api: 'claude.runtimeStatus.waiting',
 }
 
-export function RuntimeStatusBar({ status, since }: Props) {
+export function RuntimeStatusBar({ runtimeStatus, runtimeSince, turnStartedAt, responding, thinking }: Props) {
   const { t } = useTranslation()
   const [now, setNow] = useState(() => Date.now())
 
+  const active = turnStartedAt != null || !!runtimeStatus
+
   useEffect(() => {
+    if (!active) return
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [])
+  }, [active])
 
-  const key = STATUS_KEYS[status]
-  const label = key ? t(key) : status
-  const elapsed = since ? Math.max(0, Math.floor((now - since) / 1000)) : 0
+  if (!active) return null
+
+  const statusElapsedMs = runtimeSince ? now - runtimeSince : 0
+  let label: string | null = null
+  if (runtimeStatus && IMMEDIATE_STATUS_KEYS[runtimeStatus]) {
+    label = t(IMMEDIATE_STATUS_KEYS[runtimeStatus])
+  } else if (runtimeStatus && DELAYED_STATUS_KEYS[runtimeStatus] && statusElapsedMs >= WAITING_GRACE_MS) {
+    label = t(DELAYED_STATUS_KEYS[runtimeStatus])
+  }
+  if (!label) {
+    label = responding
+      ? t('claude.runtimeStatus.responding')
+      : thinking
+        ? t('claude.runtimeStatus.thinking')
+        : t('claude.runtimeStatus.working')
+  }
+
+  const elapsed = turnStartedAt ? Math.max(0, Math.floor((now - turnStartedAt) / 1000)) : 0
 
   return (
     <View style={styles.container}>

@@ -1200,10 +1200,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
           },
         ]}
       >
-        {/* Host-side turn status (received / waiting for model / compacting) */}
-        {session.meta?.runtimeStatus && (
-          <RuntimeStatusBar status={session.meta.runtimeStatus} since={session.runtimeStatusSince} />
-        )}
+        {/* Host-side turn status: working / thinking / responding / waiting,
+            spanning the whole turn with an elapsed counter. */}
+        <RuntimeStatusBar
+          runtimeStatus={session.meta?.runtimeStatus ?? null}
+          runtimeSince={session.runtimeStatusSince}
+          turnStartedAt={session.turnStartedAt}
+          responding={!!session.streamingText}
+          thinking={!!session.streamingThinking}
+        />
 
         {/* Prompt suggestions */}
         {promptSuggestions.length > 0 && !session.isStreaming && (
