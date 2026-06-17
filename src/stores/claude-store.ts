@@ -563,6 +563,21 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ? null
         : session.turnStartedAt
 
+    // The host's getSessionState carries the authoritative model / permission
+    // mode at the TOP LEVEL (not nested under meta). Adopt them so a model
+    // change made on the host or another client shows up the moment we refocus
+    // and re-pull state — the model chip reads session.meta.model, and the host
+    // never broadcasts a status event for a bare setModel. Remote state is
+    // host-owned, so the host's value overrides our last-known meta.
+    const baseMeta = snapshot.meta ?? session.meta
+    const nextMeta = baseMeta
+      ? {
+          ...baseMeta,
+          ...(typeof snapshot.model === 'string' ? { model: snapshot.model } : {}),
+          ...(typeof snapshot.permissionMode === 'string' ? { permissionMode: snapshot.permissionMode } : {}),
+        }
+      : baseMeta
+
     set({
       sessions: {
         ...sessions,
@@ -572,7 +587,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           isStreaming: snapshot.isStreaming ?? session.isStreaming,
           streamingText: snapshot.streamingText ?? session.streamingText,
           streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
-          meta: snapshot.meta ?? session.meta,
+          meta: nextMeta,
           turnStartedAt,
         },
       },

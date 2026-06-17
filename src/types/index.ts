@@ -260,6 +260,11 @@ export interface SessionStateSnapshot {
   streamingText?: string
   streamingThinking?: string
   meta?: SessionMeta
+  // The host returns the authoritative model / permission mode at the top level
+  // (not nested under meta); surface them so the client can adopt the host's
+  // current model on focus refresh.
+  model?: string
+  permissionMode?: string
 }
 
 // ============================================
