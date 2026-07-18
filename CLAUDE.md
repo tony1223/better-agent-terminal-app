@@ -31,16 +31,17 @@ Tag 格式（皆支援開頭可選的 `v`）：
 - `versionName` / `MARKETING_VERSION` 取自 tag：去掉開頭的 `v`，並去掉結尾的 `-android` / `-ios`（例如 `v1.0.1-ios` → `1.0.1`）。
 - Android `versionCode` 與 iOS build number 由 CI 的 `github.run_number` 自動遞增，不需手動指定。
 - Android 發布步驟同時上傳到 Google Play 的 `internal` 與 `beta` 兩個 track。
-- 兩個 workflow 仍可用 `workflow_dispatch` 手動執行，並以 `versionName`（iOS）或 `versionCode` / `versionName`（Android）input 覆寫。
+- 正式 deploy 必須推遞增的 release tag，不要直接 `workflow_dispatch` 跑 `main`。手動跑 `main` 時若沒有帶 `versionName`，Android/iOS 會回落到專案預設 `1.0`。
+- `workflow_dispatch` 只適合測試或救急；若真的手動執行，必須明確填 `versionName`（iOS）或 `versionCode` / `versionName`（Android）。
 
-發版流程：先把 `main` push 上去（CI checkout 遠端 tag），再 push tag，例如：
+發版流程：先把 `main` push 上去（CI checkout 遠端 tag），再找最新 tag 並推下一個遞增版號。例如最新是 `1.0.29`，下一版就推 `1.0.30`：
 
 ```sh
 # 兩邊一起發
-git tag 1.0.1
-git push origin 1.0.1
+git tag 1.0.30
+git push origin 1.0.30
 
 # 只發其中一邊
-git tag 1.0.1-ios
-git push origin 1.0.1-ios
+git tag 1.0.30-ios
+git push origin 1.0.30-ios
 ```
