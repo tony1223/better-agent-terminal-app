@@ -134,9 +134,9 @@ export function WorkspaceListScreen() {
     setSwitchingProfileId(profile.id)
     setProfileError(null)
     try {
-      const idsToDeactivate = activeProfileIds.filter(id => id !== profile.id)
-      await channels.profile.activate(profile.id)
-      await Promise.all(idsToDeactivate.map(id => channels.profile.deactivate(id)))
+      // Selecting a profile changes only what this device is viewing. The
+      // host's active set belongs to its desktop windows and must not be
+      // collapsed when a mobile client switches views.
       await loadProfileWorkspace(profile.id)
       setProfileModalVisible(false)
     } catch (e) {

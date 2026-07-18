@@ -95,6 +95,7 @@ export function createClaudeChannel(ws: WebSocketClient) {
       agentPreset?: string
       permissionMode?: string
       effort?: string
+      autoCompactWindow?: number | null
       codexSandboxMode?: string
       codexApprovalPolicy?: string
       useWorktree?: boolean
@@ -114,6 +115,11 @@ export function createClaudeChannel(ws: WebSocketClient) {
             codexApprovalPolicy: options?.codexApprovalPolicy,
             permissionMode: options?.permissionMode,
             effort: options?.effort,
+            // number = enforce; null = explicitly uncapped; undefined = let
+            // the host derive it from the model preset id.
+            ...(typeof options?.autoCompactWindow === 'number' || options?.autoCompactWindow === null
+              ? { autoCompactWindow: options.autoCompactWindow }
+              : {}),
             ...(options?.useWorktree
               ? {
                 useWorktree: true,
@@ -175,10 +181,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
     // A numeric autoCompactWindow makes the host rebuild the query, which is
     // also where auto-compact preset ids get mapped back to real SDK model
     // ids — without it the host hands the raw string to the live session.
-    setModel: (sessionId: string, model: string, autoCompactWindow?: number) =>
+    setModel: (sessionId: string, model: string, autoCompactWindow?: number | null) =>
       ws.invokeParams(
         'agent:set-model',
-        { sessionId, model, ...(typeof autoCompactWindow === 'number' ? { autoCompactWindow } : {}) },
+        { sessionId, model, ...(typeof autoCompactWindow === 'number' || autoCompactWindow === null ? { autoCompactWindow } : {}) },
         [sessionId, model, autoCompactWindow],
       ),
 

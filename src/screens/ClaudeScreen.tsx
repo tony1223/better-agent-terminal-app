@@ -521,19 +521,23 @@ export function ClaudeScreen({ route, navigation }: Props) {
         try {
           const resumeResult = await timedLoadStep(
             `resumeSession sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
-            () => channels.claude.resumeSession(
-              sessionId,
-              sdkSessionIdToResume,
-              terminalCwd,
-              terminalModel,
-              {
-                agentPreset,
-                ...(isClaudeCodeAgent ? { permissionMode } : {}),
-                codexSandboxMode,
-                codexApprovalPolicy,
-                ...worktreeOptions,
-              },
-            ),
+            () => {
+              const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(terminalModel ?? '')
+              return channels.claude.resumeSession(
+                sessionId,
+                sdkSessionIdToResume,
+                terminalCwd,
+                terminalModel,
+                {
+                  agentPreset,
+                  ...(isClaudeCodeAgent ? { permissionMode } : {}),
+                  ...(resumeCompactWindow !== undefined ? { autoCompactWindow: resumeCompactWindow } : {}),
+                  codexSandboxMode,
+                  codexApprovalPolicy,
+                  ...worktreeOptions,
+                },
+              )
+            },
           )
           // Capture only the host's resume verdict (ok/stale/alreadyLive); the
           // payload may be large, so don't log it wholesale.
@@ -1037,10 +1041,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setResumeSessions([])
     setHistoryLoadingInBackground(true)
     try {
+      const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(terminal.model ?? '')
       await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
         agentPreset,
         ...(isClaudeCodeAgent ? { permissionMode } : {}),
         effort: effortLevel,
+        ...(resumeCompactWindow !== undefined ? { autoCompactWindow: resumeCompactWindow } : {}),
         codexSandboxMode,
         codexApprovalPolicy,
         ...(terminal.worktreePath

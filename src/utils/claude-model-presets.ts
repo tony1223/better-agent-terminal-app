@@ -23,7 +23,7 @@ const CONTEXT_ONLY_SUFFIX = /^(.+):\d+m$/
  * Resolve a model picked from the host's supported-models list into the
  * (model, autoCompactWindow) pair to send over `agent:set-model`.
  */
-export function setModelArgsForClaudeSelection(model: string): { model: string; autoCompactWindow?: number } {
+export function setModelArgsForClaudeSelection(model: string): { model: string; autoCompactWindow?: number | null } {
   const autoCompact = AUTO_COMPACT_SUFFIX.exec(model)
   if (autoCompact) {
     // Keep the preset id so the host's session meta retains the preset
@@ -33,9 +33,12 @@ export function setModelArgsForClaudeSelection(model: string): { model: string; 
   }
   const contextOnly = CONTEXT_ONLY_SUFFIX.exec(model)
   if (contextOnly) {
-    // No window to send, so the host would hand the raw preset to the live
-    // session — send the underlying SDK model id instead.
-    return { model: contextOnly[1] }
+    // Send the underlying SDK model id (the host would hand the raw preset
+    // to the live session) plus an explicit null window: without it the
+    // host keeps a previously-set window, so switching 300k → 1m would keep
+    // compacting at 300k while the UI shows 1m. Older hosts ignore null
+    // (number-only check), which degrades to the previous behaviour.
+    return { model: contextOnly[1], autoCompactWindow: null }
   }
   return { model }
 }
