@@ -189,6 +189,40 @@
     "layoutMobile": "移动版",
     "layoutDesktop": "桌面版"
   },
+  "worktree": {
+    "title": "Worktree 操作",
+    "label": "Worktree",
+    "branchFallback": "worktree",
+    "status": {
+      "merged": "已合并",
+      "ahead": "未合并",
+      "diverged": "已分歧",
+      "unknown": "未知"
+    },
+    "actions": {
+      "title": "操作",
+      "refreshStatus": "刷新状态",
+      "merge": "合并回主机",
+      "cherryPick": "Cherry-pick 回主机",
+      "closeKeep": "关闭并保留 worktree",
+      "closeCleanup": "关闭并清理 worktree"
+    },
+    "alerts": {
+      "statusFailed": "无法刷新 worktree 状态",
+      "mergeTitle": "要合并回主机吗？",
+      "mergeMessage": "将 {{branch}} 合并回主机／来源分支。",
+      "cherryPickTitle": "要 Cherry-pick 回主机吗？",
+      "cherryPickMessage": "将 {{branch}} cherry-pick 回主机／来源分支。",
+      "mergeDone": "Worktree 已合并",
+      "mergeFailed": "无法合并 worktree",
+      "closeTitle": "要关闭会话吗？",
+      "closeMessage": "关闭此会话，并在主机保留 {{branch}}。",
+      "closeFailed": "无法关闭会话",
+      "closeCleanupTitle": "要关闭并清理 worktree 吗？",
+      "closeCleanupMessage": "关闭此会话，并从主机删除 {{branch}}。",
+      "closeCleanupFailed": "无法关闭并清理 worktree"
+    }
+  },
   "terminalList": {
     "title": "会话",
     "modal": {

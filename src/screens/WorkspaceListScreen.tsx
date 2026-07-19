@@ -219,6 +219,7 @@ export function WorkspaceListScreen() {
         visible={profileModalVisible}
         profiles={profiles}
         activeProfileIds={activeProfileIds}
+        activeLocalProfileId={activeLocalProfileId}
         switchingProfileId={switchingProfileId}
         error={profileError}
         onSelect={selectProfile}
@@ -236,6 +237,7 @@ function ProfileModal({
   visible,
   profiles,
   activeProfileIds,
+  activeLocalProfileId,
   switchingProfileId,
   error,
   onSelect,
@@ -245,6 +247,7 @@ function ProfileModal({
   visible: boolean
   profiles: ProfileEntry[]
   activeProfileIds: string[]
+  activeLocalProfileId: string | null
   switchingProfileId: string | null
   error: string | null
   onSelect: (profile: ProfileEntry) => Promise<void>
@@ -291,7 +294,9 @@ function ProfileModal({
             keyExtractor={item => item.id}
             contentContainerStyle={styles.profileList}
             renderItem={({ item }) => {
-              const active = activeProfileIds.includes(item.id)
+              const active = activeLocalProfileId
+                ? item.id === activeLocalProfileId
+                : activeProfileIds.includes(item.id)
               const switching = switchingProfileId === item.id
               return (
                 <TouchableOpacity

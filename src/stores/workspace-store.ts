@@ -14,6 +14,8 @@ import type {
 import { getAgentPreset } from '@/types'
 import { useConnectionStore } from './connection-store'
 
+type ProfileSummary = { profiles: ProfileEntry[]; activeProfileIds: string[] }
+
 const SDK_AGENT_PRESETS = new Set<AgentPresetId>([
   'claude-code',
   'claude-code-v2',
@@ -60,14 +62,14 @@ interface WorkspaceState {
   // Actions
   load: () => Promise<void>
   loadProfileWorkspace: (profileId: string) => Promise<void>
-  applySnapshot: (raw: string) => void
+  applySnapshot: (raw: string, options?: { preserveActiveWorkspace?: boolean }) => void
   applyReload: (payload: unknown) => void
-  applyState: (state: AppState) => void
+  applyState: (state: AppState, options?: { preserveActiveWorkspace?: boolean }) => void
   handleProfileChanged: (payload: unknown) => void
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
   requestAddSession: (workspaceId: string, agentPreset?: AgentPresetId) => Promise<TerminalInstance>
-  requestCloseSession: (terminalId: string) => Promise<void>
+  requestCloseSession: (terminalId: string, options?: { cleanWorktree?: boolean }) => Promise<void>
 
   // Computed helpers
   getWorkspaceTerminals: (workspaceId: string) => TerminalInstance[]
@@ -97,14 +99,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // shown in the header. The host's workspace:load falls back to the
     // "default" profile when no profileId is supplied, which would otherwise
     // diverge from the profile selected on the device.
-    let summary: { profiles: ProfileEntry[]; activeProfileIds: string[] } = {
-      profiles: [],
-      activeProfileIds: [],
+    let summary: ProfileSummary = {
+      profiles: get().profiles,
+      activeProfileIds: get().activeProfileIds,
     }
-    await loadProfileSummary(channels, value => {
+    const loadedSummary = await loadProfileSummary(channels, value => {
       summary = value
       set(value)
     })
+    if (loadedSummary) summary = loadedSummary
 
     // Keep the device's pinned profile across refreshes; only re-resolve
     // from the host's active set when no pin exists or it disappeared.
@@ -149,8 +152,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // applyState's sticky-active logic doesn't latch onto a coincidentally
     // matching id from the previous profile.
     const prevProfileId = get().activeLocalProfileId
-    if (prevProfileId && prevProfileId !== profileId) {
-      set({ activeLocalProfileId: profileId, activeWorkspaceId: null })
+    const isProfileSwitch = prevProfileId && prevProfileId !== profileId
+    if (isProfileSwitch) {
+      set({
+        activeLocalProfileId: profileId,
+        activeWorkspaceId: null,
+        activeTerminalId: null,
+        workspaces: [],
+        terminals: [],
+        loadStatus: 'idle',
+        loadError: null,
+      })
     } else {
       set({ activeLocalProfileId: profileId })
     }
@@ -166,7 +178,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const raw = await channels.workspace.load(profileId)
       if (raw != null) {
-        get().applySnapshot(raw)
+        get().applySnapshot(raw, { preserveActiveWorkspace: !isProfileSwitch })
         return
       }
     } catch (e) {
@@ -181,16 +193,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         set({ loadStatus: 'parse-error', loadError: `Invalid profile snapshot: ${profileId}` })
         return
       }
-      get().applyState(state)
+      get().applyState(state, { preserveActiveWorkspace: !isProfileSwitch })
     } catch (e) {
       set({ loadStatus: 'rpc-error', loadError: String(e) })
     }
   },
 
-  applySnapshot: (raw: string) => {
+  applySnapshot: (raw: string, options) => {
     try {
       const state: AppState = JSON.parse(raw)
-      get().applyState(state)
+      get().applyState(state, options)
     } catch (e) {
       set({ loadStatus: 'parse-error', loadError: String(e) })
       console.warn('[WorkspaceStore] Failed to parse workspace data:', e)
@@ -245,7 +257,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     })
   },
 
-  applyState: (state: AppState) => {
+  applyState: (state: AppState, options) => {
     const workspaces = state.workspaces || []
     const terminals = (state.terminals || []).map(t => ({
       ...t,
@@ -258,7 +270,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // trusting the host's value would silently undo every tap. The choice
     // is dropped only when that workspace disappears from the snapshot
     // (typically because the profile itself changed).
-    const localActive = get().activeWorkspaceId
+    const preserveActiveWorkspace = options?.preserveActiveWorkspace !== false
+    const localActive = preserveActiveWorkspace ? get().activeWorkspaceId : null
     const activeWorkspaceId =
       localActive && workspaces.some(w => w.id === localActive)
         ? localActive
@@ -341,6 +354,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         cwd: worktree.worktreePath,
         worktreePath: worktree.worktreePath,
         branchName: worktree.branchName,
+        worktreeBranch: worktree.branchName,
         title: agentPreset === 'codex-agent-worktree'
           ? 'Codex Agent (worktree)'
           : 'Claude Agent (worktree)',
@@ -379,7 +393,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return terminal
   },
 
-  requestCloseSession: async (terminalId) => {
+  requestCloseSession: async (terminalId, options) => {
     const channels = useConnectionStore.getState().channels
     if (!channels) throw new Error('Not connected to remote server')
 
@@ -391,6 +405,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       await ignoreMissingRuntime(() => channels.claude.stopSession(terminalId))
     } else {
       await ignoreMissingRuntime(() => channels.pty.kill(terminalId))
+    }
+    if (options?.cleanWorktree && terminal.worktreePath) {
+      if (terminal.agentPreset === 'claude-code-worktree') {
+        await ignoreMissingRuntime(() => channels.claude.cleanupWorktree(terminalId))
+      } else {
+        await ignoreMissingRuntime(() => channels.worktree.remove(terminalId, true))
+      }
     }
 
     const remaining = terminals.filter(t => t.id !== terminalId)
@@ -543,14 +564,16 @@ async function loadFromActiveProfileSnapshot(
 
 async function loadProfileSummary(
   channels: NonNullable<ReturnType<typeof useConnectionStore.getState>['channels']>,
-  apply: (summary: { profiles: ProfileEntry[]; activeProfileIds: string[] }) => void,
-): Promise<void> {
+  apply: (summary: ProfileSummary) => void,
+): Promise<ProfileSummary | null> {
   try {
     const list = await channels.profile.list()
     const summary = profileSummaryFromPayload(list)
-    apply(summary ?? { profiles: [], activeProfileIds: [] })
+    if (!summary) return null
+    apply(summary)
+    return summary
   } catch {
-    apply({ profiles: [], activeProfileIds: [] })
+    return null
   }
 }
 

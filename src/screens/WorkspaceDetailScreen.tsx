@@ -18,6 +18,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { WorktreeControls } from '@/components/session/WorktreeControls'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import {
   getAgentPreset,
@@ -231,6 +232,15 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     setShowAddModal(false)
   }
 
+  const closeSessionNow = async (terminal: TerminalInstance, options?: { cleanWorktree?: boolean }) => {
+    setClosingId(terminal.id)
+    try {
+      await requestCloseSession(terminal.id, options)
+    } finally {
+      setClosingId(null)
+    }
+  }
+
   const closeSession = (terminal: TerminalInstance) => {
     Alert.alert(
       t('workspaceDetail.alerts.closeSessionTitle'),
@@ -241,13 +251,10 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
           text: t('workspaceDetail.button.close'),
           style: 'destructive',
           onPress: async () => {
-            setClosingId(terminal.id)
             try {
-              await requestCloseSession(terminal.id)
+              await closeSessionNow(terminal)
             } catch (e) {
               Alert.alert(t('workspaceDetail.alerts.closeSessionFailed'), String(e))
-            } finally {
-              setClosingId(null)
             }
           },
         },
@@ -297,6 +304,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
                   </TouchableOpacity>
                 )}
               </View>
+              <WorktreeControls terminal={item} closing={isClosing} onCloseSession={closeSessionNow} />
             </TouchableOpacity>
           )
         }}

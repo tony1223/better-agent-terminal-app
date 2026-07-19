@@ -189,6 +189,40 @@
     "layoutMobile": "行動版",
     "layoutDesktop": "桌面版"
   },
+  "worktree": {
+    "title": "Worktree 操作",
+    "label": "Worktree",
+    "branchFallback": "worktree",
+    "status": {
+      "merged": "已合併",
+      "ahead": "未合併",
+      "diverged": "已分歧",
+      "unknown": "未知"
+    },
+    "actions": {
+      "title": "操作",
+      "refreshStatus": "重新整理狀態",
+      "merge": "合併回主機",
+      "cherryPick": "Cherry-pick 回主機",
+      "closeKeep": "關閉並保留 worktree",
+      "closeCleanup": "關閉並清理 worktree"
+    },
+    "alerts": {
+      "statusFailed": "無法重新整理 worktree 狀態",
+      "mergeTitle": "要合併回主機嗎？",
+      "mergeMessage": "將 {{branch}} 合併回主機／來源分支。",
+      "cherryPickTitle": "要 Cherry-pick 回主機嗎？",
+      "cherryPickMessage": "將 {{branch}} cherry-pick 回主機／來源分支。",
+      "mergeDone": "Worktree 已合併",
+      "mergeFailed": "無法合併 worktree",
+      "closeTitle": "要關閉工作階段嗎？",
+      "closeMessage": "關閉此工作階段，並在主機保留 {{branch}}。",
+      "closeFailed": "無法關閉工作階段",
+      "closeCleanupTitle": "要關閉並清理 worktree 嗎？",
+      "closeCleanupMessage": "關閉此工作階段，並從主機刪除 {{branch}}。",
+      "closeCleanupFailed": "無法關閉並清理 worktree"
+    }
+  },
   "terminalList": {
     "title": "工作階段",
     "modal": {

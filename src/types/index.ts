@@ -134,6 +134,8 @@ export interface TerminalInstance {
   pendingImages?: string[]
   worktreePath?: string
   branchName?: string
+  worktreeBranch?: string
+  worktreeMergedKind?: 'ancestor' | 'patch-equivalent' | 'ahead' | 'diverged' | 'unknown'
 }
 
 // ============================================

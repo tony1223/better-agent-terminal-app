@@ -189,6 +189,40 @@
     "layoutMobile": "Mobile",
     "layoutDesktop": "Desktop"
   },
+  "worktree": {
+    "title": "Worktree Actions",
+    "label": "Worktree",
+    "branchFallback": "worktree",
+    "status": {
+      "merged": "merged",
+      "ahead": "ahead",
+      "diverged": "diverged",
+      "unknown": "unknown"
+    },
+    "actions": {
+      "title": "Actions",
+      "refreshStatus": "Refresh status",
+      "merge": "Merge into host",
+      "cherryPick": "Cherry-pick into host",
+      "closeKeep": "Close, keep worktree",
+      "closeCleanup": "Close & cleanup worktree"
+    },
+    "alerts": {
+      "statusFailed": "Unable to refresh worktree status",
+      "mergeTitle": "Merge into host?",
+      "mergeMessage": "Merge {{branch}} into the host/source branch.",
+      "cherryPickTitle": "Cherry-pick into host?",
+      "cherryPickMessage": "Cherry-pick {{branch}} into the host/source branch.",
+      "mergeDone": "Worktree merged",
+      "mergeFailed": "Unable to merge worktree",
+      "closeTitle": "Close session?",
+      "closeMessage": "Close this session and keep {{branch}} on the host.",
+      "closeFailed": "Unable to close session",
+      "closeCleanupTitle": "Close and cleanup worktree?",
+      "closeCleanupMessage": "Close this session and delete {{branch}} from the host.",
+      "closeCleanupFailed": "Unable to close and cleanup worktree"
+    }
+  },
   "terminalList": {
     "title": "Sessions",
     "modal": {
