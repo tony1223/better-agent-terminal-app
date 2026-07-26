@@ -228,6 +228,15 @@
       "closeCleanupFailed": "Unable to close and cleanup worktree"
     }
   },
+  "session": {
+    "activity": {
+      "working": "Working",
+      "ready": "Ready",
+      "stopped": "Stopped",
+      "unknown": "Checking…",
+      "turns": "{{count}} turns"
+    }
+  },
   "terminalList": {
     "title": "Sessions",
     "modal": {
@@ -240,9 +249,14 @@
     "label": {
       "workspace": "Workspace"
     },
+    "scope": {
+      "workspace": "This workspace",
+      "all": "All workspaces"
+    },
     "empty": {
       "noTerminals": "No terminals in this workspace.",
       "noWorkspace": "Select a workspace first.",
+      "noSessionsAnywhere": "No sessions open on the host.",
       "noSessionTypes": "The host did not report any supported session types."
     },
     "alerts": {
@@ -257,6 +271,9 @@
   "workspaceList": {
     "search": {
       "placeholder": "Search workspaces"
+    },
+    "recent": {
+      "title": "Frequent"
     },
     "empty": {
       "noMatch": "No workspaces match \"{{query}}\".",

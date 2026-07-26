@@ -228,6 +228,15 @@
       "closeCleanupFailed": "无法关闭并清理 worktree"
     }
   },
+  "session": {
+    "activity": {
+      "working": "执行中",
+      "ready": "待命",
+      "stopped": "已停止",
+      "unknown": "查询中…",
+      "turns": "{{count}} 轮"
+    }
+  },
   "terminalList": {
     "title": "会话",
     "modal": {
@@ -240,9 +249,14 @@
     "label": {
       "workspace": "工作区"
     },
+    "scope": {
+      "workspace": "此工作区",
+      "all": "所有工作区"
+    },
     "empty": {
       "noTerminals": "此工作区中没有终端。",
       "noWorkspace": "请先选择工作区。",
+      "noSessionsAnywhere": "主机上没有开启中的会话。",
       "noSessionTypes": "主机未报告任何受支持的会话类型。"
     },
     "alerts": {
@@ -257,6 +271,9 @@
   "workspaceList": {
     "search": {
       "placeholder": "搜索工作区"
+    },
+    "recent": {
+      "title": "常用"
     },
     "empty": {
       "noMatch": "没有匹配“{{query}}”的工作区。",

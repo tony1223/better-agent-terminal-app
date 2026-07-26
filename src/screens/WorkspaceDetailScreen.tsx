@@ -18,10 +18,12 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { WorktreeControls } from '@/components/session/WorktreeControls'
+import { useRecentsStore } from '@/stores/recents-store'
+import { useSessionRuntimeStore } from '@/stores/session-runtime-store'
+import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import {
-  getAgentPreset,
+  isSdkAgentSession,
   normalizeAgentPresetsFromHost,
   type AgentPreset,
   type AgentPresetId,
@@ -53,7 +55,6 @@ interface GitHubItem {
   updatedAt?: string
 }
 
-const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const TABS: Array<{ id: DetailTab; labelKey: string }> = [
   { id: 'sessions', labelKey: 'workspaceDetail.tab.sessions' },
@@ -71,7 +72,12 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
   const [activeTab, setActiveTab] = useState<DetailTab>('sessions')
 
   useEffect(() => {
-    if (workspaceId) switchWorkspace(workspaceId)
+    if (!workspaceId) return
+    switchWorkspace(workspaceId)
+    // Every route into a workspace lands here, so this is the one place that
+    // can count an open exactly once — which is what the "Frequent" strip on
+    // the list screen ranks by.
+    useRecentsStore.getState().touchWorkspace(workspaceId)
   }, [switchWorkspace, workspaceId])
 
   // Refresh workspace/terminal state from the host on focus, then keep the
@@ -148,6 +154,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
   const createRequestRef = useRef(0)
+  const runtimes = useSessionRuntimeStore(s => s.runtimes)
   const terminals = useMemo(
     () => allTerminals.filter(item => item.workspaceId === workspaceId),
     [allTerminals, workspaceId],
@@ -185,9 +192,23 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     if (connectionStatus === 'connected') loadSupportedSessionTypes()
   }, [connectionStatus, loadSupportedSessionTypes])
 
+  // Same session status the Terminals tab shows, from the same store — which
+  // screen you arrived from shouldn't change how much you're told.
+  const sdkSessionIds = useMemo(() => terminals.filter(isSdkAgentSession).map(item => item.id), [terminals])
+  const sdkSessionIdsKey = sdkSessionIds.join('\0')
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return
+    useSessionRuntimeStore.getState().refresh(sdkSessionIds).catch(() => undefined)
+    // sdkSessionIdsKey stands in for the array's contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus, sdkSessionIdsKey])
+
   const openSession = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)
-    const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
+    const recents = useRecentsStore.getState()
+    recents.touchSession(terminal.id)
+    recents.touchWorkspace(workspaceId)
+    const screen = isSdkAgentSession(terminal) ? 'Claude' : 'Terminal'
     const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
     // Push within this (Workspaces) stack so back returns to the workspace,
     // then to the list — instead of stranding the user on the Terminals tab.
@@ -210,9 +231,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
         return
       }
       setShowAddModal(false)
-      const screen = terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset) ? 'Claude' : 'Terminal'
-      const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
-      navigation.navigate(screen, params)
+      openSession(terminal)
     } catch (e) {
       if (createRequestRef.current === requestId) {
         Alert.alert(t('workspaceDetail.alerts.addSessionFailed'), String(e))
@@ -236,6 +255,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     setClosingId(terminal.id)
     try {
       await requestCloseSession(terminal.id, options)
+      useRecentsStore.getState().forgetSession(terminal.id)
     } finally {
       setClosingId(null)
     }
@@ -283,31 +303,16 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noSessionsTitle')} body={t('workspaceDetail.empty.noSessionsBody')} />}
-        renderItem={({ item }) => {
-          const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
-          const isClosing = closingId === item.id
-          return (
-            <TouchableOpacity style={styles.card} onPress={() => openSession(item)} disabled={isClosing}>
-              <View style={styles.row}>
-                <Text style={[styles.leadingIcon, preset && { color: preset.color }]}>
-                  {preset?.icon || '>'}
-                </Text>
-                <View style={styles.flex}>
-                  <Text style={styles.cardTitle} numberOfLines={1}>{item.alias || item.title}</Text>
-                  <Text style={styles.mutedMono} numberOfLines={1}>{item.cwd}</Text>
-                </View>
-                {isClosing ? (
-                  <ActivityIndicator size="small" color={appColors.accent} />
-                ) : (
-                  <TouchableOpacity style={styles.closeSessionButton} onPress={() => closeSession(item)}>
-                    <Text style={styles.closeSessionText}>{t('workspaceDetail.button.close')}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <WorktreeControls terminal={item} closing={isClosing} onCloseSession={closeSessionNow} />
-            </TouchableOpacity>
-          )
-        }}
+        renderItem={({ item }) => (
+          <SessionRow
+            terminal={item}
+            runtime={runtimes[item.id]}
+            closing={closingId === item.id}
+            onPress={openSession}
+            onRequestClose={closeSession}
+            onCloseSession={closeSessionNow}
+          />
+        )}
       />
       <Modal
         visible={showAddModal}

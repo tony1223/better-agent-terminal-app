@@ -1,5 +1,10 @@
 /**
- * TerminalListScreen - List terminals in the active workspace
+ * TerminalListScreen - the phone's list of open sessions.
+ *
+ * Defaults to every workspace, grouped, with the active one first. Filtering to
+ * the active workspace (the old behaviour) meant a session running somewhere
+ * else was three navigations away — Workspaces, pick, back to this tab — which
+ * is exactly the "can I quickly get to the other thing" case a phone is worst at.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -10,6 +15,7 @@ import {
   Text,
   FlatList,
   Modal,
+  SectionList,
   TouchableOpacity,
   StyleSheet,
 } from 'react-native'
@@ -17,18 +23,19 @@ import { useTranslation } from 'react-i18next'
 import { useFocusEffect } from '@react-navigation/native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { WorktreeControls } from '@/components/session/WorktreeControls'
+import { useRecentsStore } from '@/stores/recents-store'
+import { useSessionRuntimeStore } from '@/stores/session-runtime-store'
+import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-import { isCompactSummaryMessage } from '@/utils/compact-summary'
-import { getAgentPreset, normalizeAgentPresetsFromHost } from '@/types'
-import type { AgentPreset, AgentPresetId, ClaudeMessage, TerminalInstance } from '@/types'
+import { isSdkAgentSession, normalizeAgentPresetsFromHost } from '@/types'
+import type { AgentPreset, AgentPresetId, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
 type Props = {
   navigation: NativeStackNavigationProp<any>
 }
 
-const SDK_AGENT_PRESETS = new Set(['claude-code', 'claude-code-v2', 'claude-code-worktree', 'codex-agent', 'codex-agent-worktree', 'openai-agent'])
+type Scope = 'workspace' | 'all'
 
 // A transient "not connected" during the initial connect or a reconnect blip is
 // not a real failure, so we shouldn't surface it as a blocking alert.
@@ -45,21 +52,52 @@ export function TerminalListScreen({ navigation }: Props) {
     workspaces,
     terminals,
     setActiveTerminal,
+    switchWorkspace,
     requestAddSession,
     requestCloseSession,
   } = useWorkspaceStore()
+  const runtimes = useSessionRuntimeStore(s => s.runtimes)
+  const [scope, setScope] = useState<Scope>('all')
   const [showAddModal, setShowAddModal] = useState(false)
   const [availableSessionTypes, setAvailableSessionTypes] = useState<AgentPreset[] | null>(null)
   const [loadingTypes, setLoadingTypes] = useState(false)
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
-  const [previews, setPreviews] = useState<Record<string, string>>({})
   const createRequestRef = useRef(0)
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
-  const workspaceTerminals = terminals.filter(
-    item => item.workspaceId === activeWorkspaceId
+  const visibleTerminals = useMemo(
+    () => (scope === 'all'
+      ? terminals
+      : terminals.filter(item => item.workspaceId === activeWorkspaceId)),
+    [scope, terminals, activeWorkspaceId],
   )
+
+  const sections = useMemo(() => {
+    if (scope !== 'all') {
+      return [{ workspaceId: activeWorkspaceId ?? '', title: '', data: visibleTerminals }]
+    }
+    const byWorkspace = new Map<string, TerminalInstance[]>()
+    for (const item of terminals) {
+      const list = byWorkspace.get(item.workspaceId)
+      if (list) list.push(item)
+      else byWorkspace.set(item.workspaceId, [item])
+    }
+    return [...byWorkspace.entries()]
+      .map(([workspaceId, data]) => {
+        const workspace = workspaces.find(w => w.id === workspaceId)
+        return { workspaceId, title: workspace?.alias || workspace?.name || workspaceId, data }
+      })
+      .sort((a, b) => {
+        // The workspace you were last in goes first; it's the one you most
+        // likely came back for, and on a phone the top of the list is the
+        // only part you see without scrolling.
+        if (a.workspaceId === activeWorkspaceId) return -1
+        if (b.workspaceId === activeWorkspaceId) return 1
+        return a.title.localeCompare(b.title)
+      })
+  }, [scope, terminals, workspaces, activeWorkspaceId, visibleTerminals])
+
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
   const loadSupportedSessionTypes = useCallback(async () => {
@@ -93,73 +131,45 @@ export function TerminalListScreen({ navigation }: Props) {
     if (connectionStatus === 'connected') loadSupportedSessionTypes()
   }, [connectionStatus, loadSupportedSessionTypes])
 
-  // Per-session preview = first user prompt of the live SDK agent session.
-  // Keyed by terminal id so a fresh start with the same id overwrites a stale
-  // preview, and so closed terminals' previews are dropped on refresh.
-  // sdkAgentIdsKey is a stable string we can use as an effect dependency
-  // (the underlying array is a new ref each render).
-  const sdkAgentIdsKey = workspaceTerminals
-    .filter(t => t.agentPreset && SDK_AGENT_PRESETS.has(t.agentPreset))
-    .map(t => t.id)
-    .join('\0')
+  // A stable dependency for "the set of SDK sessions changed" — the array
+  // itself is a new ref every render, so the key is what the effect can watch.
+  const sdkSessionIds = useMemo(
+    () => visibleTerminals.filter(isSdkAgentSession).map(item => item.id),
+    [visibleTerminals],
+  )
+  const sdkSessionIdsKey = sdkSessionIds.join('\0')
 
-  const refreshPreviews = useCallback(async () => {
-    if (!channels) return
-    const store = useWorkspaceStore.getState()
-    const ids = store.terminals
-      .filter(t => t.workspaceId === store.activeWorkspaceId
-        && t.agentPreset
-        && SDK_AGENT_PRESETS.has(t.agentPreset))
-      .map(t => t.id)
-    if (ids.length === 0) {
-      setPreviews(prev => (Object.keys(prev).length === 0 ? prev : {}))
-      return
-    }
-    const entries = await Promise.all(ids.map(async (id) => {
-      try {
-        const state = await channels.claude.getSessionState(id)
-        const messages = state?.messages ?? []
-        // A session resumed from a compacted transcript starts with the
-        // summary, and 15k characters of it is not a useful row preview.
-        const firstUser = messages.find(
-          (m): m is ClaudeMessage => 'role' in m
-            && (m as ClaudeMessage).role === 'user'
-            && !isCompactSummaryMessage('user', (m as ClaudeMessage).content ?? '', (m as ClaudeMessage).isCompactSummary),
-        )
-        return [id, firstUser?.content?.trim() ?? ''] as const
-      } catch {
-        return [id, ''] as const
-      }
-    }))
-    setPreviews(prev => {
-      const next: Record<string, string> = {}
-      for (const [id, content] of entries) {
-        if (content) next[id] = content
-        else if (prev[id]) next[id] = prev[id]
-      }
-      return next
-    })
-  }, [channels])
+  const refreshRuntimes = useCallback((options?: { maxAgeMs?: number }) => {
+    useSessionRuntimeStore.getState().refresh(sdkSessionIds, options).catch(() => undefined)
+    // sdkSessionIdsKey stands in for the array's contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sdkSessionIdsKey])
 
   useEffect(() => {
-    if (connectionStatus === 'connected') refreshPreviews()
-    // sdkAgentIdsKey changes when the set of SDK sessions changes; that's the
-    // signal to refetch (the array itself is a new ref every render).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus, sdkAgentIdsKey, refreshPreviews])
+    if (connectionStatus === 'connected') refreshRuntimes()
+  }, [connectionStatus, refreshRuntimes])
 
-  // Refresh terminals AND previews on focus so sessions added/used elsewhere
-  // (and their first prompts) are reflected without relying on cached state.
+  // Refresh terminals AND their status on focus so sessions used elsewhere are
+  // reflected without relying on cached state.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
-      refreshPreviews()
-    }, [refreshPreviews]),
+      refreshRuntimes()
+    }, [refreshRuntimes]),
   )
 
   const handlePress = (terminal: TerminalInstance) => {
+    // Opening a session from another workspace makes that workspace the one
+    // you're in — otherwise the footer and the Add button would still point at
+    // whichever workspace you happened to leave behind.
+    if (terminal.workspaceId && terminal.workspaceId !== activeWorkspaceId) {
+      switchWorkspace(terminal.workspaceId)
+    }
     setActiveTerminal(terminal.id)
-    if (terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset)) {
+    const recents = useRecentsStore.getState()
+    recents.touchSession(terminal.id)
+    if (terminal.workspaceId) recents.touchWorkspace(terminal.workspaceId)
+    if (isSdkAgentSession(terminal)) {
       navigation.navigate('Claude', { sessionId: terminal.id })
     } else {
       navigation.navigate('Terminal', { terminalId: terminal.id })
@@ -207,6 +217,7 @@ export function TerminalListScreen({ navigation }: Props) {
     setClosingId(terminal.id)
     try {
       await requestCloseSession(terminal.id, options)
+      useRecentsStore.getState().forgetSession(terminal.id)
     } finally {
       setClosingId(null)
     }
@@ -233,57 +244,17 @@ export function TerminalListScreen({ navigation }: Props) {
     )
   }
 
-  const renderTerminal = ({ item }: { item: TerminalInstance }) => {
-    const preset = item.agentPreset ? getAgentPreset(item.agentPreset) : null
-    const isClosing = closingId === item.id
-    const preview = previews[item.id]
-
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => handlePress(item)}
-        disabled={isClosing}
-      >
-        <View style={styles.row}>
-          {preset && (
-            <Text style={[styles.icon, { color: preset.color }]}>
-              {preset.icon}
-            </Text>
-          )}
-          <View style={styles.info}>
-            <Text style={styles.title} numberOfLines={1}>
-              {item.alias || item.title}
-            </Text>
-            <Text style={styles.cwd} numberOfLines={1}>
-              {item.cwd}
-            </Text>
-            {preview ? (
-              <Text style={styles.preview} numberOfLines={2}>
-                {preview}
-              </Text>
-            ) : null}
-          </View>
-          <View style={[styles.statusDot, {
-            backgroundColor: item.pid ? appColors.success : appColors.textMuted,
-          }]} />
-          {isClosing ? (
-            <ActivityIndicator size="small" color={appColors.accent} style={styles.closeSpinner} />
-          ) : (
-            <TouchableOpacity style={styles.closeButton} onPress={() => closeSession(item)}>
-              <Text style={styles.closeButtonText}>{t('terminalList.button.close')}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <WorktreeControls terminal={item} closing={isClosing} onCloseSession={closeSessionNow} />
-      </TouchableOpacity>
-    )
-  }
+  const emptyMessage = scope === 'all'
+    ? t('terminalList.empty.noSessionsAnywhere')
+    : activeWorkspaceId
+      ? t('terminalList.empty.noTerminals')
+      : t('terminalList.empty.noWorkspace')
 
   return (
     <View style={styles.container}>
-      {activeWorkspaceId && (
-        <View style={styles.sessionToolbar}>
-          <Text style={styles.sessionToolbarTitle}>{t('terminalList.title')}</Text>
+      <View style={styles.sessionToolbar}>
+        <Text style={styles.sessionToolbarTitle}>{t('terminalList.title')}</Text>
+        {activeWorkspaceId && (
           <TouchableOpacity
             style={styles.headerButton}
             onPress={() => {
@@ -295,20 +266,40 @@ export function TerminalListScreen({ navigation }: Props) {
           >
             <Text style={styles.headerButtonText}>{t('terminalList.button.add')}</Text>
           </TouchableOpacity>
-        </View>
-      )}
-      <FlatList
-        data={workspaceTerminals}
+        )}
+      </View>
+      <View style={styles.scopeBar}>
+        {(['workspace', 'all'] as Scope[]).map(option => (
+          <TouchableOpacity
+            key={option}
+            style={[styles.scopeTab, scope === option && styles.scopeTabActive]}
+            onPress={() => setScope(option)}
+          >
+            <Text style={[styles.scopeText, scope === option && styles.scopeTextActive]}>
+              {t(`terminalList.scope.${option}`)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.id}
-        renderItem={renderTerminal}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            {activeWorkspaceId
-              ? t('terminalList.empty.noTerminals')
-              : t('terminalList.empty.noWorkspace')}
-          </Text>
-        }
+        stickySectionHeadersEnabled={false}
+        renderSectionHeader={({ section }) => (
+          section.title ? <Text style={styles.sectionHeader}>{section.title}</Text> : null
+        )}
+        renderItem={({ item }) => (
+          <SessionRow
+            terminal={item}
+            runtime={runtimes[item.id]}
+            closing={closingId === item.id}
+            onPress={handlePress}
+            onRequestClose={closeSession}
+            onCloseSession={closeSessionNow}
+          />
+        )}
+        ListEmptyComponent={<Text style={styles.empty}>{emptyMessage}</Text>}
       />
       {activeWorkspace && (
         <View style={styles.workspaceBar}>
@@ -381,14 +372,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     backgroundColor: appColors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: appColors.border,
   },
   sessionToolbarTitle: {
     flex: 1,
     color: appColors.text,
     fontSize: fontSize.sm,
     fontWeight: '800',
+  },
+  scopeBar: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    backgroundColor: appColors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: appColors.border,
+  },
+  scopeTab: {
+    flex: 1,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: appColors.background,
+  },
+  scopeTabActive: {
+    backgroundColor: appColors.accentDim,
+  },
+  scopeText: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+  },
+  scopeTextActive: {
+    color: appColors.text,
+  },
+  sectionHeader: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
   },
   card: {
     backgroundColor: appColors.surface,
@@ -414,46 +439,11 @@ const styles = StyleSheet.create({
     color: appColors.text,
     fontWeight: '600',
   },
-  cwd: {
-    fontSize: fontSize.xs,
-    color: appColors.textSecondary,
-    fontFamily: 'monospace',
-    marginTop: 2,
-  },
-  preview: {
-    fontSize: fontSize.xs,
-    color: appColors.textMuted,
-    marginTop: spacing.xs,
-    lineHeight: fontSize.sm,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  closeSpinner: {
-    marginLeft: spacing.sm,
-  },
-  closeButton: {
-    minHeight: 30,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: appColors.border,
-    backgroundColor: appColors.background,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-    marginLeft: spacing.sm,
-  },
-  closeButtonText: {
-    color: appColors.error,
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-  },
   headerButton: {
     minHeight: 32,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: appColors.border,
+    borderColor: appColors.borderStrong,
     backgroundColor: appColors.surfaceHover,
     justifyContent: 'center',
     paddingHorizontal: spacing.md,

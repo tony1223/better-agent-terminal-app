@@ -228,6 +228,15 @@
       "closeCleanupFailed": "無法關閉並清理 worktree"
     }
   },
+  "session": {
+    "activity": {
+      "working": "執行中",
+      "ready": "待命",
+      "stopped": "已停止",
+      "unknown": "查詢中…",
+      "turns": "{{count}} 輪"
+    }
+  },
   "terminalList": {
     "title": "工作階段",
     "modal": {
@@ -240,9 +249,14 @@
     "label": {
       "workspace": "工作區"
     },
+    "scope": {
+      "workspace": "這個工作區",
+      "all": "所有工作區"
+    },
     "empty": {
       "noTerminals": "這個工作區中沒有終端機。",
       "noWorkspace": "請先選擇工作區。",
+      "noSessionsAnywhere": "主機上沒有開啟中的工作階段。",
       "noSessionTypes": "主機未回報任何支援的工作階段類型。"
     },
     "alerts": {
@@ -257,6 +271,9 @@
   "workspaceList": {
     "search": {
       "placeholder": "搜尋工作區"
+    },
+    "recent": {
+      "title": "常用"
     },
     "empty": {
       "noMatch": "沒有符合「{{query}}」的工作區。",
