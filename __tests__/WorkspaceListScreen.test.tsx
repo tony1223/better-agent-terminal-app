@@ -45,6 +45,7 @@ test('selecting a profile changes only the mobile view', async () => {
   }))
   workspaceStoreMock.mockReturnValue({
     workspaces: [],
+    terminals: [],
     activeWorkspaceId: null,
     loadStatus: 'empty',
     loadError: null,

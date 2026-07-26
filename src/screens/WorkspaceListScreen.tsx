@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Modal,
   ActivityIndicator,
+  ScrollView,
   TextInput,
   BackHandler,
 } from 'react-native'
@@ -19,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
+import { rankRecents, useRecentsStore } from '@/stores/recents-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { getAgentPreset } from '@/types'
 import type { ProfileEntry, Workspace } from '@/types'
@@ -27,6 +29,7 @@ export function WorkspaceListScreen() {
   const { t } = useTranslation()
   const {
     workspaces,
+    terminals,
     activeWorkspaceId,
     loadStatus,
     loadError,
@@ -45,6 +48,7 @@ export function WorkspaceListScreen() {
   const [query, setQuery] = React.useState('')
   const channels = useConnectionStore(s => s.channels)
   const disconnect = useConnectionStore(s => s.disconnect)
+  const recentWorkspaces = useRecentsStore(s => s.workspaces)
 
   // Pull workspaces fresh from the host whenever this screen regains focus so
   // sessions added/closed on another device (or the desktop) show up without a
@@ -97,6 +101,39 @@ export function WorkspaceListScreen() {
       return haystack.includes(needle)
     })
   }, [query, workspaces])
+
+  const sessionCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const terminal of terminals) {
+      counts[terminal.workspaceId] = (counts[terminal.workspaceId] ?? 0) + 1
+    }
+    return counts
+  }, [terminals])
+
+  /**
+   * The handful you keep coming back to, hoisted above the alphabet.
+   *
+   * Suppressed below a threshold: with a short list every workspace is already
+   * one glance away, and a shortcut strip would just be chrome pushing the real
+   * list down. Suppressed at one entry too — a "Frequent" heading over a single
+   * chip says nothing the list doesn't.
+   */
+  const frequentWorkspaces = useMemo(() => {
+    if (workspaces.length < 6) return []
+    const ranked = rankRecents(recentWorkspaces, workspaces.map(w => w.id), Date.now(), 5)
+    if (ranked.length < 2) return []
+    return ranked.flatMap(id => {
+      const workspace = workspaces.find(w => w.id === id)
+      return workspace ? [workspace] : []
+    })
+  }, [workspaces, recentWorkspaces])
+
+  // The open is recorded by WorkspaceDetailScreen rather than here, so every
+  // arrival counts once however you got there — chip, card, or deep link.
+  const openWorkspace = useCallback((workspace: Workspace) => {
+    switchWorkspace(workspace.id)
+    navigation.navigate('WorkspaceDetail', { workspaceId: workspace.id })
+  }, [navigation, switchWorkspace])
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -153,10 +190,7 @@ export function WorkspaceListScreen() {
     return (
       <TouchableOpacity
         style={[styles.card, isActive && styles.cardActive]}
-        onPress={() => {
-          switchWorkspace(item.id)
-          navigation.navigate('WorkspaceDetail', { workspaceId: item.id })
-        }}
+        onPress={() => openWorkspace(item)}
       >
         <View style={styles.cardHeader}>
           {preset && (
@@ -190,16 +224,49 @@ export function WorkspaceListScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           workspaces.length > 0 ? (
-            <TextInput
-              style={styles.searchInput}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('workspaceList.search.placeholder')}
-              placeholderTextColor={appColors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
-            />
+            <View>
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder={t('workspaceList.search.placeholder')}
+                placeholderTextColor={appColors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+              />
+              {!query.trim() && frequentWorkspaces.length > 0 ? (
+                <View style={styles.frequentBlock}>
+                  <Text style={styles.frequentTitle}>{t('workspaceList.recent.title')}</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.frequentStrip}
+                  >
+                    {frequentWorkspaces.map(workspace => {
+                      const count = sessionCounts[workspace.id] ?? 0
+                      return (
+                        <TouchableOpacity
+                          key={workspace.id}
+                          style={[
+                            styles.frequentChip,
+                            workspace.id === activeWorkspaceId && styles.frequentChipActive,
+                          ]}
+                          onPress={() => openWorkspace(workspace)}
+                        >
+                          <Text style={styles.frequentChipText} numberOfLines={1}>
+                            {workspace.alias || workspace.name}
+                          </Text>
+                          {count > 0 ? (
+                            <Text style={styles.frequentChipCount}>{count}</Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      )
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </View>
           ) : null
         }
         refreshControl={
@@ -450,6 +517,50 @@ const styles = StyleSheet.create({
   },
   cardActive: {
     borderColor: appColors.accent,
+  },
+  frequentBlock: {
+    marginBottom: spacing.md,
+  },
+  frequentTitle: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  frequentStrip: {
+    gap: spacing.sm,
+    // The strip is inside the list's padded content, so cancel the left inset
+    // and pad the tail instead: chips should start flush with the cards above
+    // and still scroll clear of the screen edge.
+    paddingRight: spacing.lg,
+  },
+  frequentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: 200,
+    minHeight: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: appColors.borderStrong,
+    backgroundColor: appColors.surface,
+    paddingHorizontal: spacing.md,
+  },
+  frequentChipActive: {
+    borderColor: appColors.accent,
+  },
+  frequentChipText: {
+    flexShrink: 1,
+    color: appColors.text,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  frequentChipCount: {
+    color: appColors.accent,
+    fontSize: fontSize.xs,
+    fontWeight: '800',
+    marginLeft: spacing.sm,
   },
   cardHeader: {
     flexDirection: 'row',
