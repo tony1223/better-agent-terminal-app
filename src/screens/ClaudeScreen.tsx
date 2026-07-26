@@ -38,7 +38,13 @@ import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
-import { setModelArgsForClaudeSelection } from '@/utils/claude-model-presets'
+import {
+  baseModelId,
+  contextLimitForModel,
+  formatContextLimit,
+  isSameModelSelection,
+  setModelArgsForClaudeSelection,
+} from '@/utils/claude-model-presets'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
 import type { CodexAccountEntry } from '@/api/channels/claude'
 import { isToolCall } from '@/types'
@@ -99,6 +105,8 @@ interface ModelOption {
   value: string
   displayName: string
   description?: string
+  /** Pre-formatted context budget ("300k", "1M"), when one can be determined. */
+  contextLimit?: string
 }
 
 type ListEntry =
@@ -121,10 +129,17 @@ function normalizeModelOptions(raw: unknown): ModelOption[] {
         : typeof record.name === 'string' ? record.name : null
     if (!value) return []
 
+    // Prefer whatever window the host names for the option; fall back to the
+    // budget encoded in the preset id so the list still lines up with the chip
+    // on hosts that only send ids.
+    const hostWindow = [record.contextWindow, record.contextLimit, record.maxTokens]
+      .find(candidate => typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0)
+
     return [{
       value,
       displayName: typeof record.displayName === 'string' ? record.displayName : value,
       description: typeof record.description === 'string' ? record.description : undefined,
+      contextLimit: formatContextLimit((hostWindow as number | undefined) ?? contextLimitForModel(value)) ?? undefined,
     }]
   })
 }
@@ -336,6 +351,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // messages/status that changed while we were away show up. No archived
   // fallback: handleSessionState only replaces messages when the host returns
   // some, so this can't clobber the local conversation with a stale subset.
+  // The model to (re)start a host session with. The host owns the live value:
+  // switching the model here only updates the host's session record, while
+  // terminal.model comes from the workspace snapshot that only the desktop
+  // rewrites — so resuming with the terminal's copy would push a stale model
+  // back and silently undo the switch.
+  const resolveSessionModel = useCallback(
+    () => useClaudeStore.getState().sessions[sessionId]?.meta?.model ?? terminalModel,
+    [sessionId, terminalModel],
+  )
+
   const refreshSessionState = useCallback(async () => {
     if (!channels || !terminalCwd) return
     try {
@@ -450,7 +475,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         sessionId,
         cwd: terminalCwd,
         sdkSessionId: sdkSessionIdToResume,
-        model: terminalModel ?? null,
+        model: resolveSessionModel() ?? null,
         agentPreset: agentPreset ?? null,
         codexSandboxMode: codexSandboxMode ?? null,
         codexApprovalPolicy: codexApprovalPolicy ?? null,
@@ -522,12 +547,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
           const resumeResult = await timedLoadStep(
             `resumeSession sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
             () => {
-              const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(terminalModel ?? '')
+              const resumeModel = resolveSessionModel()
+              const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(resumeModel ?? '')
               return channels.claude.resumeSession(
                 sessionId,
                 sdkSessionIdToResume,
                 terminalCwd,
-                terminalModel,
+                resumeModel,
                 {
                   agentPreset,
                   ...(isClaudeCodeAgent ? { permissionMode } : {}),
@@ -623,7 +649,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                     () => channels.claude.startSession(sessionId, {
                       cwd: terminalCwd,
                       ...(isClaudeCodeAgent ? { permissionMode } : {}),
-                      model: terminalModel,
+                      model: resolveSessionModel(),
                       effort: effortLevel,
                       agentPreset,
                       codexSandboxMode,
@@ -632,6 +658,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
                     }),
                   )
                   loadedSessionKeyRef.current = loadKey
+                  // We passed no model, so the host picked its own default.
+                  // Pull it back or the session runs on a model the app can't
+                  // name — the chip would sit blank until the first result.
+                  await loadSessionState({ archivedFallback: false })
                 } finally {
                   if (inFlightSessionKeyRef.current === loadKey) {
                     inFlightSessionKeyRef.current = null
@@ -676,7 +706,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     sessionId,
     terminalCwd,
     terminalSdkSessionId,
-    terminalModel,
+    resolveSessionModel,
     terminalWorktreePath,
     terminalBranchName,
     terminalSandboxMode,
@@ -1019,11 +1049,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
     try {
       const { model: resolvedModel, autoCompactWindow } = setModelArgsForClaudeSelection(model.value)
       await channels.claude.setModel(sessionId, resolvedModel, autoCompactWindow)
+      // The host acks setModel but broadcasts no status event for it, so
+      // re-pull the state or the chip keeps showing the previous model and the
+      // switch looks like it did nothing.
+      await refreshSessionState()
     } catch (e) {
       console.warn('[Claude] setModel error:', e)
       Alert.alert(t('claude.errors.switchModelFailed'), String(e))
     }
-  }, [channels, sessionId, t])
+  }, [channels, refreshSessionState, sessionId, t])
 
   const handleFork = useCallback(async () => {
     if (!channels) return
@@ -1041,8 +1075,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setResumeSessions([])
     setHistoryLoadingInBackground(true)
     try {
-      const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(terminal.model ?? '')
-      await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, terminal.model, {
+      const resumeModel = resolveSessionModel()
+      const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(resumeModel ?? '')
+      await channels.claude.resumeSession(sessionId, sdkSessionId, terminal.cwd, resumeModel, {
         agentPreset,
         ...(isClaudeCodeAgent ? { permissionMode } : {}),
         effort: effortLevel,
@@ -1077,7 +1112,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     } finally {
       setHistoryLoadingInBackground(false)
     }
-  }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy, t])
+  }, [channels, sessionId, terminal, agentPreset, isClaudeCodeAgent, permissionMode, effortLevel, codexSandboxMode, codexApprovalPolicy, resolveSessionModel, t])
 
   const handleUpload = useCallback(() => {
     if (attachedImages.length >= MAX_IMAGES) {
@@ -1204,6 +1239,22 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   const sdkSessionShort = terminal?.sdkSessionId
     ? terminal.sdkSessionId.slice(0, 8) : null
+
+  // The host owns the model; fall back to the session's persisted model so the
+  // chip — and with it the only way into the picker — stays reachable before
+  // the host has reported one.
+  const currentModel = session.meta?.model ?? terminalModel ?? null
+
+  // Context budget for the running model. The host's contextWindow wins — it
+  // knows the real window for a bare model id — but a ":1m"/":auto-compact-300k"
+  // preset carries its own budget, and picking one sends the *base* model to the
+  // host, so without the preset fallback the number on screen would silently
+  // drop back to the base model's window.
+  const contextLimit = formatContextLimit(
+    (session.meta?.contextWindow ?? 0) > 0
+      ? session.meta!.contextWindow
+      : contextLimitForModel(currentModel),
+  )
 
   return (
     <View style={styles.container}>
@@ -1356,11 +1407,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           )}
 
-          {session.meta?.model && (
-            <TouchableOpacity style={styles.controlBtn} onPress={handleModelPress}>
-              <Text style={styles.controlText}>{'</>'} {session.meta.model}</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.controlBtn} onPress={handleModelPress}>
+            <Text style={styles.controlText}>
+              {/* Base id only: the preset suffix names the same window the
+                  budget beside it already spells out. */}
+              {'</>'} {baseModelId(currentModel) ?? t('claude.controls.model')}
+              {contextLimit ? <Text style={styles.controlSubText}>{` · ${contextLimit}`}</Text> : null}
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.controlBtn} onPress={() => setShowEffortPicker(true)}>
             <Text style={styles.controlText}>
@@ -1414,8 +1468,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
         {/* Status + usage info row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoScroll} contentContainerStyle={styles.infoContent}>
-          {session.meta && (
-            <Text style={styles.infoText}>${session.meta.totalCost?.toFixed(4) ?? '0'}</Text>
+          {/* Meta now exists as soon as the host reports a model, so gate on
+              the counter itself — a session that has never run isn't $0.0000. */}
+          {(session.meta?.totalCost ?? 0) > 0 && (
+            <Text style={styles.infoText}>${session.meta!.totalCost.toFixed(4)}</Text>
           )}
           {session.meta && session.meta.inputTokens > 0 && (
             <Text style={styles.infoText}>
@@ -1434,11 +1490,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
               {usage.sevenDayReset ? ` \u21BB${fmtRemaining(new Date(usage.sevenDayReset))}` : ''}
             </Text>
           )}
-          {sdkSessionShort && (
-            <TouchableOpacity style={styles.infoChip} onPress={openResumeList}>
-              <Text style={[styles.infoText, styles.infoTextClickable]}>sid:{sdkSessionShort}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Always reachable: a session that has never run has no sdkSessionId,
+              and gating on it left past conversations with no entry point at
+              all short of typing /resume. */}
+          <TouchableOpacity style={styles.infoChip} onPress={openResumeList}>
+            <Text style={[styles.infoText, styles.infoTextClickable]}>
+              {sdkSessionShort ? `sid:${sdkSessionShort}` : t('claude.controls.history')}
+            </Text>
+          </TouchableOpacity>
           {terminal?.cwd && (
             <Text style={styles.infoText} numberOfLines={1}>
               {terminal.cwd.split('/').slice(-2).join('/')}
@@ -1455,25 +1514,31 @@ export function ClaudeScreen({ route, navigation }: Props) {
             <FlatList
               data={availableModels}
               keyExtractor={(item) => item.value}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.modelItem, item.value === session.meta?.model && { backgroundColor: agentSelectedBg }]}
-                  onPress={() => handleModelSelect(item)}
-                >
-                  <View style={styles.modelLabelWrap}>
-                    <Text style={[styles.modelItemText, item.value === session.meta?.model && { color: agentColor }]}>
-                      {item.displayName}
-                    </Text>
-                    <Text style={styles.modelValueText}>{item.value}</Text>
-                    {item.description ? (
-                      <Text style={styles.modelDescriptionText}>{item.description}</Text>
-                    ) : null}
-                  </View>
-                  {item.value === session.meta?.model && (
-                    <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
-                  )}
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                const selected = isSameModelSelection(item.value, currentModel)
+                return (
+                  <TouchableOpacity
+                    style={[styles.modelItem, selected && { backgroundColor: agentSelectedBg }]}
+                    onPress={() => handleModelSelect(item)}
+                  >
+                    <View style={styles.modelLabelWrap}>
+                      <Text style={[styles.modelItemText, selected && { color: agentColor }]}>
+                        {item.displayName}
+                        {item.contextLimit ? (
+                          <Text style={styles.modelContextText}>{` · ${item.contextLimit}`}</Text>
+                        ) : null}
+                      </Text>
+                      <Text style={styles.modelValueText}>{item.value}</Text>
+                      {item.description ? (
+                        <Text style={styles.modelDescriptionText}>{item.description}</Text>
+                      ) : null}
+                    </View>
+                    {selected && (
+                      <Text style={[styles.modelCheck, { color: agentColor }]}>{'\u2713'}</Text>
+                    )}
+                  </TouchableOpacity>
+                )
+              }}
             />
           </View>
         </TouchableOpacity>
@@ -1619,28 +1684,38 @@ export function ClaudeScreen({ route, navigation }: Props) {
               <FlatList
                 data={resumeSessions}
                 keyExtractor={(item) => item.sdkSessionId}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.resumeItem}
-                    onPress={() => handleResumeSelect(item.sdkSessionId)}
-                  >
-                    <View style={styles.resumeItemHeader}>
-                      <Text style={styles.resumeItemId}>{item.sdkSessionId.slice(0, 8)}</Text>
-                      {item.gitBranch && (
-                        <Text style={styles.resumeItemBranch}>{item.gitBranch}</Text>
+                renderItem={({ item }) => {
+                  // Most rollouts carry no custom title and no summary, so
+                  // falling back through firstPrompt/preview is what makes the
+                  // list readable at all — without it a row is an 8-char id and
+                  // a timestamp. Same order as the desktop's resume list.
+                  const preview = item.preview && item.preview !== '(no preview)' ? item.preview : ''
+                  const title = item.customTitle || item.firstPrompt || preview
+                  const subtitle = [item.summary, item.firstPrompt, preview]
+                    .find(candidate => candidate && candidate !== title)
+                  return (
+                    <TouchableOpacity
+                      style={styles.resumeItem}
+                      onPress={() => handleResumeSelect(item.sdkSessionId)}
+                    >
+                      <View style={styles.resumeItemHeader}>
+                        <Text style={styles.resumeItemId}>{item.sdkSessionId.slice(0, 8)}</Text>
+                        {item.gitBranch && (
+                          <Text style={styles.resumeItemBranch}>{item.gitBranch}</Text>
+                        )}
+                        <Text style={styles.resumeItemTime}>
+                          {new Date(item.createdAt || item.timestamp).toLocaleString()}
+                        </Text>
+                      </View>
+                      {!!title && (
+                        <Text style={styles.resumeItemTitle} numberOfLines={1}>{title}</Text>
                       )}
-                      <Text style={styles.resumeItemTime}>
-                        {new Date(item.createdAt || item.timestamp).toLocaleString()}
-                      </Text>
-                    </View>
-                    {item.customTitle && (
-                      <Text style={styles.resumeItemTitle} numberOfLines={1}>{item.customTitle}</Text>
-                    )}
-                    {item.summary && item.summary !== item.customTitle && (
-                      <Text style={styles.resumeItemPreview} numberOfLines={2}>{item.summary}</Text>
-                    )}
-                  </TouchableOpacity>
-                )}
+                      {!!subtitle && (
+                        <Text style={styles.resumeItemPreview} numberOfLines={2}>{subtitle}</Text>
+                      )}
+                    </TouchableOpacity>
+                  )
+                }}
               />
             )}
           </View>
@@ -1921,6 +1996,11 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontFamily: 'monospace',
   },
+  // Secondary detail inside a control chip (e.g. the model's context budget),
+  // dimmed so the model id stays the thing you read first.
+  controlSubText: {
+    color: appColors.textMuted,
+  },
   // ---- Info row (usage + session/cwd) ----
   infoScroll: {
     paddingTop: spacing.xs,
@@ -2053,6 +2133,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: fontSize.xs,
     color: appColors.textSecondary,
+    fontFamily: 'monospace',
+  },
+  modelContextText: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
     fontFamily: 'monospace',
   },
   modelDescriptionText: {

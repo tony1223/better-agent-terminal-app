@@ -384,6 +384,8 @@
       "placeholderCodex": "Message Codex..."
     },
     "controls": {
+      "model": "model",
+      "history": "history",
       "effort": "effort:{{value}}",
       "thinking": "thinking:{{value}}",
       "sandbox": "sandbox:{{value}}",

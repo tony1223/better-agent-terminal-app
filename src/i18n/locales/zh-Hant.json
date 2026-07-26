@@ -384,6 +384,8 @@
       "placeholderCodex": "傳訊息給 Codex…"
     },
     "controls": {
+      "model": "模型",
+      "history": "歷史",
       "effort": "effort:{{value}}",
       "thinking": "thinking:{{value}}",
       "sandbox": "sandbox:{{value}}",

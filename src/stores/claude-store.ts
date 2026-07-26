@@ -43,6 +43,17 @@ export const EMPTY_SESSION: SessionState = {
   turnStartedAt: null,
 }
 
+// Zeroed usage counters, for building a meta out of a host snapshot that only
+// carries model/permissionMode (no turn has been billed yet).
+const EMPTY_META: SessionMeta = {
+  totalCost: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  durationMs: 0,
+  numTurns: 0,
+  contextWindow: 0,
+}
+
 function createEmptySession(): SessionState {
   return {
     messages: [],
@@ -153,6 +164,48 @@ function hasAssistantTextSinceLastUser(messages: (ClaudeMessage | ClaudeToolCall
     if ('toolName' in m || m.role !== 'assistant') return false
     return m.content === text || m.content.includes(text) || text.includes(m.content)
   })
+}
+
+/**
+ * Fold the in-flight streamed reply into the message list.
+ *
+ * Streamed assistant text lives only in session.streamingText until something
+ * commits it, and handleResult was the only path that did. Every other terminal
+ * path just cleared it, so a turn that ended via turn-end/error — or whose
+ * result frame never arrived, e.g. the host reporting "LiveQuery is closed" —
+ * silently lost the entire reply while its tool calls survived.
+ *
+ * `echoedContent` is the message about to be appended by the caller: when the
+ * host both streams the text and re-sends it as a message, committing would
+ * show it twice.
+ */
+function commitStreamedText(
+  sessionId: string,
+  session: SessionState,
+  echoedContent?: string,
+): (ClaudeMessage | ClaudeToolCall)[] {
+  const text = session.streamingText
+  if (!text.trim()) return session.messages
+  if (echoedContent && (echoedContent.includes(text) || text.includes(echoedContent))) {
+    return session.messages
+  }
+  // Exact match only: a looser check would treat a long reply that happens to
+  // quote an earlier short one as a duplicate and drop it — the very bug this
+  // function exists to fix.
+  const alreadyCommitted = session.messages.some(
+    m => !('toolName' in m) && m.role === 'assistant' && m.content === text,
+  )
+  if (alreadyCommitted) return session.messages
+
+  dlog('CLAUDE_STORE', `commitStreamedText sid=${sessionId} chars=${text.length}`)
+  return [...session.messages, {
+    id: `stream-${session.messages.length}-${Date.now()}`,
+    sessionId,
+    role: 'assistant',
+    content: text,
+    thinking: session.streamingThinking || undefined,
+    timestamp: Date.now(),
+  }]
 }
 
 function normalizeStreamData(data: ClaudeStreamData): ClaudeStreamData {
@@ -270,7 +323,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const localDuplicateIndex = findLocalDuplicateUserMessage(session.messages, msg)
     if (localDuplicateIndex >= 0) {
       dlog('CLAUDE_STORE', `handleMessage replace local duplicate with msgId=${msg.id}`)
-      const messages = [...session.messages]
+      // Copy: commitStreamedText returns session.messages by reference when
+      // there is nothing to commit, and the splice below must not mutate it.
+      const messages = [...commitStreamedText(sessionId, session, msg.content)]
       messages[localDuplicateIndex] = msg
       set({
         sessions: {
@@ -295,7 +350,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: [...session.messages, msg],
+          messages: [...commitStreamedText(sessionId, session, msg.content), msg],
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
@@ -429,19 +484,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // If there's streaming/result text that wasn't captured as a message, preserve it.
     // Some desktop Claude events carry a null message id/content and rely on result.result
     // as the final display text.
-    let messages = session.messages
-    if (session.streamingText.trim()) {
-      const streamMsg: ClaudeMessage = {
-        id: `stream-${Date.now()}`,
-        sessionId,
-        role: 'assistant',
-        content: session.streamingText,
-        thinking: session.streamingThinking || undefined,
-        timestamp: Date.now(),
-      }
-      messages = [...messages, streamMsg]
-      dlog('CLAUDE_STORE', `preserved streaming text as message (${session.streamingText.length} chars)`)
-    }
+    let messages = commitStreamedText(sessionId, session)
     const resultText = stringifyForDisplay(result?.result).trim()
     if (resultText && result?.subtype === 'success' && !hasAssistantTextSinceLastUser(messages, resultText)) {
       messages = [...messages, {
@@ -479,6 +522,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
+          messages: commitStreamedText(sessionId, session),
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
@@ -509,7 +553,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           ...session,
           isStreaming: false,
           streamingText: '',
-          messages: [...session.messages, errorMsg],
+          // An error ends the turn too — keep whatever the model had already
+          // said instead of replacing the reply with just the error line.
+          messages: [...commitStreamedText(sessionId, session), errorMsg],
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: null,
@@ -521,6 +567,20 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   handleStatus: (sessionId, meta) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
+    // A status meta is a turn/usage snapshot and does not always carry the
+    // session's model or permission mode. Replacing wholesale would drop the
+    // host model adopted by handleSessionState (which reads it from the
+    // snapshot's top level), so the model chip would blink out on every
+    // refresh. Keep the last known value when the incoming meta omits one.
+    const mergedMeta = meta
+      ? {
+          ...meta,
+          ...(meta.model == null && session.meta?.model ? { model: session.meta.model } : {}),
+          ...(meta.permissionMode == null && session.meta?.permissionMode
+            ? { permissionMode: session.meta.permissionMode }
+            : {}),
+        }
+      : meta
     const runtimeStatusSince = meta?.runtimeStatus
       ? (session.meta?.runtimeStatus === meta.runtimeStatus
         ? (session.runtimeStatusSince ?? Date.now())
@@ -535,7 +595,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     set({
       sessions: {
         ...sessions,
-        [sessionId]: { ...session, meta, runtimeStatusSince, turnStartedAt },
+        [sessionId]: { ...session, meta: mergedMeta, runtimeStatusSince, turnStartedAt },
       },
     })
 
@@ -569,12 +629,17 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // and re-pull state — the model chip reads session.meta.model, and the host
     // never broadcasts a status event for a bare setModel. Remote state is
     // host-owned, so the host's value overrides our last-known meta.
+    // A session the host has never billed a turn for has no meta at all, so
+    // don't gate on baseMeta: synthesize one from the top-level fields, or the
+    // model/permission chips stay blank until the first result lands.
     const baseMeta = snapshot.meta ?? session.meta
-    const nextMeta = baseMeta
+    const hostModel = typeof snapshot.model === 'string' ? snapshot.model : undefined
+    const hostPermissionMode = typeof snapshot.permissionMode === 'string' ? snapshot.permissionMode : undefined
+    const nextMeta = baseMeta || hostModel || hostPermissionMode
       ? {
-          ...baseMeta,
-          ...(typeof snapshot.model === 'string' ? { model: snapshot.model } : {}),
-          ...(typeof snapshot.permissionMode === 'string' ? { permissionMode: snapshot.permissionMode } : {}),
+          ...(baseMeta ?? EMPTY_META),
+          ...(hostModel ? { model: hostModel } : {}),
+          ...(hostPermissionMode ? { permissionMode: hostPermissionMode } : {}),
         }
       : baseMeta
 
