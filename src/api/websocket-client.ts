@@ -167,6 +167,8 @@ function eventParamsToArgs(channel: string, params: unknown): unknown[] {
       return [valueAt(record, 'sessionId'), valueAt(record, 'payload')]
     case 'agent:rate-limit':
       return [valueAt(record, 'sessionId'), valueAt(record, 'info')]
+    case 'agent:usage':
+      return [valueAt(record, 'payload')]
     default:
       return [params]
   }

@@ -107,6 +107,9 @@ export const PROXIED_EVENTS = new Set([
   'agent:ask-user', 'agent:ask-user-resolved', 'agent:modeChange',
   'agent:history', 'agent:resume-loading', 'agent:prompt-suggestion',
   'agent:session-reset', 'agent:worktree-info', 'agent:rate-limit',
+  // Host-wide quota, not session-scoped — the only event here with no
+  // sessionId. Dropping it was why the 5h/7d chips never appeared.
+  'agent:usage',
   'fs:changed',
   'profile:changed',
   'workspace:detached', 'workspace:reattached', 'workspace:reload',

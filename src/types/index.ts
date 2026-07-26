@@ -283,6 +283,10 @@ export interface SessionMeta {
   durationMs: number
   numTurns: number
   contextWindow: number
+  // Where auto-compact fires, which is the budget a turn actually gets. The
+  // model's own window can be far larger: opus-5 reports a 1m contextWindow
+  // while a 300k auto-compact preset is what governs the session.
+  autoCompactWindow?: number | null
   permissionMode?: string
   // Host-side turn lifecycle between the user send and the first model
   // frame: 'starting' (host received, preparing the request), 'queued',

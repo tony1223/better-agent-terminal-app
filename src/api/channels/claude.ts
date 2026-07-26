@@ -263,6 +263,12 @@ export function createClaudeChannel(ws: WebSocketClient) {
     getSupportedCommands: (sessionId: string) =>
       ws.invokeParams<unknown[]>('agent:get-supported-commands', { sessionId }, [sessionId]),
 
+    /**
+     * This session's *context* breakdown (what is filling the window), not
+     * account quota. The 5h/7d figures come from the `agent:usage` broadcast —
+     * reading them off this result silently yields undefined, which is how the
+     * quota chips went missing.
+     */
     getContextUsage: (sessionId: string) =>
       ws.invokeParams('agent:get-context-usage', { sessionId }, [sessionId]),
 
@@ -379,6 +385,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     onRateLimit: (cb: (sessionId: string, data: unknown) => void) =>
       ws.on('agent:rate-limit', cb as (...args: unknown[]) => void),
+    /** Host-wide 5h/7d quota. Broadcast every ~150s; not fetchable on demand. */
+    onUsage: (cb: (snapshot: unknown) => void) =>
+      ws.on('agent:usage', cb as (...args: unknown[]) => void),
   }
 }
 

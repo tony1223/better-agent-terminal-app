@@ -16,6 +16,7 @@ import type {
 } from '@/types'
 import type { ClaudeChannel } from '@/api/channels/claude'
 import { useConnectionStore } from '@/stores/connection-store'
+import { useUsageStore } from '@/stores/usage-store'
 import { dlog } from '@/utils/debug-log'
 import { isCompactSummaryMessage } from '@/utils/compact-summary'
 
@@ -665,6 +666,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           ...(meta.permissionMode == null && session.meta?.permissionMode
             ? { permissionMode: session.meta.permissionMode }
             : {}),
+          ...(meta.autoCompactWindow == null && session.meta?.autoCompactWindow != null
+            ? { autoCompactWindow: session.meta.autoCompactWindow }
+            : {}),
         }
       : meta
     const runtimeStatusSince = meta?.runtimeStatus
@@ -875,6 +879,7 @@ export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
   unsubs.push(claude.onModeChange((sid, mode) => useClaudeStore.getState().handleModeChange(sid, mode)))
   unsubs.push(claude.onPromptSuggestion((sid, sug) => useClaudeStore.getState().handlePromptSuggestion(sid, sug)))
   unsubs.push(claude.onSessionReset((sid) => useClaudeStore.getState().handleSessionReset(sid)))
+  unsubs.push(claude.onUsage((snapshot) => useUsageStore.getState().applyHostSnapshot(snapshot)))
 
   return () => {
     for (const unsub of unsubs) unsub()

@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
+import { useUsageStore, type UsageWindow } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { MessageBubble } from '@/components/claude/MessageBubble'
@@ -62,6 +63,29 @@ function fmtRemaining(resetDate: Date): string {
   if (d > 0) return `${d}d${h}h`
   if (h > 0) return `${h}h${m}m`
   return `${m}m`
+}
+
+/**
+ * One quota window: how much is spent, and how long until it resets.
+ *
+ * Renders nothing until the host has broadcast a snapshot. There is no way to
+ * ask for the current figure — the host polls on its own ~150s cadence and
+ * pushes — so a freshly connected phone shows no chip rather than a zero that
+ * would read as "plenty left".
+ */
+function UsageChip({ label, window }: { label: string; window?: UsageWindow | null }) {
+  if (!window || window.utilization == null) return null
+  const pct = Math.round(window.utilization * 100)
+  const reset = window.resetsAt ? new Date(window.resetsAt) : null
+  return (
+    <Text style={[
+      styles.infoText,
+      pct >= 80 ? styles.usageHigh : pct >= 50 ? styles.usageWarn : styles.usageOk,
+    ]}>
+      {label}:{pct}%
+      {reset && !Number.isNaN(reset.getTime()) ? ` ↻${fmtRemaining(reset)}` : ''}
+    </Text>
+  )
 }
 
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'planBypass', 'plan'] as const
@@ -237,7 +261,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // explain *why* (connection dropped vs. the host no longer has the rollout)
   // instead of the misleading "no messages yet".
   const [loadError, setLoadError] = useState<null | 'connection' | 'missing'>(null)
-  const [usage, setUsage] = useState<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null>(null)
   const [showResumeList, setShowResumeList] = useState(false)
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
   const [resumeLoading, setResumeLoading] = useState(false)
@@ -250,6 +273,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const focusRefreshedRef = useRef(false)
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree'
+  // Codex sessions burn a different quota than Claude ones; the host polls and
+  // broadcasts both, so pick the one this session actually spends.
+  const usage = useUsageStore(s => s.byProvider[isCodexAgent ? 'codex' : 'claude'])
   const isClaudeCodeAgent = agentPreset === 'claude-code' || agentPreset === 'claude-code-v2' || agentPreset === 'claude-code-worktree'
   const isOpenAIAgent = agentPreset === 'openai-agent'
   const agentColor = isCodexAgent
@@ -746,18 +772,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
     effortLevel,
   ])
 
-  // Fetch usage on mount and poll every 60s
-  useEffect(() => {
-    if (!channels) return
-    const fetchUsage = () => {
-      channels.claude.getContextUsage(sessionId).then((u: any) => {
-        if (u) setUsage(u)
-      }).catch(() => {})
-    }
-    fetchUsage()
-    const timer = setInterval(fetchUsage, 60_000)
-    return () => clearInterval(timer)
-  }, [channels, sessionId])
+  // Quota comes from the host's `agent:usage` broadcast (subscribed once in
+  // claude-store), not from here. This used to poll agent:get-context-usage and
+  // read `fiveHour`/`sevenDay` off the result — but that call returns the
+  // session's *context* breakdown and has no such fields, so the two quota
+  // chips below were unreachable and the poll was pure traffic every 60s.
 
   // Sync permission mode from meta
   useEffect(() => {
@@ -1329,10 +1348,20 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // preset carries its own budget, and picking one sends the *base* model to the
   // host, so without the preset fallback the number on screen would silently
   // drop back to the base model's window.
+  //
+  // Auto-compact caps it. A turn never gets more than the compact threshold, so
+  // that is the budget worth showing: opus-5 reports a 1m contextWindow while a
+  // 300k preset is what actually governs the session, and showing 1m for a
+  // session configured to 300k is off by a factor of three. Matches the
+  // desktop statusline, which takes the same min.
+  const hostWindow = (session.meta?.contextWindow ?? 0) > 0
+    ? session.meta!.contextWindow
+    : contextLimitForModel(currentModel)
+  const compactWindow = session.meta?.autoCompactWindow
   const contextLimit = formatContextLimit(
-    (session.meta?.contextWindow ?? 0) > 0
-      ? session.meta!.contextWindow
-      : contextLimitForModel(currentModel),
+    hostWindow != null && compactWindow != null && compactWindow > 0
+      ? Math.min(compactWindow, hostWindow)
+      : hostWindow,
   )
 
   // Everything the controls row no longer shows. Built inline rather than
@@ -1567,8 +1596,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* Status + usage info row */}
+        {/* Status + usage info row.
+            Quota leads: it is the one thing here that can't be found out any
+            other way from a phone, and the reset clock is the half that decides
+            whether to keep going or stop. The folder used to trail this row and
+            was already spelled out by SessionContextBar at the top of the same
+            screen — two copies of the least actionable field. */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoScroll} contentContainerStyle={styles.infoContent}>
+          <UsageChip label="5h" window={usage?.fiveHour} />
+          <UsageChip label="7d" window={usage?.sevenDay} />
           {/* Meta now exists as soon as the host reports a model, so gate on
               the counter itself — a session that has never run isn't $0.0000. */}
           {(session.meta?.totalCost ?? 0) > 0 && (
@@ -1579,18 +1615,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
               {Math.round((session.meta.inputTokens + session.meta.outputTokens) / 1000)}k tok
             </Text>
           )}
-          {usage?.fiveHour != null && (
-            <Text style={[styles.infoText, usage.fiveHour > 80 && styles.usageHigh]}>
-              5h:{Math.round(usage.fiveHour)}%
-              {usage.fiveHourReset ? ` \u21BB${fmtRemaining(new Date(usage.fiveHourReset))}` : ''}
-            </Text>
-          )}
-          {usage?.sevenDay != null && (
-            <Text style={[styles.infoText, (usage.sevenDay ?? 0) > 80 && styles.usageHigh]}>
-              7d:{Math.round(usage.sevenDay ?? 0)}%
-              {usage.sevenDayReset ? ` \u21BB${fmtRemaining(new Date(usage.sevenDayReset))}` : ''}
-            </Text>
-          )}
           {/* Always reachable: a session that has never run has no sdkSessionId,
               and gating on it left past conversations with no entry point at
               all short of typing /resume. */}
@@ -1599,11 +1623,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
               {sdkSessionShort ? `sid:${sdkSessionShort}` : t('claude.controls.history')}
             </Text>
           </TouchableOpacity>
-          {terminal?.cwd && (
-            <Text style={styles.infoText} numberOfLines={1}>
-              {terminal.cwd.split('/').slice(-2).join('/')}
-            </Text>
-          )}
         </ScrollView>
       </View>
 
@@ -2259,6 +2278,14 @@ const styles = StyleSheet.create({
   infoTextClickable: {
     color: appColors.agentCodex,
     fontWeight: '700',
+  },
+  // Green below half, amber past 50%, red past 80% — same thresholds as the
+  // desktop statusline, so the two don't disagree about what "nearly out" is.
+  usageOk: {
+    color: appColors.success,
+  },
+  usageWarn: {
+    color: appColors.warning,
   },
   usageHigh: {
     color: appColors.error,
