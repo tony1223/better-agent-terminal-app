@@ -1,0 +1,30 @@
+name: App Store Status
+run-name: app store status
+
+# Read-only. Prints every App Store version and its state, plus the recent
+# TestFlight builds. Exists because submit-appstore.yml can only fail with
+# "you cannot create a new version of the App in the current state", which
+# does not say WHICH version is holding the lock.
+on:
+  workflow_dispatch:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1.3"
+          bundler-cache: true
+
+      - name: Show App Store state
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+        run: bundle exec fastlane ios appstore_status
