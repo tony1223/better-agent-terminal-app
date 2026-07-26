@@ -28,6 +28,7 @@ export type UsageProvider = 'claude' | 'codex'
 interface UsageState {
   byProvider: Partial<Record<UsageProvider, UsageSnapshot>>
   applyHostSnapshot: (payload: unknown) => void
+  applyHostSnapshotMap: (payload: unknown) => void
   clear: () => void
 }
 
@@ -44,12 +45,16 @@ function asWindow(value: unknown): UsageWindow | null {
 
 /**
  * Host-wide quota, not session-scoped: the Rust host runs one poller per
- * machine and broadcasts `agent:usage` every ~150s. There is no way to ask for
- * the current figure — a client that connects between ticks simply waits — so
- * the last snapshot is kept for the life of the process rather than being
- * dropped when a screen unmounts.
+ * machine and broadcasts `agent:usage` every ~150s. The last snapshot is kept
+ * for the life of the process rather than being dropped when a screen
+ * unmounts, because the next one may be two and a half minutes away.
+ *
+ * Two ways in, same shape underneath: the broadcast delivers one provider's
+ * snapshot, and the connect-time pull delivers a map of every provider the
+ * host has polled so far. Filling in from the pull is what stops a phone that
+ * connects between ticks from showing nothing at all.
  */
-export const useUsageStore = create<UsageState>((set) => ({
+export const useUsageStore = create<UsageState>((set, get) => ({
   byProvider: {},
 
   applyHostSnapshot: (payload) => {
@@ -76,6 +81,26 @@ export const useUsageStore = create<UsageState>((set) => ({
         },
       },
     }))
+  },
+
+  /**
+   * The connect-time pull: `{ claude: {...}, codex: {...} }`. Each value
+   * carries its own `provider` field, so the entries go through the same path
+   * as a broadcast and the map keys are only there to make it a map.
+   */
+  applyHostSnapshotMap: (payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
+    const entries = Object.entries(payload as Record<string, unknown>)
+    dlog('USAGE', `pulled ${entries.length} provider snapshot(s) from host`)
+    for (const [key, snapshot] of entries) {
+      if (!snapshot || typeof snapshot !== 'object') continue
+      // Trust the key only when the snapshot itself doesn't say. An older host
+      // could conceivably key the map without stamping the value.
+      const record = snapshot as Record<string, unknown>
+      get().applyHostSnapshot(
+        typeof record.provider === 'string' ? record : { ...record, provider: key },
+      )
+    }
   },
 
   clear: () => set({ byProvider: {} }),

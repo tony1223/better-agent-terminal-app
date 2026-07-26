@@ -88,3 +88,50 @@ describe('telling the two providers apart', () => {
     expect(useUsageStore.getState().byProvider.claude?.fiveHour?.utilization).toBe(0.46)
   })
 })
+
+/**
+ * The connect-time pull, which exists because the broadcast is every ~150s:
+ * a client that connects a second after a tick would otherwise show blank
+ * chips for nearly the whole interval.
+ */
+describe('priming from the host pull', () => {
+  it('takes every provider in one payload', () => {
+    useUsageStore.getState().applyHostSnapshotMap({
+      claude: { ...HOST_SNAPSHOT, provider: 'claude' },
+      codex: { provider: 'codex', fiveHour: { utilization: 0.02, resetsAt: null }, sevenDay: null },
+    })
+
+    expect(useUsageStore.getState().byProvider.claude?.fiveHour?.utilization).toBe(0.46)
+    expect(useUsageStore.getState().byProvider.codex?.fiveHour?.utilization).toBe(0.02)
+  })
+
+  it('falls back to the map key when the snapshot does not name its provider', () => {
+    useUsageStore.getState().applyHostSnapshotMap({ codex: HOST_SNAPSHOT })
+
+    // Read off the value alone this would land under 'claude' — the default —
+    // and show Codex quota on every Claude session.
+    expect(useUsageStore.getState().byProvider.codex?.fiveHour?.utilization).toBe(0.46)
+    expect(useUsageStore.getState().byProvider.claude).toBeUndefined()
+  })
+
+  it('ignores what a host without the channel returns', () => {
+    // Whatever comes back from a host that never implemented it must not
+    // clobber figures a broadcast already delivered.
+    useUsageStore.getState().applyHostSnapshot(HOST_SNAPSHOT)
+    for (const junk of [null, undefined, 'nope', [], 42]) {
+      useUsageStore.getState().applyHostSnapshotMap(junk)
+    }
+
+    expect(useUsageStore.getState().byProvider.claude?.fiveHour?.utilization).toBe(0.46)
+  })
+
+  it('skips a provider whose entry is empty rather than blanking the rest', () => {
+    useUsageStore.getState().applyHostSnapshotMap({
+      claude: { ...HOST_SNAPSHOT, provider: 'claude' },
+      codex: null,
+    })
+
+    expect(useUsageStore.getState().byProvider.claude?.fiveHour?.utilization).toBe(0.46)
+    expect(useUsageStore.getState().byProvider.codex).toBeUndefined()
+  })
+})

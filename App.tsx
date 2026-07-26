@@ -15,6 +15,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
+import { useUsageStore } from '@/stores/usage-store'
 import { openConnectionLink } from '@/utils/connection-link'
 import { dlog } from '@/utils/debug-log'
 import { appVersionLabel } from '@/native/app-info'
@@ -40,6 +41,15 @@ function App() {
 
       // Subscribe to remote events
       const unsubscribeClaude = subscribeClaudeEvents(channels.claude)
+
+      // The quota broadcast is every ~150s, so connecting just after a tick
+      // would leave the 5h/7d chips blank for most of the wait. Hosts that
+      // predate the pull channel answer with an error; the broadcast still
+      // arrives eventually, so there is nothing to tell the user about.
+      channels.claude.getUsageSnapshot()
+        .then(snapshot => useUsageStore.getState().applyHostSnapshotMap(snapshot))
+        .catch(e => dlog('USAGE', `host has no usage-snapshot channel: ${e instanceof Error ? e.message : String(e)}`))
+
       const unsubscribeWorkspaceReload = channels.workspace.onReload((payload) => {
         useWorkspaceStore.getState().applyReload(payload)
       })

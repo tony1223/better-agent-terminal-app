@@ -385,9 +385,18 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     onRateLimit: (cb: (sessionId: string, data: unknown) => void) =>
       ws.on('agent:rate-limit', cb as (...args: unknown[]) => void),
-    /** Host-wide 5h/7d quota. Broadcast every ~150s; not fetchable on demand. */
+    /** Host-wide 5h/7d quota, broadcast every ~150s. */
     onUsage: (cb: (snapshot: unknown) => void) =>
       ws.on('agent:usage', cb as (...args: unknown[]) => void),
+    /**
+     * The last snapshot the host published, per provider — so a client that
+     * connects between ticks doesn't sit blank for up to 150s.
+     *
+     * Hosts before this channel existed answer method-not-found; callers are
+     * expected to shrug and wait for the next broadcast.
+     */
+    getUsageSnapshot: () =>
+      ws.invokeParams<Record<string, unknown>>('agent:usage-snapshot', {}, []),
   }
 }
 
