@@ -10,6 +10,11 @@
     "error": "Error",
     "connectionFailed": "Connection Failed"
   },
+  "connection": {
+    "reconnecting": "Reconnecting…",
+    "retry": "Retry",
+    "leave": "Leave"
+  },
   "language": {
     "section": "Language",
     "system": "System default"

@@ -10,6 +10,11 @@
     "error": "錯誤",
     "connectionFailed": "連線失敗"
   },
+  "connection": {
+    "reconnecting": "重新連線中…",
+    "retry": "重試",
+    "leave": "離開"
+  },
   "language": {
     "section": "語言",
     "system": "跟隨系統"

@@ -18,9 +18,18 @@ interface ConnectionState {
   error: string | null
   client: WebSocketClient | null
   channels: Channels | null
+  /**
+   * True from the first successful auth until the session really ends — an
+   * explicit disconnect, a rejected token, a changed certificate. A drop that
+   * the client is retrying keeps this true so the app stays where the user
+   * left it instead of throwing them back to the host list.
+   */
+  sessionActive: boolean
 
   connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => Promise<boolean>
   checkConnection: () => Promise<boolean>
+  /** Retry now instead of waiting out the backoff (the reconnect banner). */
+  retryNow: () => void
   disconnect: () => void
 }
 
@@ -32,6 +41,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   error: null,
   client: null,
   channels: null,
+  sessionActive: false,
 
   connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => {
     const tls = useTLS ?? !!fingerprint
@@ -46,9 +56,18 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     client.onStatusChange((status) => {
       dlog(status === 'error' ? '!CONN' : 'CONN', `status changed: ${status}, error: ${client.error}`)
+      // A reconnect reuses this client, and only the initial connect below
+      // builds the channels — so a session that comes back after the first
+      // attempt failed would otherwise be connected with nothing wired up.
+      const channels = status === 'connected' && !get().channels
+        ? createChannels(client)
+        : get().channels
+      const ended = (status === 'disconnected' || status === 'error') && !client.willRetry
       set({
         status,
         error: client.error,
+        channels: ended ? null : channels,
+        ...(ended ? { sessionActive: false } : {}),
       })
     })
 
@@ -64,17 +83,17 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       dlog(ok ? 'CONN' : '!CONN', `client.connect returned: ${ok}`)
 
       if (ok) {
-        const channels = createChannels(client)
-        set({ channels, status: 'connected', error: null, tls })
+        const channels = get().channels ?? createChannels(client)
+        set({ channels, status: 'connected', error: null, tls, sessionActive: true })
         return true
       } else {
         dlog('!CONN', `connect failed, error: ${client.error}`)
-        set({ client: null, channels: null })
+        set({ client: null, channels: null, sessionActive: false })
         return false
       }
     } catch (e) {
       dlog('!CONN', `connect threw: ${e}`)
-      set({ client: null, channels: null, status: 'error', error: String(e) })
+      set({ client: null, channels: null, status: 'error', error: String(e), sessionActive: false })
       return false
     }
   },
@@ -96,6 +115,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     return ok
   },
 
+  retryNow: () => {
+    const { client } = get()
+    if (!client) return
+    dlog('CONN', 'manual retry requested')
+    client.resume()
+  },
+
   disconnect: () => {
     const { client } = get()
     if (client) {
@@ -109,6 +135,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       port: 0,
       tls: false,
       error: null,
+      sessionActive: false,
     })
   },
 }))

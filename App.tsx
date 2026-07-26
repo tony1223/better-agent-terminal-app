@@ -11,6 +11,7 @@ import '@/i18n'
 import { RootNavigator } from '@/navigation/RootNavigator'
 import { PermissionDialog } from '@/components/claude/PermissionDialog'
 import { AskUserDialog } from '@/components/claude/AskUserDialog'
+import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
@@ -77,6 +78,7 @@ function App() {
           {/* Global overlays for Claude permission / ask-user dialogs */}
           <PermissionDialog />
           <AskUserDialog />
+          <ConnectionBanner />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

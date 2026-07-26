@@ -50,7 +50,13 @@ export interface RemoteClientContext {
 
 const AUTH_TIMEOUT_MS = 10_000
 const INVOKE_TIMEOUT_MS = 30_000
-const HEARTBEAT_MS = 30_000
+const HEARTBEAT_MS = 10_000
+// A mobile socket dies quietly — Wi-Fi/LTE handoff, carrier NAT dropping an
+// idle mapping, the host sleeping — and the OS keeps calling it open. With a
+// ping going out every HEARTBEAT_MS, silence this long means the link is gone
+// no matter what readyState claims.
+const LIVENESS_TIMEOUT_MS = 25_000
+const PROBE_TIMEOUT_MS = 3_000
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 
@@ -171,9 +177,16 @@ export class WebSocketClient {
   private reconnectAttempt = 0
   private generation = 0
   private compression: RemoteCompression = REMOTE_COMPRESSION_NONE
+  // Set once this client has authenticated at least once. Everything after
+  // that is a *drop* and gets retried; a first attempt that never got in is a
+  // failure the caller reports to the user instead.
+  private sessionEstablished = false
+  private connectInFlight = false
 
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private lastFrameAt = 0
+  private probeInFlight = false
 
   get status(): ConnectionStatus {
     return this._status
@@ -185,6 +198,17 @@ export class WebSocketClient {
 
   get isConnected(): boolean {
     return this._status === 'connected' && this.ws?.isOpen === true
+  }
+
+  /**
+   * Whether a drop is being retried in the background.
+   *
+   * The UI uses this to tell "we're coming back" apart from "this session is
+   * over" — the first must keep the user where they were, the second sends
+   * them back to the host list.
+   */
+  get willRetry(): boolean {
+    return this.shouldReconnect && this.sessionEstablished
   }
 
   get connectionInfo(): { host: string; port: number; tls: boolean; compression: RemoteCompression } | null {
@@ -236,16 +260,18 @@ export class WebSocketClient {
     this.label = label || `BAT-Mobile-${Date.now()}`
     this.context = context ?? null
     this.shouldReconnect = true
+    this.sessionEstablished = false
     this.reconnectAttempt = 0
     this.protocol = REMOTE_PROTOCOL_LEGACY_V1
     this.compression = REMOTE_COMPRESSION_NONE
     this.generation++
 
-    return this.doConnect()
+    return this.attemptConnect()
   }
 
   disconnect(): void {
     this.shouldReconnect = false
+    this.sessionEstablished = false
     this.stopHeartbeat()
 
     if (this.reconnectTimer) {
@@ -253,13 +279,7 @@ export class WebSocketClient {
       this.reconnectTimer = null
     }
 
-    for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer)
-      pending.reject(new Error('Disconnected'))
-    }
-    this.pending.clear()
-
-    this.rejectPendingPings(new Error('Disconnected'))
+    this.failPending(new Error('Disconnected'))
 
     if (this.ws) {
       this.ws.close(1000, 'client disconnect')
@@ -272,6 +292,19 @@ export class WebSocketClient {
   // ============================================
   //   Internal Connect
   // ============================================
+
+  // Single-flight wrapper: a foreground resume, a parked backoff timer and a
+  // close handler can all decide to reconnect at the same moment, and two live
+  // sockets would fight over the same session.
+  private async attemptConnect(): Promise<boolean> {
+    if (this.connectInFlight) return false
+    this.connectInFlight = true
+    try {
+      return await this.doConnect()
+    } finally {
+      this.connectInFlight = false
+    }
+  }
 
   private doConnect(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -291,7 +324,7 @@ export class WebSocketClient {
         if (!authResolved && gen === this.generation) {
           authResolved = true
           dlog('!WS', `auth timeout waiting for server response`, { host: this.host, port: this.port, tls: this.useTLS })
-          this.setStatus('error', 'Authentication timeout')
+          this.setFailedStatus('Authentication timeout')
           ws.close()
           resolve(false)
         }
@@ -315,6 +348,9 @@ export class WebSocketClient {
 
         onMessage: (data: string) => {
           if (gen !== this.generation) return
+          // Any frame proves the link is alive — that is what the heartbeat
+          // watches, so record it before we care what the frame says.
+          this.lastFrameAt = Date.now()
           let frame: RemoteFrame
           try {
             frame = JSON.parse(data)
@@ -328,6 +364,10 @@ export class WebSocketClient {
               authResolved = true
               if (frame.error) {
                 dlog('!WS', `auth failed: ${frame.error}`)
+                // A rejected token stays rejected: retrying would hammer the
+                // host and keep the user staring at a spinner instead of the
+                // error that tells them to re-pair.
+                this.shouldReconnect = false
                 this.setStatus('error', frame.error)
                 resolve(false)
               } else {
@@ -338,6 +378,7 @@ export class WebSocketClient {
                   ? REMOTE_COMPRESSION_GZIP
                   : REMOTE_COMPRESSION_NONE
                 dlog('WS', `auth success, connected! protocol=${this.protocol} compression=${this.compression}`)
+                this.sessionEstablished = true
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -395,17 +436,18 @@ export class WebSocketClient {
           const closeTag = authResolved && this._status === 'connected' ? 'WS' : '!WS'
           dlog(closeTag, `socket closed: code=${code} reason=${reason}`, { status: this._status, authResolved })
           clearTimeout(authTimeout)
-          const wasConnected = this._status === 'connected'
           this.stopHeartbeat()
+          this.failPending(new Error('Connection closed'))
 
-          for (const [, pending] of this.pending) {
-            clearTimeout(pending.timer)
-            pending.reject(new Error('Connection closed'))
-          }
-          this.pending.clear()
-          this.rejectPendingPings(new Error('Connection closed'))
-
-          if (this.shouldReconnect && wasConnected) {
+          // Retry on every drop this client suffers after it once got in —
+          // including one that lands mid-auth on a retry. Requiring the
+          // *current* attempt to have reached 'connected' is what used to
+          // strand the app on a dead socket until it was restarted.
+          if (this.willRetry) {
+            if (!authResolved) {
+              authResolved = true
+              resolve(false)
+            }
             this.setStatus('reconnecting')
             this.scheduleReconnect(gen)
           } else if (!authResolved) {
@@ -435,12 +477,30 @@ export class WebSocketClient {
           if (!authResolved) {
             clearTimeout(authTimeout)
             authResolved = true
-            this.setStatus('error', message || 'Connection failed')
+            this.setFailedStatus(message || 'Connection failed')
             resolve(false)
           }
         },
       })
     })
+  }
+
+  // A failed attempt means different things before and after a session
+  // exists: the first is an error the user acts on, the rest are just this
+  // retry not landing — surfacing those as 'error' made the UI flash a
+  // failure (and tear the session down) between attempts.
+  private setFailedStatus(message: string) {
+    if (this.willRetry) this.setStatus('reconnecting')
+    else this.setStatus('error', message)
+  }
+
+  private failPending(error: Error) {
+    for (const [, pending] of this.pending) {
+      clearTimeout(pending.timer)
+      pending.reject(error)
+    }
+    this.pending.clear()
+    this.rejectPendingPings(error)
   }
 
   // ============================================
@@ -459,21 +519,27 @@ export class WebSocketClient {
       void this.checkConnection()
       return
     }
-    // Only fast-forward when an attempt is actually parked on a timer —
-    // no timer in 'reconnecting' means a doConnect is already in flight.
-    if (this._status === 'reconnecting' && this.reconnectTimer) {
+    if (!this.sessionEstablished || this.connectInFlight) return
+    // Backgrounded timers don't fire, so a parked attempt can be minutes stale
+    // — and an attempt that failed while we were away left the client sitting
+    // in 'error'. Either way the useful move on foreground is to try now.
+    if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
-      this.reconnectAttempt = 0
-      const gen = this.generation
-      void this.doConnect()
-        .then(ok => {
-          if (!ok && this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
-        })
-        .catch(() => {
-          if (this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
-        })
     }
+    this.reconnectAttempt = 0
+    this.setStatus('reconnecting')
+    this.retryUntilConnected(this.generation)
+  }
+
+  private retryUntilConnected(gen: number): void {
+    void this.attemptConnect()
+      .then(ok => {
+        if (!ok && this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
+      })
+      .catch(() => {
+        if (this.shouldReconnect && gen === this.generation) this.scheduleReconnect(gen)
+      })
   }
 
   private scheduleReconnect(gen: number) {
@@ -487,19 +553,12 @@ export class WebSocketClient {
 
     dlog('WS', `reconnect #${this.reconnectAttempt} in ${delay}ms`)
 
-    this.reconnectTimer = setTimeout(async () => {
+    this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (!this.shouldReconnect || gen !== this.generation) return
-      try {
-        const ok = await this.doConnect()
-        if (!ok && this.shouldReconnect && gen === this.generation) {
-          this.scheduleReconnect(gen)
-        }
-      } catch {
-        if (this.shouldReconnect && gen === this.generation) {
-          this.scheduleReconnect(gen)
-        }
-      }
+      // A resume() may have got us back in while this was parked.
+      if (this._status === 'connected') return
+      this.retryUntilConnected(gen)
     }, delay)
   }
 
@@ -509,12 +568,50 @@ export class WebSocketClient {
 
   private startHeartbeat() {
     this.stopHeartbeat()
-    this.heartbeatTimer = setInterval(() => {
-      if (this.isConnected) {
-        const frame: RemoteFrame = { type: 'ping', id: this.nextId() }
-        this.sendFrame(frame)
-      }
-    }, HEARTBEAT_MS)
+    this.lastFrameAt = Date.now()
+    this.heartbeatTimer = setInterval(() => this.heartbeatTick(), HEARTBEAT_MS)
+  }
+
+  /**
+   * Keep the path warm *and* watch what comes back.
+   *
+   * The old heartbeat only sent pings and never looked at the answers, so a
+   * half-open socket — the normal way a phone loses a connection — stayed
+   * 'connected' forever: every request sat out its full 30s timeout and
+   * nothing ever reconnected until the user backgrounded the app.
+   */
+  private heartbeatTick() {
+    if (this._status !== 'connected') return
+
+    if (!this.ws?.isOpen) {
+      // Gone without a close frame ever reaching us; nothing else will
+      // notice, so drive the reconnect from here.
+      dlog('!WS', 'heartbeat: socket is no longer open')
+      this.handleSilentDrop('Connection lost')
+      return
+    }
+
+    const silentFor = Date.now() - this.lastFrameAt
+    if (silentFor > LIVENESS_TIMEOUT_MS) {
+      dlog('!WS', `heartbeat: no frame for ${silentFor}ms, closing`)
+      // onClose runs the usual reconnect path.
+      this.ws.close(4000, 'heartbeat timeout')
+      return
+    }
+
+    this.sendFrame({ type: 'ping', id: this.nextId() })
+  }
+
+  private handleSilentDrop(reason: string) {
+    this.stopHeartbeat()
+    this.failPending(new Error(reason))
+    this.ws = null
+    if (this.willRetry) {
+      this.setStatus('reconnecting')
+      this.scheduleReconnect(this.generation)
+    } else {
+      this.setStatus('disconnected')
+    }
   }
 
   private stopHeartbeat() {
@@ -524,7 +621,20 @@ export class WebSocketClient {
     }
   }
 
-  checkConnection(timeoutMs = 3_000): Promise<boolean> {
+  /**
+   * A request that timed out is the loudest evidence of a half-open socket:
+   * the frame went out and nothing came back. Probe once so the *next*
+   * request isn't spent discovering the same thing.
+   */
+  private probeAfterFailure() {
+    if (this.probeInFlight || this._status !== 'connected') return
+    this.probeInFlight = true
+    void this.checkConnection(PROBE_TIMEOUT_MS).finally(() => {
+      this.probeInFlight = false
+    })
+  }
+
+  checkConnection(timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
     if (!this.isConnected) {
       return Promise.resolve(false)
     }
@@ -578,6 +688,7 @@ export class WebSocketClient {
       const timer = setTimeout(() => {
         this.pending.delete(frame.id)
         dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
+        this.probeAfterFailure()
         reject(new Error(`Remote invoke timeout: ${channel}`))
       }, INVOKE_TIMEOUT_MS)
 
@@ -633,6 +744,7 @@ export class WebSocketClient {
         const timer = setTimeout(() => {
           this.pending.delete(frame.id)
           dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
+          this.probeAfterFailure()
           reject(new Error(`Remote invoke timeout: ${channel}`))
         }, timeoutMs)
 
@@ -703,11 +815,16 @@ export class WebSocketClient {
   }
 
   private sendFrame(frame: RemoteFrame): void {
+    const ws = this.ws
+    // The socket can go away between the isConnected check and here (a close
+    // event mid-turn); dropping the frame beats throwing out of whatever
+    // promise executor we're inside — the pending entry times out normally.
+    if (!ws) return
     const payload = JSON.stringify(frame)
     if (this.compression === REMOTE_COMPRESSION_GZIP) {
-      this.ws!.sendGzip(payload)
+      ws.sendGzip(payload)
     } else {
-      this.ws!.send(payload)
+      ws.send(payload)
     }
   }
 }
