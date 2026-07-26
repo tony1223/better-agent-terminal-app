@@ -125,4 +125,81 @@ platform :ios do
       skip_waiting_for_build_processing: true,
     )
   end
+
+  desc "Submit a build that is already on TestFlight to App Store review"
+  lane :submit_review do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY_P8_BASE64"),
+      is_key_content_base64: true,
+      in_house: false,
+    )
+
+    version = ENV.fetch("SUBMIT_VERSION", "").strip
+    UI.user_error!("SUBMIT_VERSION is required (e.g. 1.0.35)") if version.empty?
+
+    # Blank = whatever build App Store Connect already has for this version.
+    # Pass it explicitly to pin the exact artifact instead.
+    build_number = ENV.fetch("SUBMIT_BUILD_NUMBER", "").strip
+    build_number = nil if build_number.empty?
+
+    notes = ENV.fetch("SUBMIT_RELEASE_NOTES", "").strip
+    locale = ENV.fetch("SUBMIT_LOCALE", "en-US").strip
+    submit = ENV.fetch("SUBMIT_FOR_REVIEW", "true") == "true"
+    auto_release = ENV.fetch("SUBMIT_AUTOMATIC_RELEASE", "true") == "true"
+
+    # No release notes means leave the listing exactly as it stands in App Store
+    # Connect. deliver would otherwise take the metadata round trip, and with no
+    # ./fastlane/metadata in this repo there is nothing to sync back from — the
+    # empty-notes case is the one that gets an update bounced by review.
+    skip_metadata = notes.empty?
+
+    notes_summary = skip_metadata ? "left as-is in App Store Connect" : "#{notes.length} chars for #{locale}"
+    UI.message("Submitting #{version} (build #{build_number || 'latest on the version'})")
+    UI.message("  submit_for_review  #{submit}")
+    UI.message("  automatic_release  #{auto_release}")
+    UI.message("  release notes      #{notes_summary}")
+
+    upload_to_app_store(
+      api_key: api_key,
+      app_identifier: APP_IDENTIFIER,
+      platform: "ios",
+      app_version: version,
+      build_number: build_number,
+
+      # The binary is already on TestFlight — this lane only moves it into an
+      # App Store version and submits. Rebuilding would mint a different
+      # artifact than the one that was tested.
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: skip_metadata,
+      release_notes: skip_metadata ? nil : { locale => notes },
+
+      submit_for_review: submit,
+      automatic_release: auto_release,
+
+      # Non-interactive: deliver otherwise opens an HTML preview and waits for
+      # a confirmation that never comes on CI.
+      force: true,
+
+      # precheck's in-app-purchase scan is not covered by App Store Connect API
+      # key auth and fails the run; the app ships no IAP anyway.
+      precheck_include_in_app_purchases: false,
+
+      # Mirrors what the binary already declares: ITSAppUsesNonExemptEncryption
+      # false in Info.plist, NSPrivacyTracking false in PrivacyInfo.xcprivacy.
+      # These are legal declarations — if either plist changes, change these.
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false,
+      },
+    )
+
+    if submit
+      UI.success("#{version} submitted for review. Apple review is typically ~24h.")
+    else
+      UI.success("#{version} staged in App Store Connect — not submitted.")
+    end
+  end
 end

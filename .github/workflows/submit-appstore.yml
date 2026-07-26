@@ -1,0 +1,71 @@
+name: Submit to App Store
+run-name: submit ios ${{ inputs.versionName }}${{ inputs.submitForReview == false && ' (stage only)' || '' }}
+
+# Moves a build that is already on TestFlight into an App Store version and
+# sends it to review. The Play-side counterpart of promote-play.yml, and
+# deliberately manual for the same reason: re-running release-testflight.yml
+# would build a new binary, so review would get an artifact nobody tested.
+#
+# Apple review is human and takes ~24h — this workflow finishing green means
+# "submitted", not "on the App Store".
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: "Marketing version to submit (e.g. 1.0.35)"
+        required: true
+      buildNumber:
+        description: "TestFlight build number (blank = the build already on that version)"
+        required: false
+      releaseNotes:
+        description: "What's New (blank = leave the listing untouched)"
+        required: false
+      locale:
+        description: "Locale for the release notes"
+        required: true
+        default: en-US
+        type: choice
+        options: [en-US, zh-Hant, zh-Hans, ja]
+      submitForReview:
+        description: "Submit for review (uncheck to stage the version without submitting)"
+        required: true
+        default: true
+        type: boolean
+      automaticRelease:
+        description: "Release to the store automatically once Apple approves"
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  submit:
+    # No Xcode build here — deliver only talks to the App Store Connect API, so
+    # this does not need to burn a macOS runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      # Gemfile.lock is committed with PLATFORMS: ruby, so bundler resolves on
+      # Linux without re-locking.
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1.3"
+          bundler-cache: true
+
+      - name: Submit for review
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          SUBMIT_VERSION: ${{ inputs.versionName }}
+          SUBMIT_BUILD_NUMBER: ${{ inputs.buildNumber }}
+          SUBMIT_RELEASE_NOTES: ${{ inputs.releaseNotes }}
+          SUBMIT_LOCALE: ${{ inputs.locale }}
+          SUBMIT_FOR_REVIEW: ${{ inputs.submitForReview }}
+          SUBMIT_AUTOMATIC_RELEASE: ${{ inputs.automaticRelease }}
+          # deliver prompts on anything ambiguous otherwise, and a prompt on CI
+          # is a 20-minute timeout.
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+        run: bundle exec fastlane ios submit_review
