@@ -439,6 +439,11 @@
     "interrupt": "Interrupt",
     "multiSelectHint": "Select all that apply"
   },
+  "askUserSummary": {
+    "pending": "Waiting for an answer…",
+    "noAnswer": "No answer recorded",
+    "custom": "Custom answer"
+  },
   "toolCall": {
     "label": "TOOL",
     "input": "Input:",

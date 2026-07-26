@@ -7,7 +7,9 @@ import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { LinkedText } from './LinkedText'
+import { AskUserSummary } from './AskUserSummary'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { askUserExchange, summarizeAskUserInput } from '@/utils/ask-user-answers'
 import type { ClaudeToolCall } from '@/types'
 
 interface Props {
@@ -36,9 +38,17 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
     : tool.status === 'completed' ? '#10b981'
     : appColors.error
 
+  // An answered AskUserQuestion is a decision, not a mechanical tool call: the
+  // exchange renders as Q&A and the raw JSON moves behind the expand.
+  const exchange = tool.toolName === 'AskUserQuestion'
+    ? askUserExchange(tool.input, tool.result)
+    : []
+
   // Description from input.description, or fall back to input summary
   const desc = tool.input?.description ? String(tool.input.description) : null
-  const summary = desc || toolInputSummary(tool.input)
+  const summary = exchange.length > 0
+    ? summarizeAskUserInput(tool.input)
+    : desc || toolInputSummary(tool.input)
 
   return (
     <View style={styles.container}>
@@ -55,7 +65,11 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
         <Text style={styles.expand}>{expanded ? '\u25BC' : '\u25B6'}</Text>
       </TouchableOpacity>
 
-      {expanded && (
+      {exchange.length > 0 && (
+        <AskUserSummary exchange={exchange} showOptions={expanded} />
+      )}
+
+      {expanded && exchange.length === 0 && (
         <View style={styles.details}>
           <Text style={styles.detailLabel}>{t('toolCall.input')}</Text>
           <Text style={styles.detailCode} selectable>

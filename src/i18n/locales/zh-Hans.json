@@ -439,6 +439,11 @@
     "interrupt": "中断",
     "multiSelectHint": "可多选"
   },
+  "askUserSummary": {
+    "pending": "等待回答中…",
+    "noAnswer": "没有记录到答案",
+    "custom": "自定义回答"
+  },
   "toolCall": {
     "label": "工具",
     "input": "输入：",
