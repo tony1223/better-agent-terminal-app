@@ -118,6 +118,96 @@ test('an empty snapshot does not wipe a live transcript', () => {
 })
 
 /**
+ * Splicing the host's live window in by id.
+ *
+ * `appendSessionMessage` stores the very object that went out over
+ * `claude:message` (node-sidecar/src/handlers/claude-send.mjs), and
+ * `getSessionState` hands that array back verbatim — so the snapshot's ids are
+ * the same ids the live events carried. That is what makes a gap repairable
+ * without pulling the whole transcript: the snapshot is contiguous, so
+ * everything from the first shared id onward can simply be swapped for it.
+ */
+describe('splicing the host window into a holed transcript', () => {
+  function holed() {
+    // What a client that missed the middle holds: an old prefix with the newest
+    // turns appended directly onto it. Length alone cannot spot this — it looks
+    // exactly like a healthy list that outruns the host's window.
+    return [...messages(2, 'a'), ...messages(2, 'd')]
+  }
+
+  test('the missing middle comes back', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, holed())
+
+    // The host still holds a1 onward, contiguously — including the b/c turns
+    // that never reached us.
+    const verdict = store.handleSessionState(SESSION_ID, {
+      messages: [messages(2, 'a')[1], ...messages(2, 'b'), ...messages(2, 'c'), ...messages(2, 'd')],
+      isStreaming: false,
+    })
+
+    expect(verdict).toBe('stitched')
+    expect(currentMessages().map(m => m.id)).toEqual(['a0', 'a1', 'b0', 'b1', 'c0', 'c1', 'd0', 'd1'])
+  })
+
+  test('a longer snapshot does not cost us what came before the host window', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, [...messages(2, 'old'), ...messages(1, 'd')])
+
+    // The snapshot outnumbers the local list, so the length rule would adopt it
+    // wholesale — quietly dropping the 'old' pair, which the host has already
+    // aged out of its window and cannot send again. The anchor keeps them.
+    store.handleSessionState(SESSION_ID, {
+      messages: [...messages(1, 'd'), ...messages(2, 'e')],
+      isStreaming: false,
+    })
+
+    expect(currentMessages().map(m => m.id)).toEqual(['old0', 'old1', 'd0', 'e0', 'e1'])
+  })
+
+  test('a snapshot already inside the local list changes nothing', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, messages(20))
+    const verdict = store.handleSessionState(SESSION_ID, { messages: messages(20).slice(-3), isStreaming: false })
+
+    expect(verdict).toBe('stitched')
+    expect(currentMessages().map(m => m.id)).toEqual(messages(20).map(m => m.id))
+  })
+
+  test('no shared id leaves the transcript alone and says so', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, messages(200))
+
+    // The host churned past everything we hold: nothing to anchor the window
+    // to, so the caller has to decide (ClaudeScreen escalates to a full pull
+    // only when this follows a reconnect).
+    const verdict = store.handleSessionState(SESSION_ID, { messages: messages(3, 'unrelated'), isStreaming: false })
+
+    expect(verdict).toBe('kept-local')
+    expect(currentMessages()).toHaveLength(200)
+  })
+
+  test('a tool call is spliced back like any other item', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, [...messages(3, 'a'), ...messages(1, 'd')])
+
+    // The host buffers tool calls through the same appendSessionMessage, so a
+    // gap full of tool activity has to come back too. The snapshot is shorter
+    // than the local list here, so the length rule would keep the hole.
+    store.handleSessionState(SESSION_ID, {
+      messages: [
+        messages(3, 'a')[2],
+        { id: 'tool-1', sessionId: SESSION_ID, toolName: 'Bash', input: {}, status: 'completed', timestamp: 5 },
+        messages(1, 'd')[0],
+      ] as any,
+      isStreaming: false,
+    })
+
+    expect(currentMessages().map(m => m.id)).toEqual(['a0', 'a1', 'a2', 'tool-1', 'd0'])
+  })
+})
+
+/**
  * Repairing a disconnect, which is the other half of the rule above.
  *
  * Events sent while the socket was down are never replayed, so the local list

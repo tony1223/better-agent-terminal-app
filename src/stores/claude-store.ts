@@ -293,6 +293,16 @@ function findCommittedStreamDuplicate(
   return -1
 }
 
+/**
+ * What a host snapshot did to the transcript on screen.
+ *
+ * - `adopted`    — the snapshot replaced the list (empty screen, or it is longer)
+ * - `stitched`   — the host's window was spliced in over our tail, filling a gap
+ * - `kept-local` — no shared id to anchor the window to, so nothing changed
+ * - `no-messages`— the snapshot carried no `messages` field at all
+ */
+export type SessionStateMerge = 'adopted' | 'stitched' | 'kept-local' | 'no-messages'
+
 interface ClaudeState {
   sessions: Record<string, SessionState>
   activeSessionId: string | null
@@ -316,7 +326,14 @@ interface ClaudeState {
   handleTurnEnd: (sessionId: string) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
-  handleSessionState: (sessionId: string, snapshot: SessionStateSnapshot | null | undefined) => void
+  /**
+   * Reconciles the host's live window with what is already on screen and reports
+   * which way it went, because only the caller knows whether 'kept-local' is
+   * benign. On a plain refocus it means "the host's window is inside what we
+   * already have"; right after a reconnect it means "we could not anchor the
+   * window, so a gap may still be there".
+   */
+  handleSessionState: (sessionId: string, snapshot: SessionStateSnapshot | null | undefined) => SessionStateMerge
   handlePermissionRequest: (sessionId: string, data: PermissionRequest) => void
   handlePermissionResolved: (sessionId: string, toolUseId: string) => void
   handleAskUser: (sessionId: string, data: AskUserRequest) => void
@@ -692,7 +709,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   handleSessionState: (sessionId, snapshot) => {
-    if (!snapshot || typeof snapshot !== 'object') return
+    if (!snapshot || typeof snapshot !== 'object') return 'no-messages'
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     const rawMessages = Array.isArray(snapshot.messages) ? snapshot.messages : null
@@ -713,15 +730,48 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // handleSessionReset, which empties the list and lets the next snapshot in.
     const carriesCompactSummary = nextMessages.some(item => 'role' in item
       && isCompactSummaryMessage(item.role, item.content ?? '', item.isCompactSummary))
-    const shouldReplaceMessages = rawMessages !== null && (
+
+    // Anchoring the window by id beats comparing lengths, so try it first.
+    //
+    // Length cannot tell a healthy list that outruns the host's window apart
+    // from one a disconnect left holed — an old prefix with the newest turns
+    // appended straight onto it. Ids can: `appendSessionMessage` stores the very
+    // object that went out over `claude:message`, and `getSessionState` hands
+    // that array back verbatim, so the snapshot's records carry the same ids the
+    // live events did. The snapshot is contiguous by construction, so everything
+    // from the first shared id onward can be swapped for it — filling any gap
+    // inside the window while keeping what we hold from before it.
+    //
+    // That last part is why this runs ahead of the length rule and not after:
+    // adopting a longer snapshot wholesale silently drops whatever we still have
+    // from before the host's window, which the splice keeps.
+    let stitched: (ClaudeMessage | ClaudeToolCall)[] | null = null
+    if (rawMessages !== null && nextMessages.length > 0 && session.messages.length > 0) {
+      const snapshotIds = new Set(nextMessages.map(item => item.id))
+      const firstCovered = session.messages.findIndex(item => snapshotIds.has(item.id))
+      if (firstCovered >= 0) {
+        stitched = [...session.messages.slice(0, firstCovered), ...nextMessages]
+      }
+    }
+    const shouldReplaceMessages = !stitched && rawMessages !== null && (
       session.messages.length === 0
       || (nextMessages.length > 0
         && (nextMessages.length >= session.messages.length || carriesCompactSummary))
     )
-    if (rawMessages !== null && !shouldReplaceMessages) {
-      dlog('!CLAUDE_STORE', `kept ${session.messages.length} local messages over a ${nextMessages.length}-message snapshot sid=${sessionId}`)
+    const verdict: SessionStateMerge = rawMessages === null ? 'no-messages'
+      : stitched ? 'stitched'
+        : shouldReplaceMessages ? 'adopted'
+          : 'kept-local'
+    if (verdict === 'stitched') {
+      dlog('!CLAUDE_STORE', `spliced the host window into ${session.messages.length} local messages `
+        + `-> ${stitched!.length} sid=${sessionId}`)
+    } else if (verdict === 'kept-local') {
+      // No shared id at all: the host has churned past everything we hold, so
+      // there is nothing to anchor the window to. Caller decides whether that is
+      // benign (a plain refocus) or a gap worth escalating (a reconnect).
+      dlog('!CLAUDE_STORE', `kept ${session.messages.length} local messages over a ${nextMessages.length}-message snapshot, no shared id sid=${sessionId}`)
     }
-    dlog('CLAUDE_STORE', `handleSessionState sid=${sessionId} messages=${rawMessages?.length ?? 'n/a'} streaming=${snapshot.isStreaming === true}`)
+    dlog('CLAUDE_STORE', `handleSessionState sid=${sessionId} messages=${rawMessages?.length ?? 'n/a'} streaming=${snapshot.isStreaming === true} merge=${verdict}`)
 
     // Authoritative correction on (re)focus: if the host is clearly working,
     // make sure the bar shows; if it's clearly idle, drop a turn that may have
@@ -759,7 +809,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: shouldReplaceMessages ? nextMessages : session.messages,
+          messages: stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
           isStreaming: snapshot.isStreaming ?? session.isStreaming,
           streamingText: snapshot.streamingText ?? session.streamingText,
           streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
@@ -768,6 +818,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         },
       },
     })
+    return verdict
   },
 
   handlePermissionRequest: (sessionId, data) => {

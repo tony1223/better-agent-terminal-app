@@ -23,7 +23,7 @@ import type { KeyboardEvent } from 'react-native'
 import { launchImageLibrary } from 'react-native-image-picker'
 import { useTranslation } from 'react-i18next'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
+import { useClaudeStore, EMPTY_SESSION, type SessionStateMerge } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore, type UsageWindow } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -434,17 +434,19 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [agentPreset, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
 
-  const refreshSessionState = useCallback(async () => {
-    if (!channels || !terminalCwd) return
+  const refreshSessionState = useCallback(async (): Promise<SessionStateMerge | null> => {
+    if (!channels || !terminalCwd) return null
     try {
       const state = await channels.claude.getSessionState(sessionId)
-      if (!state) return
-      useClaudeStore.getState().handleSessionState(sessionId, state)
+      if (!state) return null
+      const verdict = useClaudeStore.getState().handleSessionState(sessionId, state)
       if (state.meta) {
         useClaudeStore.getState().handleStatus(sessionId, state.meta)
       }
+      return verdict
     } catch (e) {
       dlog('CLAUDE_SCREEN', `focus refresh getSessionState error: ${e}`)
+      return null
     }
   }, [channels, sessionId, terminalCwd])
 
@@ -482,12 +484,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
     recoveryInFlightRef.current = true
     const before = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
     try {
-      // Meta and streaming state first, transcript second, and the order is
-      // load-bearing: handleSessionState treats a short snapshot carrying a
-      // compaction summary as authoritative, so a snapshot landing *after* the
-      // repair would swap the transcript we just recovered for the host's
-      // 300-message tail — re-truncating the moment we finished un-truncating.
-      await refreshSessionState()
       const model = resolveSessionModel()
       // The transcript itself comes back over claude:history, not in this reply.
       await channels.claude.clientResume(sessionId, sdkSessionId, terminalCwd, model, buildResumeOptions(model))
@@ -501,7 +497,30 @@ export function ClaudeScreen({ route, navigation }: Props) {
     } finally {
       recoveryInFlightRef.current = false
     }
-  }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions, refreshSessionState])
+  }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions])
+
+  /**
+   * Catch up after a reconnect.
+   *
+   * The snapshot does the work: the host's window carries the same ids the live
+   * events did, so `handleSessionState` can splice it over our tail and fill
+   * whatever the socket dropped. That covers every gap smaller than the host's
+   * 300-message buffer, which is every ordinary disconnect, and it costs one
+   * bounded call we were making on refocus anyway.
+   *
+   * Only when the snapshot shares no id with what we hold is there nothing to
+   * anchor to — the host churned past our whole list — and that is the one case
+   * worth pulling the entire transcript for. The order is load-bearing: the
+   * snapshot has to land *before* the history, because `handleSessionState`
+   * treats a short snapshot carrying a compaction summary as authoritative and
+   * would re-truncate the transcript the repair just restored.
+   */
+  const resyncAfterReconnect = useCallback(async (why: string) => {
+    const verdict = await refreshSessionState()
+    if (verdict !== 'kept-local') return
+    dlog('!CLAUDE_SCREEN', `host window shares no id with the local transcript after ${why}; pulling the full transcript`)
+    await recoverTranscript(why)
+  }, [refreshSessionState, recoverTranscript])
 
   // Every reconnect is a window we were not listening through, so treat it as a
   // hole until proven otherwise. The mount effect owns the first load.
@@ -513,11 +532,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!focusRefreshedRef.current) return
     const why = `reconnect after ${previous}`
     if (isFocusedRef.current) {
-      recoverTranscript(why)
+      resyncAfterReconnect(why)
     } else {
       pendingRecoveryRef.current = why
     }
-  }, [connectionStatus, recoverTranscript])
+  }, [connectionStatus, resyncAfterReconnect])
 
   useFocusEffect(
     useCallback(() => {
@@ -543,7 +562,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           const deferred = pendingRecoveryRef.current
           pendingRecoveryRef.current = null
           if (deferred) {
-            recoverTranscript(`${deferred}, deferred to refocus`)
+            resyncAfterReconnect(`${deferred}, deferred to refocus`)
           } else {
             refreshSessionState()
           }
@@ -556,7 +575,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         cancelled = true
         isFocusedRef.current = false
       }
-    }, [checkConnection, connectionStatus, recoverTranscript, refreshSessionState, sessionId]),
+    }, [checkConnection, connectionStatus, resyncAfterReconnect, refreshSessionState, sessionId]),
   )
 
   // Init session in store and load history
