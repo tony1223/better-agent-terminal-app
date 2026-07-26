@@ -81,6 +81,12 @@ const MAX_IMAGES = 5
 // ~2 MiB decoded. Larger images go through fs:upload-tmp-* to the host's tmp
 // dir instead of riding inline in the agent:send-message frame.
 const MAX_INLINE_IMAGE_BASE64_CHARS = 2 * 1398104
+// …and the same ceiling again for the frame as a whole. The per-image limit
+// alone let five images ride together as a single ~10 MB send-message frame,
+// which on a phone uplink occupies the socket for minutes and holds up every
+// frame behind it. Past this, the rest go to the host's tmp dir, where they're
+// chunked and acked one piece at a time.
+const MAX_INLINE_TOTAL_BASE64_CHARS = 2 * 1398104
 const INITIAL_LOAD_UI_TIMEOUT_MS = 6_000
 
 function selectedTint(color: string): string {
@@ -879,11 +885,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
     // as data URLs. Upload failures fall back to inline.
     const inlineImages: string[] = []
     const hostPaths: string[] = []
+    let inlineChars = 0
     for (const dataUrl of images) {
       const commaIndex = dataUrl.indexOf(',')
       const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : ''
-      if (base64.length <= MAX_INLINE_IMAGE_BASE64_CHARS) {
+      if (base64.length <= MAX_INLINE_IMAGE_BASE64_CHARS
+        && inlineChars + base64.length <= MAX_INLINE_TOTAL_BASE64_CHARS) {
         inlineImages.push(dataUrl)
+        inlineChars += base64.length
         continue
       }
       const ext = /^data:image\/png/.test(dataUrl) ? 'png' : 'jpg'

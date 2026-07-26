@@ -20,9 +20,15 @@ interface FakeSocket {
   serverClose(code?: number): void
   fail(message: string): void
   readonly pings: number
+  /** The client's own callbacks, for feeding it a reply to a specific frame. */
+  cb: Record<string, ((...args: any[]) => void) | undefined>
 }
 
 const mockSockets: FakeSocket[] = []
+
+// jest.mock factories can't close over imports, and only `mock*` names are let
+// through — so the constant is required lazily inside the factory instead.
+const mockProtocolV2 = () => require('../src/api/protocol').REMOTE_PROTOCOL_V2
 
 jest.mock('@/native/tls-websocket', () => ({
   TLSWebSocket: class {
@@ -56,7 +62,10 @@ jest.mock('@/native/tls-websocket', () => ({
     }
 
     authOk() {
-      this.cb.onMessage?.(JSON.stringify({ type: 'auth-result', id: 'auth', protocol: 'bat-remote-v2' }))
+      // The real string, from the real constant. A near-miss ('bat-remote-v2')
+      // silently negotiates the v1 fallback, where invokeParams drops `params`
+      // entirely — so every test would exercise a protocol the app never speaks.
+      this.cb.onMessage?.(JSON.stringify({ type: 'auth-result', id: 'auth', protocol: mockProtocolV2() }))
     }
 
     authFail(error: string) {
@@ -212,6 +221,70 @@ describe('noticing a socket that died quietly', () => {
     expect(client.status).toBe('reconnecting')
     await jest.advanceTimersByTimeAsync(2_000)
     expect(mockSockets).toHaveLength(2)
+  })
+})
+
+describe('sending something large', () => {
+  // A phone screenshot rides inline in agent:send-message as base64. It sits in
+  // the uplink for tens of seconds, and every ping we queue behind it waits its
+  // turn — so the host has nothing to answer and no frame comes back. The
+  // liveness check used to read that as a dead link and close the socket in the
+  // middle of our own upload, which is what "images are slow and often fail"
+  // actually was.
+  const bigParams = { prompt: 'look', images: ['x'.repeat(2_000_000)] }
+
+  it('does not sever the connection while a big frame is still going out', async () => {
+    const { client, socket } = await connectedClient()
+
+    client.invokeParams('agent:send-message', bigParams).catch(() => undefined)
+
+    // Well past the 25s liveness window, with nothing coming back.
+    await jest.advanceTimersByTimeAsync(40_000)
+
+    expect(socket.closedWith).toBeNull()
+    expect(client.status).toBe('connected')
+  })
+
+  it('still gives the send a deadline rather than waiting forever', async () => {
+    const { client } = await connectedClient()
+
+    const send = client.invokeParams('agent:send-message', bigParams)
+    const settled = jest.fn()
+    send.then(settled, settled)
+
+    await jest.advanceTimersByTimeAsync(60_000)
+    expect(settled).not.toHaveBeenCalled()
+
+    await jest.advanceTimersByTimeAsync(10 * 60_000)
+    expect(settled).toHaveBeenCalled()
+    await expect(send).rejects.toThrow(/timeout/i)
+  })
+
+  it('goes back to watching the link once the upload is acked', async () => {
+    const { client, socket } = await connectedClient()
+
+    const send = client.invokeParams('agent:send-message', bigParams)
+    await jest.advanceTimersByTimeAsync(1_000)
+
+    const sent = JSON.parse(socket.sent[socket.sent.length - 1])
+    socket.cb.onMessage?.(JSON.stringify({ type: 'invoke-result', id: sent.id, result: { ok: true } }))
+    await expect(send).resolves.toEqual({ ok: true })
+
+    // The grace period outlives the upload it was granted for, by design — but
+    // it must expire, and a link that then goes quiet has to be caught.
+    await jest.advanceTimersByTimeAsync(3 * 60_000)
+    expect(socket.closedWith?.code).toBe(4000)
+    expect(client.status).toBe('reconnecting')
+  })
+
+  it('a small frame gets no grace at all', async () => {
+    const { client, socket } = await connectedClient()
+
+    client.invokeParams('agent:get-session-state', { sessionId: 's1' }).catch(() => undefined)
+    await jest.advanceTimersByTimeAsync(30_000)
+
+    expect(socket.closedWith?.code).toBe(4000)
+    expect(client.status).toBe('reconnecting')
   })
 })
 

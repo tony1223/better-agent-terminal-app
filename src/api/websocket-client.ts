@@ -57,6 +57,16 @@ const HEARTBEAT_MS = 10_000
 // no matter what readyState claims.
 const LIVENESS_TIMEOUT_MS = 25_000
 const PROBE_TIMEOUT_MS = 3_000
+// Above this, a frame takes long enough to clear a phone's uplink that
+// everything queued behind it — including our own heartbeat pings — waits for
+// it. See queueDrainEstimateMs.
+const LARGE_FRAME_BYTES = 256 * 1024
+// A deliberately pessimistic mobile uplink, ~200 kbit/s. This is not used to
+// predict anything; it exists so a big frame gets a deadline it can actually
+// meet, and so the liveness check knows how long to stop drawing conclusions.
+const SLOW_UPLINK_BYTES_PER_MS = 25
+// However bad the link, stop waiting eventually.
+const MAX_DRAIN_GRACE_MS = 4 * 60_000
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 
@@ -153,6 +163,19 @@ function eventParamsToArgs(channel: string, params: unknown): unknown[] {
   }
 }
 
+/**
+ * Roughly how long `bytes` could sit in the send queue on a bad mobile uplink,
+ * or 0 for a frame small enough that the question doesn't arise.
+ *
+ * Deliberately generous. Being wrong high costs a slower reconnect on a link
+ * that really did die; being wrong low kills a healthy connection in the middle
+ * of an upload, which is the failure this exists to prevent.
+ */
+function queueDrainEstimateMs(bytes: number): number {
+  if (bytes < LARGE_FRAME_BYTES) return 0
+  return Math.min(Math.round(bytes / SLOW_UPLINK_BYTES_PER_MS), MAX_DRAIN_GRACE_MS)
+}
+
 export class WebSocketClient {
   private ws: TLSWebSocket | null = null
   private pending: Map<string, PendingInvoke> = new Map()
@@ -186,6 +209,9 @@ export class WebSocketClient {
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private lastFrameAt = 0
+  // While a large frame is plausibly still going out, silence on the wire says
+  // nothing about the link — see sendFrame.
+  private outboundDrainUntil = 0
   private probeInFlight = false
 
   get status(): ConnectionStatus {
@@ -592,11 +618,18 @@ export class WebSocketClient {
     }
 
     const silentFor = Date.now() - this.lastFrameAt
-    if (silentFor > LIVENESS_TIMEOUT_MS) {
+    const draining = Date.now() < this.outboundDrainUntil
+    if (silentFor > LIVENESS_TIMEOUT_MS && !draining) {
       dlog('!WS', `heartbeat: no frame for ${silentFor}ms, closing`)
       // onClose runs the usual reconnect path.
       this.ws.close(4000, 'heartbeat timeout')
       return
+    }
+    if (silentFor > LIVENESS_TIMEOUT_MS) {
+      // Not evidence of anything: our pings are stuck behind a large upload, so
+      // nobody has been asked a question to stay silent about. A dead socket is
+      // still caught here — the in-flight invoke times out and probes.
+      dlog('WS', `heartbeat: silent ${silentFor}ms but still draining a large frame`)
     }
 
     this.sendFrame({ type: 'ping', id: this.nextId() })
@@ -741,12 +774,20 @@ export class WebSocketClient {
       dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} protocol=${this.protocol} params=${summarizeRemoteValue(params)}`)
 
       return new Promise((resolve, reject) => {
+        // Queue the frame before arming the deadline: how long this is allowed
+        // to take depends on how many bytes we just handed the socket, and a
+        // 30s budget that a 2 MB attachment cannot physically meet is just a
+        // scheduled failure. Safe to send first — a reply can only arrive on a
+        // later tick, after this executor has registered the pending entry.
+        const queuedBytes = this.sendFrame(frame)
+        const deadline = timeoutMs + queueDrainEstimateMs(queuedBytes)
+
         const timer = setTimeout(() => {
           this.pending.delete(frame.id)
-          dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
+          dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id} after ${deadline}ms`)
           this.probeAfterFailure()
           reject(new Error(`Remote invoke timeout: ${channel}`))
-        }, timeoutMs)
+        }, deadline)
 
         this.pending.set(frame.id, {
           resolve: (result: unknown) => {
@@ -765,8 +806,6 @@ export class WebSocketClient {
           },
           timer,
         })
-
-        this.sendFrame(frame)
       })
     }
 
@@ -814,17 +853,38 @@ export class WebSocketClient {
     this.pendingPings.clear()
   }
 
-  private sendFrame(frame: RemoteFrame): void {
+  /**
+   * Queue a frame, and report how many bytes went into the socket.
+   *
+   * The native socket is fire-and-forget — no bufferedAmount, no drain event —
+   * so the byte count is the only handle we have on "this will take a while".
+   */
+  private sendFrame(frame: RemoteFrame): number {
     const ws = this.ws
     // The socket can go away between the isConnected check and here (a close
     // event mid-turn); dropping the frame beats throwing out of whatever
     // promise executor we're inside — the pending entry times out normally.
-    if (!ws) return
+    if (!ws) return 0
     const payload = JSON.stringify(frame)
     if (this.compression === REMOTE_COMPRESSION_GZIP) {
       ws.sendGzip(payload)
     } else {
       ws.send(payload)
     }
+
+    // A frame big enough to occupy the uplink also blocks every ping behind it,
+    // so the heartbeat must stop treating silence as death until it has plausibly
+    // drained. Without this a slow image upload makes the client sever its own
+    // connection mid-send: pings can't get out, nothing comes back, and at 25s
+    // the liveness check closes a socket that was working fine.
+    // Hold off for exactly as long as the invoke's own deadline, so the two
+    // can't disagree about who declares the send dead: while a large frame is
+    // outstanding its timeout owns that call, and the moment it lapses the
+    // heartbeat takes the job back.
+    const drainMs = queueDrainEstimateMs(payload.length)
+    if (drainMs > 0) {
+      this.outboundDrainUntil = Math.max(this.outboundDrainUntil, Date.now() + INVOKE_TIMEOUT_MS + drainMs)
+    }
+    return payload.length
   }
 }
