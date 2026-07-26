@@ -16,11 +16,16 @@ export function createWorkspaceChannel(ws: WebSocketClient) {
   return {
     // When a profileId is supplied, save targets that profile's snapshot
     // directly; otherwise the host falls back to its default profile.
+    // Legacy positional order is [profileId, data, windowId] — profileId is
+    // FIRST, not last. Sending it last put the target profile in the windowId
+    // slot and left profileId empty, so a v1 host wrote this profile's
+    // workspace list into "default" (its no-profileId fallback) and rejected
+    // the phantom windowId. windowId stays omitted per the note above.
     save: (data: string, profileId?: string) =>
       ws.invokeParams<boolean>(
         'workspace:save',
         { ...(profileId ? { profileId } : {}), data },
-        [undefined, data, profileId],
+        [profileId, data],
       ),
     // When a profileId is supplied, load that profile's workspace. The host
     // returns the profile's live window state (current sdkSessionIds /
@@ -30,7 +35,7 @@ export function createWorkspaceChannel(ws: WebSocketClient) {
       ws.invokeParams<string | null>(
         'workspace:load',
         profileId ? { profileId } : {},
-        profileId ? [undefined, undefined, profileId] : [undefined],
+        profileId ? [profileId] : [],
       ),
 
     // Events

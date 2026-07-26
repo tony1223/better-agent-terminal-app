@@ -215,8 +215,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // the snapshot may belong to a profile this device isn't viewing. Per
       // the v2 protocol they are never adopted directly — re-fetch through
       // our own workspace:load routing instead.
-      const activeProfileId = get().activeLocalProfileId
-        ?? resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+      const activeProfileId = viewedProfileId(get())
       if (activeProfileId) {
         get().loadProfileWorkspace(activeProfileId).catch(() => {})
       } else {
@@ -234,8 +233,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // for hosts that predate this field).
       const targetProfileId = typeof record.profileId === 'string' ? record.profileId : null
       if (targetProfileId) {
-        const activeProfileId = get().activeLocalProfileId
-          ?? resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+        const activeProfileId = viewedProfileId(get())
         if (activeProfileId && activeProfileId !== targetProfileId) {
           return
         }
@@ -379,7 +377,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     get().applyState(nextState)
 
     try {
-      const activeProfileId = resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+      const activeProfileId = viewedProfileId(get())
       const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
       if (!saved) throw new Error('Host rejected workspace save')
     } catch (e) {
@@ -430,7 +428,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       focusedTerminalId: nextActiveTerminalId,
     }
 
-    const activeProfileId = resolveActiveLocalProfileId(get().profiles, get().activeProfileIds)
+    const activeProfileId = viewedProfileId(get())
     const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
     if (!saved) throw new Error('Host rejected workspace save')
     await get().load()
@@ -584,6 +582,22 @@ function resolveActiveLocalProfileId(
   const profilesById = new Map(profiles.map(profile => [profile.id, profile]))
   return activeProfileIds.find(id => profilesById.get(id)?.type !== 'remote')
     ?? activeProfileIds[0]
+}
+
+// The profile the store's current workspaces/terminals were loaded from.
+//
+// The pin comes FIRST and is not optional. resolveActiveLocalProfileId reads
+// the HOST's active set, which lists one profile per desktop window in window
+// order — so on a multi-window host it routinely names a profile this device
+// is not viewing. Every read path already prefers the pin; a save that
+// re-resolved instead would stamp the viewed profile's workspace list onto
+// whichever profile the host happened to list first and wipe it wholesale.
+// That is not hypothetical: adding a session while viewing "bat" wrote bat's
+// 11 workspaces into "game", and the host cannot detect it because it trusts
+// the client's profileId.
+function viewedProfileId(state: WorkspaceState): string | undefined {
+  return state.activeLocalProfileId
+    ?? resolveActiveLocalProfileId(state.profiles, state.activeProfileIds)
 }
 
 function profileSummaryFromPayload(payload: unknown): { profiles: ProfileEntry[]; activeProfileIds: string[] } | null {
