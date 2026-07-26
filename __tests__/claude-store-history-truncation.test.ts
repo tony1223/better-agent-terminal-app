@@ -116,3 +116,47 @@ test('an empty snapshot does not wipe a live transcript', () => {
 
   expect(currentMessages()).toHaveLength(20)
 })
+
+/**
+ * Repairing a disconnect, which is the other half of the rule above.
+ *
+ * Events sent while the socket was down are never replayed, so the local list
+ * ends up as an old prefix with newer messages appended straight onto it — a
+ * hole in the middle. The snapshot path cannot fix that (it is capped at the
+ * host's 300 in-memory messages and refuses to shorten), so ClaudeScreen asks
+ * the host to re-serve the whole transcript from disk over `claude:history`.
+ */
+describe('re-serving the transcript after a reconnect', () => {
+  test('a full transcript replaces a locally-holed one', () => {
+    const store = useClaudeStore.getState()
+    // What a client that missed the middle is left holding: an early prefix
+    // with the newest turns appended directly onto it.
+    store.handleHistory(SESSION_ID, [...messages(3, 'early'), ...messages(2, 'late')])
+
+    store.handleHistory(SESSION_ID, messages(400, 'full'))
+
+    const result = currentMessages()
+    expect(result).toHaveLength(400)
+    expect((result[0] as ClaudeMessage).content).toBe('full message 0')
+  })
+
+  test('a transcript the host could not read does not wipe the conversation', () => {
+    const store = useClaudeStore.getState()
+    store.handleHistory(SESSION_ID, messages(200))
+
+    // claude-history.mjs answers an unreadable/missing .jsonl with `items: []`
+    // rather than an error. Before the repair path existed this only ever
+    // arrived against a blank screen; now it can land on a full one.
+    store.handleHistory(SESSION_ID, [])
+
+    expect(currentMessages()).toHaveLength(200)
+  })
+
+  test('an empty transcript is still accepted when there is nothing to lose', () => {
+    const store = useClaudeStore.getState()
+    store.initSession(SESSION_ID)
+    store.handleHistory(SESSION_ID, [])
+
+    expect(currentMessages()).toHaveLength(0)
+  })
+})

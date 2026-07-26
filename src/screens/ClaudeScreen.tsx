@@ -271,6 +271,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const loadedSessionKeyRef = useRef<string | null>(null)
   const inFlightSessionKeyRef = useRef<string | null>(null)
   const focusRefreshedRef = useRef(false)
+  const isFocusedRef = useRef(false)
+  const recoveryInFlightRef = useRef(false)
+  // A reconnect that happens while the user is on another screen still leaves a
+  // hole; remember it and repair on the way back rather than pulling a whole
+  // transcript for a view nobody is looking at.
+  const pendingRecoveryRef = useRef<string | null>(null)
   const agentPreset = terminal?.agentPreset
   const isCodexAgent = agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree'
   // Codex sessions burn a different quota than Claude ones; the host polls and
@@ -394,6 +400,40 @@ export function ClaudeScreen({ route, navigation }: Props) {
     [sessionId, terminalModel],
   )
 
+  const resumeSandboxMode = useMemo(() => (
+    terminalSandboxMode === 'read-only' || terminalSandboxMode === 'workspace-write' || terminalSandboxMode === 'danger-full-access'
+      ? terminalSandboxMode
+      : undefined
+  ), [terminalSandboxMode])
+  const resumeApprovalPolicy = useMemo(() => (
+    terminalApprovalPolicy === 'untrusted' || terminalApprovalPolicy === 'on-request' || terminalApprovalPolicy === 'never'
+      ? terminalApprovalPolicy
+      : undefined
+  ), [terminalApprovalPolicy])
+  // Worktree sessions must declare useWorktree + the host-side worktree path so
+  // the host sidecar validates the folder and fails loudly when it is missing
+  // instead of silently running in the original checkout.
+  const worktreeOptions = useMemo(() => (
+    terminalWorktreePath
+      ? { useWorktree: true, worktreePath: terminalWorktreePath, worktreeBranch: terminalBranchName }
+      : {}
+  ), [terminalWorktreePath, terminalBranchName])
+
+  // Shared by the mount load and the reconnect repair. Resuming with different
+  // options than the session was opened with rewrites the host's session
+  // record, so the two callers must not drift apart.
+  const buildResumeOptions = useCallback((model: string | undefined) => {
+    const { autoCompactWindow } = setModelArgsForClaudeSelection(model ?? '')
+    return {
+      agentPreset,
+      ...(isClaudeCodeAgent ? { permissionMode } : {}),
+      ...(autoCompactWindow !== undefined ? { autoCompactWindow } : {}),
+      codexSandboxMode: resumeSandboxMode,
+      codexApprovalPolicy: resumeApprovalPolicy,
+      ...worktreeOptions,
+    }
+  }, [agentPreset, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
+
   const refreshSessionState = useCallback(async () => {
     if (!channels || !terminalCwd) return
     try {
@@ -408,9 +448,81 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [channels, sessionId, terminalCwd])
 
+  /**
+   * Put back what the socket dropped.
+   *
+   * Events emitted while we were disconnected are simply gone — the host does
+   * not queue or replay them — and nothing else fills the gap. The focus
+   * refresh above can't: `getSessionState` answers with the host's in-memory
+   * buffer, capped at 300 messages (node-sidecar/src/lib/state.mjs), and
+   * `handleSessionState` deliberately refuses to trade a longer local
+   * conversation for that shorter tail. So on any session past 300 messages the
+   * refresh is a no-op and the transcript goes on growing around a hole.
+   *
+   * `client-resume` is the one channel that re-serves the whole thing: the host
+   * reads the SDK's .jsonl off disk and emits `claude:history` unconditionally
+   * (claude-history.mjs:187), while `preserveLiveMessages` stops it disturbing a
+   * turn that is still running. Note the deliberate absence of the mount path's
+   * `resumeSession` fallback — that one tears the session down, which is a fine
+   * trade when the alternative is a blank screen but not when we already have
+   * most of the conversation and a turn may be in flight.
+   */
+  const recoverTranscript = useCallback(async (why: string) => {
+    if (!channels || !terminalCwd) return
+    if (recoveryInFlightRef.current || inFlightSessionKeyRef.current) {
+      dlog('CLAUDE_SCREEN', `transcript recovery (${why}) skipped, a load is already running sessionId=${sessionId}`)
+      return
+    }
+    // The host's own id wins; ours may predate a compaction that rewrote it.
+    const sdkSessionId = useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId || terminalSdkSessionId
+    if (!sdkSessionId) {
+      dlog('CLAUDE_SCREEN', `transcript recovery (${why}) skipped, no sdkSessionId sessionId=${sessionId}`)
+      return
+    }
+    recoveryInFlightRef.current = true
+    const before = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
+    try {
+      // Meta and streaming state first, transcript second, and the order is
+      // load-bearing: handleSessionState treats a short snapshot carrying a
+      // compaction summary as authoritative, so a snapshot landing *after* the
+      // repair would swap the transcript we just recovered for the host's
+      // 300-message tail — re-truncating the moment we finished un-truncating.
+      await refreshSessionState()
+      const model = resolveSessionModel()
+      // The transcript itself comes back over claude:history, not in this reply.
+      await channels.claude.clientResume(sessionId, sdkSessionId, terminalCwd, model, buildResumeOptions(model))
+      const after = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
+      dlog('!CLAUDE_SCREEN', `transcript recovery (${why}) sessionId=${sessionId} messages ${before} -> ${after}`)
+    } catch (e) {
+      // '!' tag: a failed repair means the user is looking at a conversation
+      // that is quietly not the whole conversation, which is worth being able
+      // to find in the logs afterwards.
+      dlog('!CLAUDE_SCREEN', `transcript recovery (${why}) failed sessionId=${sessionId}: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      recoveryInFlightRef.current = false
+    }
+  }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions, refreshSessionState])
+
+  // Every reconnect is a window we were not listening through, so treat it as a
+  // hole until proven otherwise. The mount effect owns the first load.
+  const lastConnectionStatusRef = useRef(connectionStatus)
+  useEffect(() => {
+    const previous = lastConnectionStatusRef.current
+    lastConnectionStatusRef.current = connectionStatus
+    if (connectionStatus !== 'connected' || previous === 'connected') return
+    if (!focusRefreshedRef.current) return
+    const why = `reconnect after ${previous}`
+    if (isFocusedRef.current) {
+      recoverTranscript(why)
+    } else {
+      pendingRecoveryRef.current = why
+    }
+  }, [connectionStatus, recoverTranscript])
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false
+      isFocusedRef.current = true
       useClaudeStore.getState().setActiveSession(sessionId)
 
       if (connectionStatus === 'connected') {
@@ -426,7 +538,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
         // Skip the first focus (the mount effect already loads/resumes the
         // session); on later refocuses, re-pull the live state.
         if (focusRefreshedRef.current) {
-          refreshSessionState()
+          // A reconnect we deferred because this screen was in the background:
+          // recovery re-pulls the state itself, so don't do both.
+          const deferred = pendingRecoveryRef.current
+          pendingRecoveryRef.current = null
+          if (deferred) {
+            recoverTranscript(`${deferred}, deferred to refocus`)
+          } else {
+            refreshSessionState()
+          }
         } else {
           focusRefreshedRef.current = true
         }
@@ -434,8 +554,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
       return () => {
         cancelled = true
+        isFocusedRef.current = false
       }
-    }, [checkConnection, connectionStatus, refreshSessionState, sessionId]),
+    }, [checkConnection, connectionStatus, recoverTranscript, refreshSessionState, sessionId]),
   )
 
   // Init session in store and load history
@@ -490,28 +611,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
         setBackgroundHistoryLoading(true)
         finishLoading()
       }, INITIAL_LOAD_UI_TIMEOUT_MS)
-      const sandbox = terminalSandboxMode
-      const approval = terminalApprovalPolicy
-      const codexSandboxMode = sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access'
-        ? sandbox
-        : undefined
-      const codexApprovalPolicy = approval === 'untrusted' || approval === 'on-request' || approval === 'never'
-        ? approval
-        : undefined
-      // Worktree sessions must declare useWorktree + the host-side worktree
-      // path so the host sidecar validates the folder and fails loudly when
-      // it is missing instead of silently running in the original checkout.
-      const worktreeOptions = terminalWorktreePath
-        ? { useWorktree: true, worktreePath: terminalWorktreePath, worktreeBranch: terminalBranchName }
-        : {}
       const buildLoadKey = (sdkSessionIdToResume: string | null) => JSON.stringify({
         sessionId,
         cwd: terminalCwd,
         sdkSessionId: sdkSessionIdToResume,
         model: resolveSessionModel() ?? null,
         agentPreset: agentPreset ?? null,
-        codexSandboxMode: codexSandboxMode ?? null,
-        codexApprovalPolicy: codexApprovalPolicy ?? null,
+        codexSandboxMode: resumeSandboxMode ?? null,
+        codexApprovalPolicy: resumeApprovalPolicy ?? null,
       })
       // Always-on load diagnostic (logged even with debug mode off, via the
       // '!' tag) so a "尚無訊息 but history should exist" report can be traced
@@ -581,15 +688,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             `clientResume sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
             async () => {
               const resumeModel = resolveSessionModel()
-              const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(resumeModel ?? '')
-              const resumeOptions = {
-                agentPreset,
-                ...(isClaudeCodeAgent ? { permissionMode } : {}),
-                ...(resumeCompactWindow !== undefined ? { autoCompactWindow: resumeCompactWindow } : {}),
-                codexSandboxMode,
-                codexApprovalPolicy,
-                ...worktreeOptions,
-              }
+              const resumeOptions = buildResumeOptions(resumeModel)
               try {
                 // Opening a session view must not restart it. client-resume
                 // re-emits the transcript read-only when the host has it live,
@@ -707,8 +806,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
                       model: resolveSessionModel(),
                       effort: effortLevel,
                       agentPreset,
-                      codexSandboxMode,
-                      codexApprovalPolicy,
+                      codexSandboxMode: resumeSandboxMode,
+                      codexApprovalPolicy: resumeApprovalPolicy,
                       ...worktreeOptions,
                     }),
                   )
@@ -762,10 +861,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
     terminalCwd,
     terminalSdkSessionId,
     resolveSessionModel,
-    terminalWorktreePath,
-    terminalBranchName,
-    terminalSandboxMode,
-    terminalApprovalPolicy,
+    buildResumeOptions,
+    worktreeOptions,
+    resumeSandboxMode,
+    resumeApprovalPolicy,
     agentPreset,
     isClaudeCodeAgent,
     permissionMode,

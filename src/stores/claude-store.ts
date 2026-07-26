@@ -803,8 +803,18 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   handleHistory: (sessionId, items) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
-    dlog('CLAUDE_STORE', `handleHistory sid=${sessionId} items=${items?.length ?? 0}`)
-    const messages = (items || []).map(item => normalizeHistoryItem(sessionId, item))
+    const incoming = items || []
+    dlog('CLAUDE_STORE', `handleHistory sid=${sessionId} items=${incoming.length}`)
+    // The host answers a transcript it could not read with an empty list rather
+    // than an error (claude-history.mjs emits `items: []` in its catch), and
+    // this event now also arrives on reconnect, not only against a blank screen
+    // at mount. Replacing on sight would turn an unreadable file into a wiped
+    // conversation — the exact failure the repair exists to prevent.
+    if (incoming.length === 0 && session.messages.length > 0) {
+      dlog('!CLAUDE_STORE', `ignored an empty history payload over ${session.messages.length} local messages sid=${sessionId}`)
+      return
+    }
+    const messages = incoming.map(item => normalizeHistoryItem(sessionId, item))
 
     set({
       sessions: {
