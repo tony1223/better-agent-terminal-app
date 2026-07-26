@@ -20,7 +20,7 @@ BAT Mobile 是 Better Agent Terminal 的 React Native 手機版（iOS + Android�
 
 由 git tag 驅動發布，兩個 workflow 分別為 `.github/workflows/release-aab.yml`（Android AAB → Google Play）與 `.github/workflows/release-testflight.yml`（iOS → TestFlight）。
 
-上正式版是另外三個手動 workflow，跟 tag 無關：`promote-play.yml`（Android）、`submit-appstore.yml`（iOS 送審）、`appstore-status.yml`（iOS 唯讀診斷）。
+上正式版是另外四個手動 workflow，跟 tag 無關：`promote-play.yml`（Android）、`submit-appstore.yml`（iOS 送審）、`appstore-status.yml`（iOS 唯讀診斷）、`withdraw-appstore.yml`（iOS 撤回送審）。
 
 Tag 格式（皆支援開頭可選的 `v`）：
 
@@ -93,8 +93,19 @@ tag 只會到 TestFlight。要上架跑 `.github/workflows/submit-appstore.yml`�
 這不是假想的：`1.0.30` 就這樣躺過一陣子，商店停在 `1.0.25`，`1.0.31`–`1.0.34` 全部只到 TestFlight
 就沒下文。所以每次送審後要嘛讓它自動上架，要嘛記得回去把它處理掉。
 
-（那次已經解掉了：`1.0.30` 現在是 `READY_FOR_SALE`。截至 2026-07-26 的狀態是 `1.0.35`
-`WAITING_FOR_REVIEW`，前面沒有東西擋著。這一行會過期，要看現況跑下面那支 workflow。）
+**卡住的不只是「已過審沒發布」，還在審的也一樣佔位。** `WAITING_FOR_REVIEW` / `IN_REVIEW` 同樣
+擋掉下一版。這種要跑 `.github/workflows/withdraw-appstore.yml`（`workflow_dispatch`）撤回，
+撤完再送新版——`submit-appstore.yml` 是把在審那個版本**改名**而不是新建一個，所以撤回重送之後
+版號會接到新的那版上。
+
+- `versionName` 必須跟「實際在審的那一版」相符，不然 lane 會直接拒絕。在審的版號不一定是你以為的
+  那個（deliver 會改名），所以先跑 `appstore-status.yml` 看清楚再填。
+- 已經是 `PENDING_DEVELOPER_RELEASE` 的 lane 會拒絕撤回——那是已經過審在等你按發布，該去按而不是丟掉。
+- Apple 是非同步處理，撤回後可能先停在 `CANCELING`，等一下再送下一版。
+
+（`1.0.30` 那次已經解掉了。2026-07-26 的狀態：商店在 `1.0.30`，`1.0.37` `WAITING_FOR_REVIEW`
+但身上掛的是 `1.0.35` 的 build，擋住了 `1.0.36`–`1.0.39`；已撤回並改送 `1.0.39`。
+這一行會過期，要看現況跑 `appstore-status.yml`。）
 
 要查目前狀態跑 `.github/workflows/appstore-status.yml`（唯讀，隨時可跑），它會列出每個 App Store
 版本和它的 state，以及最近幾包 TestFlight build 的處理狀態。

@@ -255,4 +255,75 @@ platform :ios do
       UI.success("#{version} staged in App Store Connect — not submitted.")
     end
   end
+
+  desc "Withdraw the version sitting in review, so the next one can be submitted"
+  lane :withdraw_review do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY_P8_BASE64"),
+      is_key_content_base64: true,
+      in_house: false,
+    )
+
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(**api_key)
+    app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+    UI.user_error!("No app found for #{APP_IDENTIFIER}") if app.nil?
+
+    expected = ENV.fetch("WITHDRAW_VERSION", "").strip
+    UI.user_error!("WITHDRAW_VERSION is required (e.g. 1.0.37)") if expected.empty?
+
+    version_state = lambda do |v|
+      m = %i[app_store_state state].find { |name| v.respond_to?(name) && v.send(name) }
+      m ? v.send(m).to_s : "unknown"
+    end
+
+    # Anything in one of these is holding the single editable-version slot, which
+    # is what makes the next submit_review fail with "you cannot create a new
+    # version of the App in the current state".
+    blocking_states = %w[WAITING_FOR_REVIEW IN_REVIEW READY_FOR_REVIEW UNRESOLVED_ISSUES PENDING_DEVELOPER_RELEASE]
+    blocking = app.get_app_store_versions(includes: "build").find { |v| blocking_states.include?(version_state.call(v)) }
+
+    if blocking.nil?
+      UI.success("Nothing is in review — the next version can be submitted as-is.")
+      next
+    end
+
+    found = blocking.version_string.to_s
+    UI.message("In review: #{found} (#{version_state.call(blocking)})")
+
+    # Refuse to cancel something other than what the operator named. The label on
+    # the in-flight version is not stable: deliver renames it rather than
+    # creating a second one, so what is sitting in review may not be the version
+    # you last submitted. Getting this wrong cancels someone else's release.
+    unless found == expected
+      UI.user_error!("Asked to withdraw #{expected}, but #{found} is the one in review. "                      "Re-run with the version this prints, or check appstore-status.yml first.")
+    end
+
+    if version_state.call(blocking) == "PENDING_DEVELOPER_RELEASE"
+      # Already approved and merely waiting for someone to press the button.
+      # Cancelling would throw away a passed review; releasing it is the fix.
+      UI.user_error!("#{found} has already passed review and is waiting for you to release it. "                      "Release it in App Store Connect instead of withdrawing it.")
+    end
+
+    # deliver submits through reviewSubmissions, so that is the object to cancel.
+    # The per-version appStoreVersionSubmission is the older route and still
+    # covers versions submitted before Apple moved the API.
+    submission = app.get_in_progress_review_submission(platform: Spaceship::ConnectAPI::Platform::IOS)
+    if submission
+      UI.message("Cancelling review submission #{submission.id}")
+      submission.cancel_submission
+    else
+      legacy = blocking.fetch_app_store_version_submission
+      UI.user_error!("#{found} is #{version_state.call(blocking)} but has no submission to cancel.") if legacy.nil?
+      UI.message("Cancelling the (legacy) per-version submission")
+      legacy.delete!
+    end
+
+    # Apple applies this asynchronously — CANCELING sits between the request and
+    # the slot actually being free, so report the state rather than claim done.
+    after = app.get_app_store_versions(includes: "build").find { |v| v.version_string.to_s == found }
+    UI.success("Withdrew #{found}; it now reads #{after ? version_state.call(after) : 'gone'}. "                "If that is still CANCELING, give it a minute before submitting the next version.")
+  end
 end
