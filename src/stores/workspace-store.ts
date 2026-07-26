@@ -600,6 +600,24 @@ function profileSummaryFromPayload(payload: unknown): { profiles: ProfileEntry[]
   return { profiles, activeProfileIds }
 }
 
+/**
+ * Named-field copy, deliberately — do not turn this into a spread.
+ *
+ * A remote-type profile is the host's alias for a *different* machine, and the
+ * host's entry for it carries that machine's connection secrets. At the time of
+ * writing `profile:list` and `profile:changed` ship `remoteToken` in the clear
+ * (BAT Desktop src-tauri/src/commands/profile.rs — `hydrate_remote_tokens` fills
+ * it back in on every index read), so the wire payload holds a credential this
+ * device was never granted and has no use for.
+ *
+ * Listing the fields is what keeps it out of the store, out of MMKV, and out of
+ * anything a future screen might render. `{ ...item }` would quietly adopt it,
+ * and the leak would be invisible from this side. There is a test that fails if
+ * a secret survives this function.
+ *
+ * The client never needs those fields: it only has to know which profiles exist
+ * and which it may operate. Dialling a remote profile is the host's job.
+ */
 function normalizeProfiles(value: unknown): ProfileEntry[] {
   return Array.isArray(value)
     ? value
