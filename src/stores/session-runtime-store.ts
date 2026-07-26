@@ -45,6 +45,36 @@ interface SessionRuntimeState {
 const inFlight = new Set<string>()
 
 /**
+ * How many snapshots to have in flight at once.
+ *
+ * This fan-out is expensive by nature: `agent:get-session-state` returns a
+ * session's *entire* message list, and the list wants one preview line and a
+ * status flag off the back of it. The host has no lighter call that carries
+ * `isStreaming` — `getSessionMeta` omits it — so there is nothing cheaper to
+ * ask for.
+ *
+ * That was tolerable when only the active workspace's sessions were polled.
+ * Once the list went cross-workspace it became "pull every transcript on the
+ * box, at once, over a phone's socket", and ClaudeScreen is competing for that
+ * same connection — it abandons its own history load after six seconds and
+ * renders an empty conversation. So: a small pool, and rows fill in as they
+ * land rather than in one batch at the end.
+ */
+const MAX_CONCURRENT_FETCHES = 4
+
+/** Run `worker` over `items`, at most `limit` at a time, in order. */
+async function pooled<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (cursor < items.length) {
+        await worker(items[cursor++])
+      }
+    }),
+  )
+}
+
+/**
  * A session resumed from a compacted transcript starts with the summary, and
  * 15k characters of it is not a useful row preview.
  */
@@ -94,39 +124,40 @@ export const useSessionRuntimeStore = create<SessionRuntimeState>((set, get) => 
     wanted.forEach(id => inFlight.add(id))
 
     try {
-      const entries = await Promise.all(wanted.map(async (id) => {
+      await pooled(wanted, MAX_CONCURRENT_FETCHES, async (id) => {
+        let fetched: SessionRuntime | null = null
         try {
-          const state = await channels.claude.getSessionState(id)
-          const preview = firstUserPrompt(state?.messages ?? [])
-          return [id, {
-            activity: deriveAgentActivity(state),
-            phase: runtimePhaseLabel(state),
-            preview,
-            model: state?.meta?.model ?? state?.model,
-            numTurns: state?.meta?.numTurns,
+          const snapshot = await channels.claude.getSessionState(id)
+          fetched = {
+            activity: deriveAgentActivity(snapshot),
+            phase: runtimePhaseLabel(snapshot),
+            preview: firstUserPrompt(snapshot?.messages ?? []),
+            model: snapshot?.meta?.model ?? snapshot?.model,
+            numTurns: snapshot?.meta?.numTurns,
             fetchedAt: Date.now(),
-          } satisfies SessionRuntime] as const
+          }
         } catch {
           // A failed request is not evidence the session stopped, so keep the
           // last known activity and only mark it unknown if we never had one.
-          return [id, null] as const
+          fetched = null
         }
-      }))
 
-      set(state => {
-        const runtimes = { ...state.runtimes }
-        for (const [id, runtime] of entries) {
-          if (runtime) {
-            // An empty preview from a session that had one means the fetch
-            // raced a reset, not that the prompt vanished.
-            runtimes[id] = runtime.preview
-              ? runtime
-              : { ...runtime, preview: state.runtimes[id]?.preview ?? '' }
-          } else if (!runtimes[id]) {
-            runtimes[id] = { activity: 'unknown', phase: null, preview: '', fetchedAt: Date.now() }
+        set(state => {
+          // The session may have been closed while its snapshot was in flight;
+          // re-adding it here would resurrect a row the prune already dropped.
+          if (fetched && !(id in state.runtimes) && !live.has(id)) return {}
+          if (!fetched) {
+            return id in state.runtimes
+              ? {}
+              : { runtimes: { ...state.runtimes, [id]: { activity: 'unknown' as const, phase: null, preview: '', fetchedAt: Date.now() } } }
           }
-        }
-        return { runtimes }
+          // An empty preview from a session that had one means the fetch raced
+          // a reset, not that the prompt vanished.
+          const runtime = fetched.preview
+            ? fetched
+            : { ...fetched, preview: state.runtimes[id]?.preview ?? '' }
+          return { runtimes: { ...state.runtimes, [id]: runtime } }
+        })
       })
     } finally {
       wanted.forEach(id => inFlight.delete(id))

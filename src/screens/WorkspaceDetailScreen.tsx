@@ -198,7 +198,10 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const sdkSessionIdsKey = sdkSessionIds.join('\0')
   useEffect(() => {
     if (connectionStatus !== 'connected') return
-    useSessionRuntimeStore.getState().refresh(sdkSessionIds).catch(() => undefined)
+    // This pane remounts every time you come back from a session, and each
+    // snapshot carries a full transcript, so honour a staleness window rather
+    // than re-pulling the workspace on every back-press.
+    useSessionRuntimeStore.getState().refresh(sdkSessionIds, { maxAgeMs: 10_000 }).catch(() => undefined)
     // sdkSessionIdsKey stands in for the array's contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus, sdkSessionIdsKey])

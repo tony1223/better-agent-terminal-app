@@ -131,11 +131,15 @@ export function TerminalListScreen({ navigation }: Props) {
     if (connectionStatus === 'connected') loadSupportedSessionTypes()
   }, [connectionStatus, loadSupportedSessionTypes])
 
+  // Taken from `sections`, not the raw list, so the active workspace's rows are
+  // fetched first — snapshots are pulled a few at a time and the top of the
+  // list is the part you can actually see.
+  //
   // A stable dependency for "the set of SDK sessions changed" — the array
   // itself is a new ref every render, so the key is what the effect can watch.
   const sdkSessionIds = useMemo(
-    () => visibleTerminals.filter(isSdkAgentSession).map(item => item.id),
-    [visibleTerminals],
+    () => sections.flatMap(section => section.data.filter(isSdkAgentSession).map(item => item.id)),
+    [sections],
   )
   const sdkSessionIdsKey = sdkSessionIds.join('\0')
 
@@ -151,10 +155,15 @@ export function TerminalListScreen({ navigation }: Props) {
 
   // Refresh terminals AND their status on focus so sessions used elsewhere are
   // reflected without relying on cached state.
+  //
+  // Bouncing in and out of a session refocuses this tab each time, and each
+  // snapshot drags a whole transcript across the socket; the staleness window
+  // keeps that from re-pulling everything on every back-press while still
+  // catching a session that changed while you were away.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
-      refreshRuntimes()
+      refreshRuntimes({ maxAgeMs: 10_000 })
     }, [refreshRuntimes]),
   )
 

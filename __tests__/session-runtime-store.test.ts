@@ -122,6 +122,62 @@ test('maxAgeMs skips a session fetched moments ago', async () => {
   expect(getSessionState).toHaveBeenCalledTimes(2)
 })
 
+test('caps how many transcripts are in flight at once', async () => {
+  // getSessionState returns a session's entire message list. Fanning that out
+  // over every session on the host saturates the phone's socket, and
+  // ClaudeScreen abandons its own history load after six seconds on the same
+  // connection — an empty conversation for the user.
+  let live = 0
+  let peak = 0
+  const release: Array<() => void> = []
+  const getSessionState = jest.fn().mockImplementation(() => {
+    live += 1
+    peak = Math.max(peak, live)
+    return new Promise(resolve => {
+      release.push(() => { live -= 1; resolve(snapshot()) })
+    })
+  })
+  mockHost(getSessionState)
+
+  const ids = Array.from({ length: 20 }, (_, i) => `s${i}`)
+  const done = useSessionRuntimeStore.getState().refresh(ids)
+
+  // Drain in waves; the pool must never exceed its cap along the way.
+  while (release.length > 0) {
+    release.splice(0).forEach(fn => fn())
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+  await done
+
+  // Bounded, but genuinely parallel: a serial fetch would also sit under the
+  // cap while taking twenty round-trips to fill the list.
+  expect(peak).toBeGreaterThan(1)
+  expect(peak).toBeLessThanOrEqual(4)
+  expect(getSessionState).toHaveBeenCalledTimes(20)
+  expect(Object.keys(useSessionRuntimeStore.getState().runtimes)).toHaveLength(20)
+})
+
+test('rows land as they arrive rather than in one batch at the end', async () => {
+  let resolveSecond: (value: unknown) => void = () => {}
+  const getSessionState = jest.fn()
+    .mockResolvedValueOnce(snapshot({ messages: [{ role: 'user', content: 'first' }] }))
+    .mockReturnValueOnce(new Promise(r => { resolveSecond = r }))
+  mockHost(getSessionState)
+
+  const done = useSessionRuntimeStore.getState().refresh(['s1', 's2'])
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+
+  // s1 is on screen while s2 is still outstanding.
+  expect(useSessionRuntimeStore.getState().runtimes.s1?.preview).toBe('first')
+
+  resolveSecond(snapshot())
+  await done
+  expect(useSessionRuntimeStore.getState().runtimes.s2).toBeDefined()
+})
+
 test('does nothing when there is no connection', async () => {
   getStateMock.mockReturnValue({ channels: null })
   await useSessionRuntimeStore.getState().refresh(['s1'])
