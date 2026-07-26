@@ -141,18 +141,27 @@ platform :ios do
     app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
     UI.user_error!("No app found for #{APP_IDENTIFIER}") if app.nil?
 
+    # Every build is numbered 1, because build numbers restart for each
+    # marketing version — so "build 1" identifies nothing on its own. Index the
+    # builds by id first and report which version each one was uploaded for.
+    builds = app.get_builds(sort: "-uploadedDate", includes: "preReleaseVersion")
+    build_origin = builds.each_with_object({}) do |b, acc|
+      acc[b.id] = "#{b.pre_release_version&.version || '?'} (build #{b.version})"
+    end
+
     UI.header("App Store versions for #{APP_IDENTIFIER}")
     # submit_review fails with "cannot create a new version in the current
     # state" whenever one of these is parked in a non-editable state — this is
     # the list that says which one.
+    #
     # The attached build is the part you cannot infer from the version string.
     # deliver renames the in-flight version rather than creating a second one,
-    # so a version labelled 1.0.37 can still be carrying the binary that was
-    # uploaded for 1.0.35 — same label, different app.
+    # so a version labelled 1.0.37 can still be carrying the binary uploaded for
+    # 1.0.35 — same label, different app. That is what this column is for.
     app.get_app_store_versions(includes: "build").each do |v|
       state = %i[app_store_state state].find { |m| v.respond_to?(m) && v.send(m) }
-      build = v.build&.version || "no build attached"
-      UI.message("  #{v.version_string.to_s.ljust(12)} #{(state ? v.send(state) : 'unknown').to_s.ljust(26)} build #{build}  (#{v.platform})")
+      carrying = v.build ? build_origin.fetch(v.build.id, "build #{v.build.version}, origin unknown") : "no build attached"
+      UI.message("  #{v.version_string.to_s.ljust(12)} #{(state ? v.send(state) : 'unknown').to_s.ljust(26)} carrying #{carrying}")
     end
 
     UI.header("Recent TestFlight builds")
@@ -160,11 +169,10 @@ platform :ios do
     # through app_store_version — that association is only populated once the
     # build is attached to an App Store version. It also has to be asked for:
     # without `includes` the relationship comes back unpopulated and every row
-    # reads "of -", which is the one thing this section exists to tell you,
-    # since build numbers restart at 1 for each marketing version.
-    builds = app.get_builds(sort: "-uploadedDate", includes: "preReleaseVersion")
-    # `limit:` is not honoured here — App#get_builds pages through everything —
-    # so trim it ourselves rather than printing sixty lines.
+    # reads "of -", which is the one thing this section exists to tell you.
+    #
+    # `limit:` is not honoured on get_builds — App#get_builds pages through
+    # everything — so trim it here rather than printing sixty lines.
     builds.first(8).each do |b|
       marketing = b.pre_release_version&.version || "-"
       UI.message("  build #{b.version.to_s.ljust(6)} of #{marketing.to_s.ljust(12)} processing=#{b.processing_state}")
