@@ -45,3 +45,16 @@ git push origin 1.0.30
 git tag 1.0.30-ios
 git push origin 1.0.30-ios
 ```
+
+### 升上 Google Play 正式版（production）
+
+tag 只會發到 `internal` / `beta`。要上正式版，跑 `.github/workflows/promote-play.yml`（`workflow_dispatch`）——
+它把**已經上架的那包 AAB** 在 track 之間搬移，不重 build。
+
+不要用重跑 release workflow 的方式上正式版：`versionCode` 取自 `github.run_number`，重跑會產生不同的
+versionCode，等於把一包沒人測過的 artifact 推上去。
+
+- `versionCode` 留白 = 拿來源 track 上最新的那包。
+- `rolloutPercent` < 100 會是分階段發布（staged rollout），可以在 Play Console 隨時 halt；100% 沒辦法收回。
+- 要把分階段發布推到 100%：`fromTrack` 和 `toTrack` 都選 `production`，`rolloutPercent` 選 100 再跑一次。
+- `dryRun` 會印出將要送出的內容然後放棄該 edit，不會有任何實際變更。

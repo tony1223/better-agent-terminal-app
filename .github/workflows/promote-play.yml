@@ -1,0 +1,71 @@
+name: Promote Play Release
+run-name: promote ${{ inputs.versionCode || 'newest' }} ${{ inputs.fromTrack }} -> ${{ inputs.toTrack }} (${{ inputs.rolloutPercent }}%)
+
+# Moves an AAB that is already on Play between tracks. Deliberately not tied to
+# a tag: re-running the release build would mint a new versionCode from
+# github.run_number, so production would get an artifact nobody tested.
+on:
+  workflow_dispatch:
+    inputs:
+      versionCode:
+        description: "versionCode to promote (blank = newest on the source track)"
+        required: false
+      fromTrack:
+        description: "Source track"
+        required: true
+        default: beta
+        type: choice
+        options: [beta, internal, alpha, production]
+      toTrack:
+        description: "Target track"
+        required: true
+        default: production
+        type: choice
+        options: [production, beta, alpha, internal]
+      rolloutPercent:
+        description: "Share of users (a staged rollout can be halted; 100 cannot)"
+        required: true
+        default: "20"
+        type: choice
+        options: ["20", "50", "100", "10", "5"]
+      dryRun:
+        description: "Print the change and abandon the edit instead of committing"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      # CI-only dependency, deliberately not in the app's package.json — and
+      # installed in a scratch dir, because `npm install` in the repo root would
+      # also try to resolve the whole React Native tree from a yarn.lock it does
+      # not own. Node's ESM resolver walks up from the script's own directory,
+      # so running it from there finds the package.
+      - name: Install Play API client
+        run: |
+          mkdir -p /tmp/playapi
+          cd /tmp/playapi
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund google-auth-library@^10
+          cp "$GITHUB_WORKSPACE/scripts/promote-play-release.mjs" /tmp/playapi/
+
+      - name: Promote
+        working-directory: /tmp/playapi
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PACKAGE_NAME: com.tonyq.betteragentterminal
+          FROM_TRACK: ${{ inputs.fromTrack }}
+          TO_TRACK: ${{ inputs.toTrack }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          ROLLOUT_PERCENT: ${{ inputs.rolloutPercent }}
+          DRY_RUN: ${{ inputs.dryRun }}
+        run: node promote-play-release.mjs
