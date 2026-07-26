@@ -36,6 +36,74 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+export interface ResumeOptions {
+  agentPreset?: string
+  permissionMode?: string
+  effort?: string
+  autoCompactWindow?: number | null
+  codexSandboxMode?: string
+  codexApprovalPolicy?: string
+  useWorktree?: boolean
+  worktreePath?: string
+  worktreeBranch?: string
+}
+
+/**
+ * `agent:resume-session` and `agent:client-resume` take identical params — the
+ * host decodes both through the same builder — so the two differ only in what
+ * they do to a session that is already live.
+ */
+function resumeArgs(
+  sessionId: string,
+  sdkSessionId: string,
+  cwd: string,
+  model?: string,
+  options?: ResumeOptions,
+) {
+  return {
+    named: {
+      sessionId,
+      sdkSessionId,
+      options: {
+        cwd,
+        model,
+        agentPreset: options?.agentPreset,
+        codexSandboxMode: options?.codexSandboxMode,
+        codexApprovalPolicy: options?.codexApprovalPolicy,
+        permissionMode: options?.permissionMode,
+        effort: options?.effort,
+        // number = enforce; null = explicitly uncapped; undefined = let
+        // the host derive it from the model preset id.
+        ...(typeof options?.autoCompactWindow === 'number' || options?.autoCompactWindow === null
+          ? { autoCompactWindow: options.autoCompactWindow }
+          : {}),
+        ...(options?.useWorktree
+          ? {
+            useWorktree: true,
+            worktreePath: options.worktreePath,
+            worktreeBranch: options.worktreeBranch,
+          }
+          : {}),
+      },
+    },
+    positional: [
+      sessionId,
+      sdkSessionId,
+      cwd,
+      model,
+      undefined,
+      options?.useWorktree ? true : undefined,
+      options?.worktreePath,
+      options?.worktreeBranch,
+      options?.agentPreset,
+      options?.codexSandboxMode,
+      options?.codexApprovalPolicy,
+      options?.permissionMode,
+      options?.effort,
+    ],
+  }
+}
+
 function normalizeHistoryEvent(args: unknown[]): { sessionId: string; items: ClaudeHistoryItem[] } | null {
   const [first, second] = args
   if (typeof first === 'string') {
@@ -91,60 +159,30 @@ export function createClaudeChannel(ws: WebSocketClient) {
     resetSession: (sessionId: string) =>
       ws.invokeParams('agent:reset-session', { sessionId }, [sessionId]),
 
-    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, options?: {
-      agentPreset?: string
-      permissionMode?: string
-      effort?: string
-      autoCompactWindow?: number | null
-      codexSandboxMode?: string
-      codexApprovalPolicy?: string
-      useWorktree?: boolean
-      worktreePath?: string
-      worktreeBranch?: string
-    }) =>
-      ws.invokeParams(
-        'agent:resume-session',
-        {
-          sessionId,
-          sdkSessionId,
-          options: {
-            cwd,
-            model,
-            agentPreset: options?.agentPreset,
-            codexSandboxMode: options?.codexSandboxMode,
-            codexApprovalPolicy: options?.codexApprovalPolicy,
-            permissionMode: options?.permissionMode,
-            effort: options?.effort,
-            // number = enforce; null = explicitly uncapped; undefined = let
-            // the host derive it from the model preset id.
-            ...(typeof options?.autoCompactWindow === 'number' || options?.autoCompactWindow === null
-              ? { autoCompactWindow: options.autoCompactWindow }
-              : {}),
-            ...(options?.useWorktree
-              ? {
-                useWorktree: true,
-                worktreePath: options.worktreePath,
-                worktreeBranch: options.worktreeBranch,
-              }
-              : {}),
-          },
-        },
-        [
-          sessionId,
-          sdkSessionId,
-          cwd,
-          model,
-          undefined,
-          options?.useWorktree ? true : undefined,
-          options?.worktreePath,
-          options?.worktreeBranch,
-          options?.agentPreset,
-          options?.codexSandboxMode,
-          options?.codexApprovalPolicy,
-          options?.permissionMode,
-          options?.effort,
-        ],
-      ),
+    /**
+     * Restart the SDK session from a transcript. Tears down whatever the host
+     * has live, so it aborts an in-flight turn — only use it when the intent is
+     * genuinely to restart, not merely to look at the conversation.
+     */
+    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, options?: ResumeOptions) => {
+      const { named, positional } = resumeArgs(sessionId, sdkSessionId, cwd, model, options)
+      return ws.invokeParams('agent:resume-session', named, positional)
+    },
+
+    /**
+     * What a client that just wants to *view* a session should call.
+     *
+     * When the host has the session live it re-emits the persisted transcript
+     * over `claude:history`, read-only, without disturbing a running turn; when
+     * the session is absent it falls back to a full resume. Either way history
+     * arrives, which `resumeSession` cannot promise: against a live session it
+     * answers `alreadyLive: true` and emits nothing, and `getSessionState` then
+     * reports the host's *empty in-memory buffer* — so the view renders blank.
+     */
+    clientResume: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, options?: ResumeOptions) => {
+      const { named, positional } = resumeArgs(sessionId, sdkSessionId, cwd, model, options)
+      return ws.invokeParams('agent:client-resume', named, positional)
+    },
 
     forkSession: (sessionId: string) =>
       ws.invokeParams<string>('agent:fork-session', { sessionId }, [sessionId]),

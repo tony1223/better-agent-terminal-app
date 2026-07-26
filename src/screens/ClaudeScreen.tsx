@@ -546,24 +546,35 @@ export function ClaudeScreen({ route, navigation }: Props) {
         inFlightSessionKeyRef.current = loadKey
         try {
           const resumeResult = await timedLoadStep(
-            `resumeSession sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
-            () => {
+            `clientResume sessionId=${sessionId} sdkSessionId=${sdkSessionIdToResume}`,
+            async () => {
               const resumeModel = resolveSessionModel()
               const { autoCompactWindow: resumeCompactWindow } = setModelArgsForClaudeSelection(resumeModel ?? '')
-              return channels.claude.resumeSession(
-                sessionId,
-                sdkSessionIdToResume,
-                terminalCwd,
-                resumeModel,
-                {
-                  agentPreset,
-                  ...(isClaudeCodeAgent ? { permissionMode } : {}),
-                  ...(resumeCompactWindow !== undefined ? { autoCompactWindow: resumeCompactWindow } : {}),
-                  codexSandboxMode,
-                  codexApprovalPolicy,
-                  ...worktreeOptions,
-                },
-              )
+              const resumeOptions = {
+                agentPreset,
+                ...(isClaudeCodeAgent ? { permissionMode } : {}),
+                ...(resumeCompactWindow !== undefined ? { autoCompactWindow: resumeCompactWindow } : {}),
+                codexSandboxMode,
+                codexApprovalPolicy,
+                ...worktreeOptions,
+              }
+              try {
+                // Opening a session view must not restart it. client-resume
+                // re-emits the transcript read-only when the host has it live,
+                // and falls back to a real resume when it doesn't.
+                return await channels.claude.clientResume(
+                  sessionId, sdkSessionIdToResume, terminalCwd, resumeModel, resumeOptions,
+                )
+              } catch (e) {
+                // Hosts older than agent:client-resume reject the channel
+                // outright. Restarting the session is worse than viewing it,
+                // but both beat rendering the conversation blank.
+                diag.clientResume = 'unsupported'
+                dlog('!CLAUDE_SCREEN', `clientResume unavailable, falling back to resumeSession: ${e}`)
+                return await channels.claude.resumeSession(
+                  sessionId, sdkSessionIdToResume, terminalCwd, resumeModel, resumeOptions,
+                )
+              }
             },
           )
           // Capture only the host's resume verdict (ok/stale/alreadyLive); the
@@ -575,9 +586,20 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 alreadyLive: (resumeResult as Record<string, unknown>).alreadyLive ?? null,
               }
             : resumeResult ?? null
-          // resumeSession pushes the full conversation via claude:history; never
-          // run the archived fallback here or it clobbers that with a stale subset.
+          // client-resume re-emits the transcript over claude:history, so the
+          // archived fallback stays off here or it would clobber that with a
+          // stale subset.
           await loadSessionState({ archivedFallback: false })
+          // …but if nothing arrived, the archive is the only thing left. A
+          // restarting resume against an already-live session answers
+          // `alreadyLive` and emits no history, and getSessionState then
+          // reports the host's empty in-memory buffer — which is precisely how
+          // a session with hundreds of messages rendered blank.
+          if ((useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0) === 0) {
+            dlog('!CLAUDE_SCREEN', `resume produced no transcript sdkSessionId=${sdkSessionIdToResume}; falling back to the archive`)
+            diag.resumeEmpty = true
+            await backfillArchivedHistory()
+          }
           loadedSessionKeyRef.current = loadKey
         } finally {
           if (inFlightSessionKeyRef.current === loadKey) {
