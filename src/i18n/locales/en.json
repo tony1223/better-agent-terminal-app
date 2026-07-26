@@ -232,9 +232,7 @@
     "activity": {
       "working": "Working",
       "ready": "Ready",
-      "stopped": "Stopped",
-      "unknown": "Checking…",
-      "turns": "{{count}} turns"
+      "stopped": "Stopped"
     }
   },
   "terminalList": {

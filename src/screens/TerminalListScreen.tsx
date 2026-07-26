@@ -24,7 +24,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
-import { useSessionRuntimeStore } from '@/stores/session-runtime-store'
+import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { isSdkAgentSession, normalizeAgentPresetsFromHost } from '@/types'
@@ -56,7 +56,6 @@ export function TerminalListScreen({ navigation }: Props) {
     requestAddSession,
     requestCloseSession,
   } = useWorkspaceStore()
-  const runtimes = useSessionRuntimeStore(s => s.runtimes)
   const [scope, setScope] = useState<Scope>('all')
   const [showAddModal, setShowAddModal] = useState(false)
   const [availableSessionTypes, setAvailableSessionTypes] = useState<AgentPreset[] | null>(null)
@@ -132,8 +131,8 @@ export function TerminalListScreen({ navigation }: Props) {
   }, [connectionStatus, loadSupportedSessionTypes])
 
   // Taken from `sections`, not the raw list, so the active workspace's rows are
-  // fetched first — snapshots are pulled a few at a time and the top of the
-  // list is the part you can actually see.
+  // fetched first — previews are pulled a few at a time and the top of the list
+  // is the part you can actually see.
   //
   // A stable dependency for "the set of SDK sessions changed" — the array
   // itself is a new ref every render, so the key is what the effect can watch.
@@ -143,28 +142,26 @@ export function TerminalListScreen({ navigation }: Props) {
   )
   const sdkSessionIdsKey = sdkSessionIds.join('\0')
 
-  const refreshRuntimes = useCallback((options?: { maxAgeMs?: number }) => {
-    useSessionRuntimeStore.getState().refresh(sdkSessionIds, options).catch(() => undefined)
+  const loadPreviews = useCallback(() => {
+    useSessionPreviewStore.getState().load(sdkSessionIds).catch(() => undefined)
     // sdkSessionIdsKey stands in for the array's contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sdkSessionIdsKey])
 
   useEffect(() => {
-    if (connectionStatus === 'connected') refreshRuntimes()
-  }, [connectionStatus, refreshRuntimes])
+    if (connectionStatus === 'connected') loadPreviews()
+  }, [connectionStatus, loadPreviews])
 
-  // Refresh terminals AND their status on focus so sessions used elsewhere are
-  // reflected without relying on cached state.
-  //
-  // Bouncing in and out of a session refocuses this tab each time, and each
-  // snapshot drags a whole transcript across the socket; the staleness window
-  // keeps that from re-pulling everything on every back-press while still
-  // catching a session that changed while you were away.
+  // Refresh terminals on focus so sessions started elsewhere show up without
+  // relying on cached state. Previews need no staleness window — an opening
+  // prompt doesn't change, so the store only fetches ids it has never seen.
+  // Activity isn't fetched at all: it rides the stream events App.tsx already
+  // subscribes to, so a session that starts working updates the row live.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
-      refreshRuntimes({ maxAgeMs: 10_000 })
-    }, [refreshRuntimes]),
+      loadPreviews()
+    }, [loadPreviews]),
   )
 
   const handlePress = (terminal: TerminalInstance) => {
@@ -301,7 +298,6 @@ export function TerminalListScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <SessionRow
             terminal={item}
-            runtime={runtimes[item.id]}
             closing={closingId === item.id}
             onPress={handlePress}
             onRequestClose={closeSession}

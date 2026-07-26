@@ -13,12 +13,17 @@ import { useTranslation } from 'react-i18next'
 import { WorktreeControls } from '@/components/session/WorktreeControls'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { getAgentPreset, isSdkAgentSession, type TerminalInstance } from '@/types'
-import { derivePtyActivity, type SessionActivity } from '@/utils/session-status'
-import type { SessionRuntime } from '@/stores/session-runtime-store'
+import {
+  deriveAgentActivity,
+  derivePtyActivity,
+  runtimePhaseLabel,
+  type SessionActivity,
+} from '@/utils/session-status'
+import { useClaudeStore } from '@/stores/claude-store'
+import { useSessionPreviewStore } from '@/stores/session-preview-store'
 
 interface Props {
   terminal: TerminalInstance
-  runtime?: SessionRuntime
   closing: boolean
   onPress: (terminal: TerminalInstance) => void
   onRequestClose: (terminal: TerminalInstance) => void
@@ -31,12 +36,10 @@ const ACTIVITY_TONE: Record<SessionActivity, { color: string; labelKey: string }
   working: { color: appColors.warning, labelKey: 'session.activity.working' },
   idle: { color: appColors.success, labelKey: 'session.activity.ready' },
   stopped: { color: appColors.textMuted, labelKey: 'session.activity.stopped' },
-  unknown: { color: appColors.textMuted, labelKey: 'session.activity.unknown' },
 }
 
 export function SessionRow({
   terminal,
-  runtime,
   closing,
   onPress,
   onRequestClose,
@@ -46,18 +49,23 @@ export function SessionRow({
   const { t } = useTranslation()
   const preset = terminal.agentPreset ? getAgentPreset(terminal.agentPreset) : null
 
+  // Two primitive selectors rather than one for the whole session: a streaming
+  // turn rewrites `messages` and `streamingText` continuously, and a list has no
+  // business re-rendering on every token. These two only change at turn edges.
+  const isStreaming = useClaudeStore(s => s.sessions[terminal.id]?.isStreaming ?? false)
+  const runtimeStatus = useClaudeStore(s => s.sessions[terminal.id]?.meta?.runtimeStatus ?? null)
+  const preview = useSessionPreviewStore(s => s.previews[terminal.id])
+
   // A plain shell has no agent turn to report, so its process really is the
-  // whole story; only SDK sessions have a runtime to consult.
+  // whole story; only SDK sessions have live agent activity to consult.
+  const live = { isStreaming, meta: { runtimeStatus } }
   const activity: SessionActivity = isSdkAgentSession(terminal)
-    ? runtime?.activity ?? 'unknown'
+    ? deriveAgentActivity(live)
     : derivePtyActivity(terminal)
   const tone = ACTIVITY_TONE[activity]
   // The host's phase word ("queued", "compacting") beats a generic "Working"
   // when it has one — it's the difference between "busy" and "stuck on me".
-  const activityLabel = activity === 'working' && runtime?.phase
-    ? runtime.phase
-    : t(tone.labelKey)
-  const preview = runtime?.preview
+  const activityLabel = (activity === 'working' && runtimePhaseLabel(live)) || t(tone.labelKey)
 
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(terminal)} disabled={closing}>
@@ -90,11 +98,6 @@ export function SessionRow({
         <Text style={[styles.statusText, { color: tone.color }]} numberOfLines={1}>
           {activityLabel}
         </Text>
-        {runtime?.numTurns ? (
-          <Text style={styles.statusMeta} numberOfLines={1}>
-            {t('session.activity.turns', { count: runtime.numTurns })}
-          </Text>
-        ) : null}
       </View>
       <WorktreeControls terminal={terminal} closing={closing} onCloseSession={onCloseSession} />
     </TouchableOpacity>
@@ -161,11 +164,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: '700',
     textTransform: 'capitalize',
-  },
-  statusMeta: {
-    fontSize: fontSize.xs,
-    color: appColors.textMuted,
-    marginLeft: spacing.sm,
   },
   trailing: {
     marginLeft: spacing.sm,

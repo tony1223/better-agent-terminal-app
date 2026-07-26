@@ -1,25 +1,29 @@
 /**
  * What a session row should say about a session.
  *
- * The list screens used to show a dot driven by `TerminalInstance.pid` — is
- * the process alive. For an agent session that answers a question nobody
- * asks: an idle agent and one twelve tool-calls deep into a turn are both
- * "alive". The question on a phone is "is it done yet", and the answer is
- * already in the session snapshot the list fetches anyway.
+ * The list used to show a dot driven by `TerminalInstance.pid`. For an agent
+ * session that answers a question nobody asks: an idle agent and one twelve
+ * tool-calls deep into a turn are both "alive". What you want to know on a
+ * phone is whether it is done yet.
+ *
+ * The first attempt at this polled `agent:get-session-state` per row. That was
+ * wrong twice over. It returns no activity at all — the host's
+ * `session_state_from_notification_snapshot` carries `active`/`isResting`/
+ * `model` and neither `isStreaming` nor `meta` — and it was never needed,
+ * because `subscribeClaudeEvents` (App.tsx) subscribes to `agent:stream` and
+ * `agent:status` for *every* session, not just the open one. A working session
+ * announces itself continuously; we only had to listen.
  */
 
-import type { SessionStateSnapshot, TerminalInstance } from '@/types'
+import type { SessionMeta, TerminalInstance } from '@/types'
 
 export type SessionActivity =
   // The agent is mid-turn: streaming, or the host is preparing/queueing a request.
   | 'working'
-  // A live session sitting waiting for input.
+  // Nothing in flight — waiting on you.
   | 'idle'
-  // Process is gone (plain terminals) or the host has no session for this id.
+  // Process is gone. Plain terminals only; an agent session has no pid to lose.
   | 'stopped'
-  // A session we have not polled yet — deliberately distinct from 'idle' so a
-  // row never claims a session is finished when we simply have not looked.
-  | 'unknown'
 
 /**
  * Host-side turn phases that mean work is in flight. `runtimeStatus` goes null
@@ -32,17 +36,24 @@ export function isActiveRuntimeStatus(status: string | null | undefined): boolea
   return !!status && ACTIVE_RUNTIME_STATUSES.has(status)
 }
 
+/** The slice of a claude-store session that says whether it is busy. */
+export interface LiveSessionActivity {
+  isStreaming?: boolean
+  meta?: Pick<SessionMeta, 'runtimeStatus'> | null
+}
+
 /**
- * Derive a row's activity from the snapshot the host returned for it.
+ * Derive activity from the events we have already received for this session.
  *
- * `snapshot === null` means the host answered but has no such session; passing
- * `undefined` means we never asked.
+ * `undefined` means no event has arrived since the app connected. That reads as
+ * idle rather than unknown on purpose: a session with a turn in flight emits
+ * continuously, so silence is evidence of *not* working. The row can be at most
+ * a second or so behind a turn that began before we connected.
  */
-export function deriveAgentActivity(snapshot: SessionStateSnapshot | null | undefined): SessionActivity {
-  if (snapshot === undefined) return 'unknown'
-  if (snapshot === null) return 'stopped'
-  if (snapshot.isStreaming === true) return 'working'
-  if (isActiveRuntimeStatus(snapshot.meta?.runtimeStatus)) return 'working'
+export function deriveAgentActivity(live: LiveSessionActivity | undefined): SessionActivity {
+  if (!live) return 'idle'
+  if (live.isStreaming === true) return 'working'
+  if (isActiveRuntimeStatus(live.meta?.runtimeStatus)) return 'working'
   return 'idle'
 }
 
@@ -56,10 +67,10 @@ export function derivePtyActivity(terminal: TerminalInstance): SessionActivity {
 
 /**
  * The phase word to show beside a working session ("queued", "compacting"…).
- * Returns null while the model is simply streaming, where the activity label
- * already says everything useful.
+ * Null while the model is simply streaming, where the activity label already
+ * says everything useful.
  */
-export function runtimePhaseLabel(snapshot: SessionStateSnapshot | null | undefined): string | null {
-  const status = snapshot?.meta?.runtimeStatus
+export function runtimePhaseLabel(live: LiveSessionActivity | undefined): string | null {
+  const status = live?.meta?.runtimeStatus
   return isActiveRuntimeStatus(status) ? String(status).replace(/_/g, ' ') : null
 }

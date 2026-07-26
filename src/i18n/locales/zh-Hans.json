@@ -232,9 +232,7 @@
     "activity": {
       "working": "执行中",
       "ready": "待命",
-      "stopped": "已停止",
-      "unknown": "查询中…",
-      "turns": "{{count}} 轮"
+      "stopped": "已停止"
     }
   },
   "terminalList": {

@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
-import { useSessionRuntimeStore } from '@/stores/session-runtime-store'
+import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import {
@@ -154,7 +154,6 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
   const createRequestRef = useRef(0)
-  const runtimes = useSessionRuntimeStore(s => s.runtimes)
   const terminals = useMemo(
     () => allTerminals.filter(item => item.workspaceId === workspaceId),
     [allTerminals, workspaceId],
@@ -192,16 +191,15 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     if (connectionStatus === 'connected') loadSupportedSessionTypes()
   }, [connectionStatus, loadSupportedSessionTypes])
 
-  // Same session status the Terminals tab shows, from the same store — which
-  // screen you arrived from shouldn't change how much you're told.
+  // Same session previews the Terminals tab shows, from the same store — which
+  // screen you arrived from shouldn't change how much you're told. This pane
+  // remounts on every back-press out of a session; the store only fetches ids it
+  // has never seen, so that costs nothing after the first visit.
   const sdkSessionIds = useMemo(() => terminals.filter(isSdkAgentSession).map(item => item.id), [terminals])
   const sdkSessionIdsKey = sdkSessionIds.join('\0')
   useEffect(() => {
     if (connectionStatus !== 'connected') return
-    // This pane remounts every time you come back from a session, and each
-    // snapshot carries a full transcript, so honour a staleness window rather
-    // than re-pulling the workspace on every back-press.
-    useSessionRuntimeStore.getState().refresh(sdkSessionIds, { maxAgeMs: 10_000 }).catch(() => undefined)
+    useSessionPreviewStore.getState().load(sdkSessionIds).catch(() => undefined)
     // sdkSessionIdsKey stands in for the array's contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus, sdkSessionIdsKey])
@@ -309,7 +307,6 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
         renderItem={({ item }) => (
           <SessionRow
             terminal={item}
-            runtime={runtimes[item.id]}
             closing={closingId === item.id}
             onPress={openSession}
             onRequestClose={closeSession}
