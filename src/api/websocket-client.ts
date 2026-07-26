@@ -56,7 +56,16 @@ const HEARTBEAT_MS = 10_000
 // ping going out every HEARTBEAT_MS, silence this long means the link is gone
 // no matter what readyState claims.
 const LIVENESS_TIMEOUT_MS = 25_000
-const PROBE_TIMEOUT_MS = 3_000
+// A round trip on a congested LTE link routinely takes several seconds — a
+// 200-byte get-session-state has been measured at 4.9s — so the old 3s probe
+// was below the normal latency of the network it was meant to be judging, and
+// answered "dead" for links that were merely slow.
+const PROBE_TIMEOUT_MS = 10_000
+// And one unanswered probe still isn't a verdict. Tearing down a working
+// socket costs a reconnect plus every in-flight request; waiting one more
+// round costs PROBE_TIMEOUT_MS. Only a link that misses twice in a row is
+// gone.
+const PROBE_FAILURES_BEFORE_CLOSE = 2
 // Above this, a frame takes long enough to clear a phone's uplink that
 // everything queued behind it — including our own heartbeat pings — waits for
 // it. See queueDrainEstimateMs.
@@ -213,6 +222,7 @@ export class WebSocketClient {
   // nothing about the link — see sendFrame.
   private outboundDrainUntil = 0
   private probeInFlight = false
+  private probeFailures = 0
 
   get status(): ConnectionStatus {
     return this._status
@@ -595,6 +605,8 @@ export class WebSocketClient {
   private startHeartbeat() {
     this.stopHeartbeat()
     this.lastFrameAt = Date.now()
+    // Misses are counted against one socket, not carried into its replacement.
+    this.probeFailures = 0
     this.heartbeatTimer = setInterval(() => this.heartbeatTick(), HEARTBEAT_MS)
   }
 
@@ -679,8 +691,20 @@ export class WebSocketClient {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingPings.delete(id)
-        dlog('!WS', `health check timeout id=${id}`)
-        if (this.ws && this._status === 'connected') {
+        // Our own large upload is still clearing the uplink, so the probe was
+        // queued behind it and never reached the host. Nothing was asked, so
+        // the silence says nothing — don't count it against the link.
+        if (Date.now() < this.outboundDrainUntil) {
+          dlog('WS', `health check timeout id=${id} while draining a large frame, not counted`)
+          resolve(false)
+          return
+        }
+        this.probeFailures += 1
+        const verdict = this.probeFailures >= PROBE_FAILURES_BEFORE_CLOSE
+        dlog('!WS', `health check timeout id=${id} after ${timeoutMs}ms `
+          + `(${this.probeFailures}/${PROBE_FAILURES_BEFORE_CLOSE})`
+          + `${verdict ? ', closing' : ', giving it one more round'}`)
+        if (verdict && this.ws && this._status === 'connected') {
           this.ws.close(4000, 'health check timeout')
         }
         resolve(false)
@@ -689,6 +713,8 @@ export class WebSocketClient {
       this.pendingPings.set(id, {
         resolve: () => {
           dlog('WS', `health check pong id=${id}`)
+          // A link that answers has earned back its full allowance.
+          this.probeFailures = 0
           resolve(true)
         },
         reject: (error: Error) => {

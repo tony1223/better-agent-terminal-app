@@ -304,6 +304,84 @@ describe('sending something large', () => {
   })
 })
 
+describe('health probe', () => {
+  // The generic pong() helper answers a fixed id; a probe is matched by the id
+  // it actually went out with.
+  function answerLastPing(socket: FakeSocket) {
+    const last = JSON.parse(socket.sent[socket.sent.length - 1])
+    socket.cb.onMessage?.(JSON.stringify({ type: 'pong', id: last.id }))
+  }
+
+  it('does not tear down the link over a single missed probe', async () => {
+    const { client, socket } = await connectedClient()
+
+    const probe = client.checkConnection()
+    await jest.advanceTimersByTimeAsync(11_000)
+
+    await expect(probe).resolves.toBe(false)
+    // A phone on congested LTE misses one and is still perfectly usable;
+    // reconnecting costs every in-flight request.
+    expect(socket.closedWith).toBeNull()
+    expect(client.status).toBe('connected')
+  })
+
+  it('gives up once two in a row go unanswered', async () => {
+    const { client, socket } = await connectedClient()
+
+    const first = client.checkConnection()
+    await jest.advanceTimersByTimeAsync(11_000)
+    await expect(first).resolves.toBe(false)
+
+    const second = client.checkConnection()
+    await jest.advanceTimersByTimeAsync(11_000)
+    await expect(second).resolves.toBe(false)
+
+    expect(socket.closedWith?.code).toBe(4000)
+    // Two probes' worth of fake time is well past the first backoff, so the
+    // recovery has already started — what matters is that it started.
+    expect(client.status).not.toBe('connected')
+    expect(mockSockets).toHaveLength(2)
+  })
+
+  it('a probe that comes back clears the tally', async () => {
+    const { client, socket } = await connectedClient()
+
+    const missed = client.checkConnection()
+    await jest.advanceTimersByTimeAsync(11_000)
+    await expect(missed).resolves.toBe(false)
+
+    const answered = client.checkConnection()
+    answerLastPing(socket)
+    await expect(answered).resolves.toBe(true)
+
+    // Without the reset this next miss would be the second strike.
+    const again = client.checkConnection()
+    await jest.advanceTimersByTimeAsync(11_000)
+    await expect(again).resolves.toBe(false)
+
+    expect(socket.closedWith).toBeNull()
+    expect(client.status).toBe('connected')
+  })
+
+  it('does not hold a probe against a link busy with our own upload', async () => {
+    const { client, socket } = await connectedClient()
+
+    client.invokeParams('agent:send-message', { prompt: 'look', images: ['x'.repeat(2_000_000)] })
+      .catch(() => undefined)
+
+    // Two misses, which would normally be a verdict — but the probes are
+    // queued behind our upload, so the host was never asked anything.
+    for (let i = 0; i < 2; i++) {
+      const probe = client.checkConnection()
+      await jest.advanceTimersByTimeAsync(11_000)
+      await expect(probe).resolves.toBe(false)
+    }
+
+    expect(socket.closedWith).toBeNull()
+    expect(client.status).toBe('connected')
+  })
+})
+
 describe('foreground resume', () => {
   it('retries immediately instead of waiting out the backoff', async () => {
     const { client, socket } = await connectedClient()

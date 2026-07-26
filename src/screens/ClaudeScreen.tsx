@@ -934,10 +934,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
         useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'sent')
       })
       .catch(e => {
-        // invoke-error or timeout → the send did not land; surface it so the
-        // user notices instead of assuming it was delivered.
-        console.warn('[Claude] sendMessage error:', e)
-        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'failed')
+        // invoke-error or timeout → the send did not land. console.warn goes
+        // nowhere a phone user can read, so this has to reach both the Debug
+        // Logs screen and the message bubble; a send that fails in silence is
+        // indistinguishable from one still on its way.
+        const reason = e instanceof Error ? e.message : String(e)
+        dlog('!CLAUDE_SCREEN', `sendMessage failed session=${sessionId} `
+          + `promptLen=${messageText.length} images=${sendImages?.length ?? 0}: ${reason}`)
+        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'failed', reason)
       })
       .finally(() => {
         sendInFlightRef.current = false

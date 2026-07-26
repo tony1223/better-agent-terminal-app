@@ -118,19 +118,25 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
         <Text style={styles.deliveryText}>{'✓ '}{t('messageBubble.sentToHost')}</Text>
       )}
       {failed && (
-        message.sendPayload ? (
-          <TouchableOpacity
-            onPress={() => useClaudeStore.getState().retryUserMessage(message.sessionId, message.id)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.failedText}>
-              {t('messageBubble.failedToSend')}{'  ·  '}
-              <Text style={styles.retryText}>{t('messageBubble.tapToRetry')}</Text>
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.failedText} selectable>{t('messageBubble.failedToSend')}</Text>
-        )
+        <>
+          {message.sendPayload ? (
+            <TouchableOpacity
+              onPress={() => useClaudeStore.getState().retryUserMessage(message.sessionId, message.id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.failedText}>
+                {t('messageBubble.failedToSend')}{'  ·  '}
+                <Text style={styles.retryText}>{t('messageBubble.tapToRetry')}</Text>
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.failedText} selectable>{t('messageBubble.failedToSend')}</Text>
+          )}
+          {/* Selectable: the reason is the one thing worth copying out of here. */}
+          {!!message.failureReason && (
+            <Text style={styles.failureReasonText} selectable>{message.failureReason}</Text>
+          )}
+        </>
       )}
     </View>
   )
@@ -159,6 +165,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     fontSize: fontSize.xs,
     color: '#ef4444',
+  },
+  failureReasonText: {
+    marginTop: 2,
+    fontSize: fontSize.xs,
+    // Dimmer than the failure line above it: the verdict leads, the detail
+    // supports.
+    color: '#ef444499',
   },
   retryText: {
     fontSize: fontSize.xs,

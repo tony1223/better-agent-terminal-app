@@ -241,6 +241,11 @@ export interface ClaudeMessage {
   // text, inline images separate) so a 'failed' message can be re-delivered
   // without rebuilding it from the display content.
   sendPayload?: { messageText: string; images?: string[] }
+  // Why a 'failed' send failed, shown next to the retry affordance. A bare
+  // "failed to send" leaves the user unable to tell a dead link from a host
+  // that rejected the message, which is the difference between retrying and
+  // doing something else.
+  failureReason?: string
   // The SDK's own context-compaction summary, replayed as a user turn. Carries
   // a user role but nothing the user wrote, so the UI collapses it.
   isCompactSummary?: boolean

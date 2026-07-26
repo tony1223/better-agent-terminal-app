@@ -324,7 +324,7 @@ interface ClaudeState {
   handleModeChange: (sessionId: string, mode: string) => void
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
   handleSessionReset: (sessionId: string) => void
-  setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status']) => void
+  setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status'], failureReason?: string) => void
   // Re-deliver a 'failed' optimistic user message using its stored payload.
   retryUserMessage: (sessionId: string, id: string) => void
 
@@ -440,7 +440,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   // Flip a still-pending optimistic user message to 'sent' / 'failed'. No-op if
   // the message was already replaced by the host's echoed copy (id not found),
   // so a late invoke timeout cannot resurrect an already-confirmed message.
-  setUserMessageStatus: (sessionId, id, status) => {
+  setUserMessageStatus: (sessionId, id, status, failureReason) => {
     const { sessions } = get()
     const session = sessions[sessionId]
     if (!session) return
@@ -449,7 +449,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const existing = session.messages[idx]
     if ('toolName' in existing || existing.status === status) return
     const messages = [...session.messages]
-    messages[idx] = { ...existing, status }
+    messages[idx] = { ...existing, status, failureReason: status === 'failed' ? failureReason : undefined }
     set({ sessions: { ...sessions, [sessionId]: { ...session, messages } } })
   },
 
@@ -470,8 +470,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'sent')
       })
       .catch(e => {
-        dlog('CLAUDE_STORE', `retryUserMessage error: ${e}`)
-        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'failed')
+        const reason = e instanceof Error ? e.message : String(e)
+        dlog('!CLAUDE_STORE', `retryUserMessage failed id=${id}: ${reason}`)
+        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'failed', reason)
       })
   },
 
