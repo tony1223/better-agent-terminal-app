@@ -172,6 +172,20 @@ function hasAssistantTextSinceLastUser(messages: (ClaudeMessage | ClaudeToolCall
 }
 
 /**
+ * The host scrubs these out of an assistant message before echoing it
+ * (node-sidecar claude-send.mjs) but streams the deltas raw, so the streamed
+ * copy and the echoed message only line up once both went through the same
+ * scrub. Without it a notification block sitting mid-reply makes each copy a
+ * non-substring of the other, and the reply gets shown twice.
+ */
+function scrubHostNoise(text: string): string {
+  return text
+    .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '')
+    .replace(/Full transcript available at:.*$/gm, '')
+    .trim()
+}
+
+/**
  * Fold the in-flight streamed reply into the message list.
  *
  * Streamed assistant text lives only in session.streamingText until something
@@ -191,14 +205,16 @@ function commitStreamedText(
 ): (ClaudeMessage | ClaudeToolCall)[] {
   const text = session.streamingText
   if (!text.trim()) return session.messages
-  if (echoedContent && (echoedContent.includes(text) || text.includes(echoedContent))) {
-    return session.messages
+  const scrubbed = scrubHostNoise(text)
+  if (echoedContent) {
+    const echoed = scrubHostNoise(echoedContent)
+    if (echoed.includes(scrubbed) || scrubbed.includes(echoed)) return session.messages
   }
   // Exact match only: a looser check would treat a long reply that happens to
   // quote an earlier short one as a duplicate and drop it — the very bug this
   // function exists to fix.
   const alreadyCommitted = session.messages.some(
-    m => !('toolName' in m) && m.role === 'assistant' && m.content === text,
+    m => !('toolName' in m) && m.role === 'assistant' && scrubHostNoise(m.content) === scrubbed,
   )
   if (alreadyCommitted) return session.messages
 
@@ -207,7 +223,8 @@ function commitStreamedText(
     id: `stream-${session.messages.length}-${Date.now()}`,
     sessionId,
     role: 'assistant',
-    content: text,
+    // Scrubbed, so this bubble reads the same as the host's own echo of it.
+    content: scrubbed,
     thinking: session.streamingThinking || undefined,
     timestamp: Date.now(),
   }]
@@ -243,6 +260,36 @@ function normalizeUserContentForDedupe(content: string): string {
     .replace(/\n?\[\d+\s+images?\s+attached\]\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * The assistant counterpart of findLocalDuplicateUserMessage: locate the
+ * locally committed copy of the reply the host is now echoing.
+ *
+ * commitStreamedText's `echoedContent` guard only stops a commit happening in
+ * the same call as the echo. When the stream was committed earlier — a turn
+ * that ended while the socket was down, then the host's message arriving after
+ * the reconnect — nothing linked the two and the reply showed up twice.
+ *
+ * Only stream-committed messages after the last user turn are candidates, so a
+ * reply that quotes an older one can't cannibalise it.
+ */
+function findCommittedStreamDuplicate(
+  messages: (ClaudeMessage | ClaudeToolCall)[],
+  msg: ClaudeMessage,
+): number {
+  if (msg.role !== 'assistant') return -1
+  const content = scrubHostNoise(msg.content)
+  if (!content) return -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const existing = messages[i]
+    if ('toolName' in existing) continue
+    if (existing.role === 'user') return -1
+    if (existing.role !== 'assistant' || !existing.id.startsWith('stream-')) continue
+    const committed = scrubHostNoise(existing.content)
+    if (committed === content || committed.includes(content) || content.includes(committed)) return i
+  }
+  return -1
 }
 
 interface ClaudeState {
@@ -347,6 +394,31 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       return
     }
 
+    // A subagent's reply is its own conversation: it must neither fold nor
+    // clear the main agent's in-flight text, which is still mid-reply.
+    const fromSubagent = !!(msg as { parentToolUseId?: string }).parentToolUseId
+    if (fromSubagent) {
+      set({
+        sessions: {
+          ...sessions,
+          [sessionId]: { ...session, messages: [...session.messages, msg] },
+        },
+      })
+      return
+    }
+
+    // The host is authoritative: when we already committed this reply locally,
+    // swap our copy for the host's instead of stacking both.
+    const committedIndex = findCommittedStreamDuplicate(session.messages, msg)
+    let messages: (ClaudeMessage | ClaudeToolCall)[]
+    if (committedIndex >= 0) {
+      dlog('CLAUDE_STORE', `handleMessage replace committed stream copy at ${committedIndex} with msgId=${msg.id}`)
+      messages = [...session.messages]
+      messages[committedIndex] = msg
+    } else {
+      messages = [...commitStreamedText(sessionId, session, msg.content), msg]
+    }
+
     // An optimistic local send opens a turn so the working bar appears the
     // instant the user hits send, before the host's first status frame.
     const startsTurn = msg.role === 'user' && msg.status === 'sending'
@@ -355,7 +427,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: [...commitStreamedText(sessionId, session, msg.content), msg],
+          messages,
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
@@ -461,16 +533,24 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       dlog('CLAUDE_STORE', `handleStream START sid=${sessionId}`)
     }
 
+    // Subagent deltas belong to a nested conversation. The host keeps them out
+    // of the session's streamingText (state.mjs appendSessionStream) and the
+    // desktop buckets them per task; we have no task view, so we drop them.
+    // Merging them in interleaved the main reply with subagent chatter, which
+    // then failed the echo check and got the whole reply rendered twice.
+    // The turn is still live, so the working bar keeps running.
+    const fromSubagent = !!data.parentToolUseId
+
     set({
       sessions: {
         ...sessions,
         [sessionId]: {
           ...session,
           isStreaming: true,
-          streamingText: data.text
+          streamingText: data.text && !fromSubagent
             ? session.streamingText + data.text
             : session.streamingText,
-          streamingThinking: data.thinking
+          streamingThinking: data.thinking && !fromSubagent
             ? session.streamingThinking + data.thinking
             : session.streamingThinking,
           meta: clearedRuntimeMeta(session.meta),
