@@ -277,6 +277,22 @@ describe('sending something large', () => {
     expect(client.status).toBe('reconnecting')
   })
 
+  it('puts the payload on the wire once, not twice', async () => {
+    const { client, socket } = await connectedClient()
+
+    client.invokeParams('agent:send-message', bigParams).catch(() => undefined)
+
+    const raw = socket.sent[socket.sent.length - 1]
+    const frame = JSON.parse(raw)
+    // The host reads `args` only when `params` is absent, so a v2 frame
+    // carrying both ships a second copy for it to throw away. DEFLATE can't
+    // save us either — the copies sit megabytes apart, far outside its 32 KB
+    // window — so the duplicate is paid for in full on the uplink.
+    expect(frame.params).toBeDefined()
+    expect(frame.args).toBeUndefined()
+    expect(raw.length).toBeLessThan(bigParams.images[0].length * 1.1)
+  })
+
   it('a small frame gets no grace at all', async () => {
     const { client, socket } = await connectedClient()
 

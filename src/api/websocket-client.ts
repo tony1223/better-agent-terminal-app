@@ -753,13 +753,19 @@ export class WebSocketClient {
 
     const timeoutMs = opts?.timeoutMs ?? INVOKE_TIMEOUT_MS
 
+    // v2 carries `params` only. The host's invoke_params_for_protocol reaches
+    // for `args` solely when `params` is absent, so sending both put a second
+    // copy of every payload on the wire for the host to discard — and on the
+    // biggest thing this app sends, an inline image, that was the difference
+    // between 273 KB and 546 KB. gzip can't collapse it either: the two copies
+    // sit ~273 KB apart and DEFLATE's window is 32 KB, so it never sees the
+    // first one while writing the second.
     const makeFrame = (frameChannel: string): RemoteFrame => this.protocol === REMOTE_PROTOCOL_V2
       ? {
         type: 'invoke',
         id: this.nextId(),
         channel: frameChannel,
         params,
-        args: legacyArgs,
       }
       : {
         type: 'invoke',
