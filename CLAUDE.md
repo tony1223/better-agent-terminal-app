@@ -90,8 +90,11 @@ tag 只會到 TestFlight。要上架跑 `.github/workflows/submit-appstore.yml`�
 一個已過審但沒按「發布」的版本會一直佔著那個位置，下一版連建都建不起來，`submit-appstore.yml`
 會失敗在 `You cannot create a new version of the App in the current state`，而錯誤訊息不會告訴你是哪一版卡住。
 
-這不是假想的：`1.0.30` 就這樣躺著，商店停在 `1.0.25`，`1.0.31`–`1.0.34` 全部只到 TestFlight 就沒下文。
-所以每次送審後要嘛讓它自動上架，要嘛記得回去把它處理掉。
+這不是假想的：`1.0.30` 就這樣躺過一陣子，商店停在 `1.0.25`，`1.0.31`–`1.0.34` 全部只到 TestFlight
+就沒下文。所以每次送審後要嘛讓它自動上架，要嘛記得回去把它處理掉。
+
+（那次已經解掉了：`1.0.30` 現在是 `READY_FOR_SALE`。截至 2026-07-26 的狀態是 `1.0.35`
+`WAITING_FOR_REVIEW`，前面沒有東西擋著。這一行會過期，要看現況跑下面那支 workflow。）
 
 要查目前狀態跑 `.github/workflows/appstore-status.yml`（唯讀，隨時可跑），它會列出每個 App Store
 版本和它的 state，以及最近幾包 TestFlight build 的處理狀態。

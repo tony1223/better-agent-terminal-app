@@ -153,8 +153,14 @@ platform :ios do
     UI.header("Recent TestFlight builds")
     # A Build carries its marketing version through pre_release_version, not
     # through app_store_version — that association is only populated once the
-    # build is attached to an App Store version.
-    app.get_builds(sort: "-uploadedDate", limit: 5).each do |b|
+    # build is attached to an App Store version. It also has to be asked for:
+    # without `includes` the relationship comes back unpopulated and every row
+    # reads "of -", which is the one thing this section exists to tell you,
+    # since build numbers restart at 1 for each marketing version.
+    builds = app.get_builds(sort: "-uploadedDate", includes: "preReleaseVersion")
+    # `limit:` is not honoured here — App#get_builds pages through everything —
+    # so trim it ourselves rather than printing sixty lines.
+    builds.first(8).each do |b|
       marketing = b.pre_release_version&.version || "-"
       UI.message("  build #{b.version.to_s.ljust(6)} of #{marketing.to_s.ljust(12)} processing=#{b.processing_state}")
     end
