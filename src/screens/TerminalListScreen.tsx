@@ -19,6 +19,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { WorktreeControls } from '@/components/session/WorktreeControls'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { isCompactSummaryMessage } from '@/utils/compact-summary'
 import { getAgentPreset, normalizeAgentPresetsFromHost } from '@/types'
 import type { AgentPreset, AgentPresetId, ClaudeMessage, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -118,8 +119,12 @@ export function TerminalListScreen({ navigation }: Props) {
       try {
         const state = await channels.claude.getSessionState(id)
         const messages = state?.messages ?? []
+        // A session resumed from a compacted transcript starts with the
+        // summary, and 15k characters of it is not a useful row preview.
         const firstUser = messages.find(
-          (m): m is ClaudeMessage => 'role' in m && (m as ClaudeMessage).role === 'user',
+          (m): m is ClaudeMessage => 'role' in m
+            && (m as ClaudeMessage).role === 'user'
+            && !isCompactSummaryMessage('user', (m as ClaudeMessage).content ?? '', (m as ClaudeMessage).isCompactSummary),
         )
         return [id, firstUser?.content?.trim() ?? ''] as const
       } catch {

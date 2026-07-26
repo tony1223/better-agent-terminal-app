@@ -452,7 +452,8 @@
     "failedToSend": "傳送失敗",
     "tapToRetry": "點擊重試",
     "sending": "傳送中…",
-    "sentToHost": "已送達主機"
+    "sentToHost": "已送達主機",
+    "compactSummary": "上下文摘要（自動壓縮）"
   },
   "chatItem": {
     "kind": {

@@ -27,6 +27,29 @@ function tint(hex: string, opacity: number): string {
 export const MessageBubble = React.memo(function MessageBubble({ message }: Props) {
   const { t } = useTranslation()
   const [showThinking, setShowThinking] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
+
+  // The agent's own context summary, replayed as a user turn. Full width and
+  // folded shut: it carries the user role but the user never wrote it, and
+  // shown raw it buries the actual conversation under a wall of text.
+  if (message.isCompactSummary) {
+    return (
+      <View style={styles.compactContainer}>
+        <TouchableOpacity
+          onPress={() => setShowSummary(!showSummary)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.compactHeader}>
+            {showSummary ? '▼ ' : '▶ '}
+            {t('messageBubble.compactSummary')}
+          </Text>
+        </TouchableOpacity>
+        {showSummary && (
+          <Text style={styles.compactBody} selectable>{message.content}</Text>
+        )}
+      </View>
+    )
+  }
 
   if (message.role === 'system') {
     return (
@@ -163,6 +186,27 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
+  },
+  compactContainer: {
+    alignSelf: 'stretch',
+    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: appColors.border,
+    backgroundColor: appColors.messageBubble,
+  },
+  compactHeader: {
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontWeight: '600',
+  },
+  compactBody: {
+    marginTop: spacing.sm,
+    fontSize: fontSize.xs,
+    color: appColors.textSecondary,
+    fontFamily: 'monospace',
   },
   userText: {
     fontSize: fontSize.md,

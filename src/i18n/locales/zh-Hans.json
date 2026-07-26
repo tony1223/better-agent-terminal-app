@@ -452,7 +452,8 @@
     "failedToSend": "发送失败",
     "tapToRetry": "点击重试",
     "sending": "发送中…",
-    "sentToHost": "已送达主机"
+    "sentToHost": "已送达主机",
+    "compactSummary": "上下文摘要（自动压缩）"
   },
   "chatItem": {
     "kind": {

@@ -211,6 +211,9 @@ export interface ClaudeMessage {
   // text, inline images separate) so a 'failed' message can be re-delivered
   // without rebuilding it from the display content.
   sendPayload?: { messageText: string; images?: string[] }
+  // The SDK's own context-compaction summary, replayed as a user turn. Carries
+  // a user role but nothing the user wrote, so the UI collapses it.
+  isCompactSummary?: boolean
 }
 
 export interface ClaudeToolCall {

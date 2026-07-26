@@ -452,7 +452,8 @@
     "failedToSend": "Failed to send",
     "tapToRetry": "Tap to retry",
     "sending": "Sending…",
-    "sentToHost": "Delivered to host"
+    "sentToHost": "Delivered to host",
+    "compactSummary": "Context summary (auto-compacted)"
   },
   "chatItem": {
     "kind": {

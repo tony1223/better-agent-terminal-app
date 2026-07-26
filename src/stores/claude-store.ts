@@ -17,6 +17,7 @@ import type {
 import type { ClaudeChannel } from '@/api/channels/claude'
 import { useConnectionStore } from '@/stores/connection-store'
 import { dlog } from '@/utils/debug-log'
+import { isCompactSummaryMessage } from '@/utils/compact-summary'
 
 interface SessionState {
   messages: (ClaudeMessage | ClaudeToolCall)[]
@@ -112,14 +113,18 @@ function normalizeClaudeMessage(sessionId: string, msg: ClaudeMessage): ClaudeMe
   const raw = msg as unknown as Record<string, unknown>
   const content = stringifyForDisplay(raw.content)
   const thinking = stringifyForDisplay(raw.thinking)
+  const role = normalizeRole(raw.role)
   return {
     ...msg,
     id: stringifyForDisplay(raw.id) || `msg-${Date.now()}`,
     sessionId: stringifyForDisplay(raw.sessionId) || sessionId,
-    role: normalizeRole(raw.role),
+    role,
     content,
     thinking: thinking || undefined,
     timestamp: typeof raw.timestamp === 'number' ? raw.timestamp : Date.now(),
+    // Both the live stream and replayed history land here, so tagging it once
+    // covers every way a compaction summary reaches the chat.
+    isCompactSummary: isCompactSummaryMessage(role, content, raw.isCompactSummary) || undefined,
   }
 }
 
