@@ -1,6 +1,6 @@
 import { Platform } from 'react-native'
 import { createMMKV } from 'react-native-mmkv'
-import { APP_VERSION } from '@/app-version'
+import { appVersion } from '@/native/app-info'
 
 const storage = createMMKV({ id: 'bat-client-identity' })
 const DEVICE_ID_KEY = 'deviceId'
@@ -62,7 +62,7 @@ export function getRemoteClientIdentity(): RemoteClientIdentity {
 
   return {
     appName: 'Better Agent Terminal',
-    appVersion: APP_VERSION,
+    appVersion,
     deviceId,
     deviceName,
     label: `BAT Mobile ${deviceName} (${shortId})`,

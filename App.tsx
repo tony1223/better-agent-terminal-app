@@ -17,6 +17,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
 import { openConnectionLink } from '@/utils/connection-link'
 import { dlog } from '@/utils/debug-log'
+import { appVersionLabel } from '@/native/app-info'
 
 function App() {
   const status = useConnectionStore(s => s.status)
@@ -25,7 +26,10 @@ function App() {
   const lastLinkRef = useRef<string | null>(null)
 
   useEffect(() => {
-    dlog('!APP', 'Better Agent Terminal mobile app mounted, build=ios-debug-raw-websocket-tls')
+    // First line of every debug log, so it has to answer the question the log
+    // is being read to settle: which build produced the rest of this. It used
+    // to answer "ios-debug-raw-websocket-tls", which was true of a branch, once.
+    dlog('!APP', `Better Agent Terminal mobile app mounted, version=${appVersionLabel}`)
   }, [])
 
   // When connection is established: load workspace state + subscribe to Claude events
