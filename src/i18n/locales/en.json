@@ -398,7 +398,10 @@
       "compact": "compact",
       "fork": "Fork",
       "stop": "Stop",
-      "stopAgain": "Tap to abort"
+      "stopAgain": "Tap to abort",
+      "more": "More options",
+      "attach": "Attach image",
+      "send": "Send"
     },
     "modal": {
       "selectModel": "Select Model",
@@ -406,10 +409,16 @@
       "selectEffort": "Select Effort",
       "selectSandbox": "Select Sandbox",
       "selectApproval": "Select Approval",
+      "moreActions": "More Options",
       "effortOption": "effort: {{value}}",
       "thinkingOption": "thinking: {{value}}",
       "sandboxOption": "sandbox: {{value}}",
-      "approvalOption": "approval: {{value}}"
+      "approvalOption": "approval: {{value}}",
+      "actionFork": "Fork session",
+      "actionCompact": "Compact context",
+      "actionSandbox": "Sandbox",
+      "actionApproval": "Approval policy",
+      "actionAccount": "Codex account"
     },
     "resume": {
       "title": "Resume Session",

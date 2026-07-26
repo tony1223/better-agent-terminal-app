@@ -398,7 +398,10 @@
       "compact": "精简",
       "fork": "分支",
       "stop": "停止",
-      "stopAgain": "再点中断"
+      "stopAgain": "再点中断",
+      "more": "更多选项",
+      "attach": "附加图片",
+      "send": "发送"
     },
     "modal": {
       "selectModel": "选择模型",
@@ -406,10 +409,16 @@
       "selectEffort": "选择强度",
       "selectSandbox": "选择沙箱模式",
       "selectApproval": "选择审批策略",
+      "moreActions": "更多选项",
       "effortOption": "effort: {{value}}",
       "thinkingOption": "thinking: {{value}}",
       "sandboxOption": "sandbox: {{value}}",
-      "approvalOption": "approval: {{value}}"
+      "approvalOption": "approval: {{value}}",
+      "actionFork": "分支会话",
+      "actionCompact": "精简上下文",
+      "actionSandbox": "沙箱模式",
+      "actionApproval": "审批策略",
+      "actionAccount": "Codex 账号"
     },
     "resume": {
       "title": "恢复会话",

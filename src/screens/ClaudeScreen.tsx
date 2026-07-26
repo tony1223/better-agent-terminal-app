@@ -217,6 +217,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showSandboxPicker, setShowSandboxPicker] = useState(false)
   const [showApprovalPicker, setShowApprovalPicker] = useState(false)
   const [showCodexAccountPicker, setShowCodexAccountPicker] = useState(false)
+  const [showMoreActions, setShowMoreActions] = useState(false)
   const [codexAccounts, setCodexAccounts] = useState<CodexAccountEntry[]>([])
   const [codexAccountsLoading, setCodexAccountsLoading] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
@@ -1005,6 +1006,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
     await channels.openai.compactNow(sessionId)
   }, [channels, sessionId])
 
+  // Run an action that itself opens a modal or an Alert from inside the
+  // overflow sheet. iOS refuses to present a second modal while the first is
+  // still dismissing — it lands on a dead screen with no picker — so let the
+  // sheet's fade commit before handing over.
+  const runFromMoreActions = useCallback((action: () => void) => {
+    setShowMoreActions(false)
+    setTimeout(action, 250)
+  }, [])
+
   const openCodexAccountPicker = useCallback(async () => {
     if (!channels) return
     setShowCodexAccountPicker(true)
@@ -1256,6 +1266,23 @@ export function ClaudeScreen({ route, navigation }: Props) {
       : contextLimitForModel(currentModel),
   )
 
+  // Everything the controls row no longer shows. Built inline rather than
+  // memoised: it is rebuilt only when the sheet re-renders, and a dependency
+  // array over five handlers is a staler thing to maintain than the array.
+  const moreActions: { key: string; label: string; value?: string; onPress: () => void }[] = [
+    { key: 'fork', label: t('claude.modal.actionFork'), onPress: handleFork },
+  ]
+  if (isOpenAIAgent) {
+    moreActions.push({ key: 'compact', label: t('claude.modal.actionCompact'), onPress: handleCompact })
+  }
+  if (isCodexAgent) {
+    moreActions.push(
+      { key: 'sandbox', label: t('claude.modal.actionSandbox'), value: codexSandboxMode, onPress: () => setShowSandboxPicker(true) },
+      { key: 'approval', label: t('claude.modal.actionApproval'), value: codexApprovalPolicy, onPress: () => setShowApprovalPicker(true) },
+      { key: 'account', label: t('claude.modal.actionAccount'), onPress: openCodexAccountPicker },
+    )
+  }
+
   return (
     <View style={styles.container}>
       <SessionContextBar
@@ -1371,6 +1398,23 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
         {/* Input row */}
         <View style={styles.inputBar}>
+          {/* Attach lives here, not in the controls row. As the 6th-to-9th chip
+              in a horizontal scroller it was a ~26x18 target that scrolled off
+              screen entirely on a narrow phone — the reason nobody could find
+              it was position as much as size. */}
+          <TouchableOpacity
+            style={[styles.attachButton, attachedImages.length > 0 && { borderColor: agentColor }]}
+            onPress={handleUpload}
+            accessibilityRole="button"
+            accessibilityLabel={t('claude.controls.attach')}
+          >
+            <Text style={styles.attachIcon}>{'\uD83D\uDCCE'}</Text>
+            {attachedImages.length > 0 && (
+              <View style={[styles.attachBadge, { backgroundColor: agentColor }]}>
+                <Text style={styles.attachBadgeText}>{attachedImages.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
           <TextInput
             style={styles.input}
             value={inputText}
@@ -1387,84 +1431,72 @@ export function ClaudeScreen({ route, navigation }: Props) {
             style={[styles.sendButton, { backgroundColor: agentColor }, (!inputText.trim() && attachedImages.length === 0) && styles.sendDisabled]}
             onPress={handleSend}
             disabled={!inputText.trim() && attachedImages.length === 0}
+            accessibilityRole="button"
+            accessibilityLabel={t('claude.controls.send')}
           >
             <Text style={styles.sendText}>{'\u2191'}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Controls row: mode / model / effort / fork / upload */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.controlsScroll}
-          contentContainerStyle={styles.controlsContent}
-        >
-          {isClaudeCodeAgent && (
-            <TouchableOpacity style={styles.controlBtn} onPress={handlePermissionCycle}>
-              <Text style={[styles.controlText, { color: modeColor }]}>
-                {PERMISSION_LABELS[permissionMode] || permissionMode}
-              </Text>
-            </TouchableOpacity>
-          )}
+        {/* Controls row: only the settings that get changed mid-task, at a size
+            that can actually be read. Everything rarer sits behind the overflow
+            button, which is pinned OUTSIDE the scroller — a control parked at
+            the end of a scrolling row is one most people never see. */}
+        <View style={styles.controlsRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.controlsScroll}
+            contentContainerStyle={styles.controlsContent}
+          >
+            {/* First, so the one control that may be needed urgently is already
+                in view when the row sits at its scroll origin. */}
+            {turnActive && (
+              <TouchableOpacity
+                style={[styles.chip, { backgroundColor: stopArmed ? appColors.warning : appColors.error, borderColor: stopArmed ? appColors.warning : appColors.error }]}
+                onPress={handleStop}
+              >
+                <Text style={[styles.chipText, styles.chipTextOnFill]}>
+                  {stopArmed ? t('claude.controls.stopAgain') : t('claude.controls.stop')}
+                </Text>
+              </TouchableOpacity>
+            )}
 
-          <TouchableOpacity style={styles.controlBtn} onPress={handleModelPress}>
-            <Text style={styles.controlText}>
+            {isClaudeCodeAgent && (
+              <TouchableOpacity style={styles.chip} onPress={handlePermissionCycle}>
+                <Text style={[styles.chipTextStrong, { color: modeColor }]}>
+                  {PERMISSION_LABELS[permissionMode] || permissionMode}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={styles.chip} onPress={handleModelPress}>
               {/* Base id only: the preset suffix names the same window the
                   budget beside it already spells out. */}
-              {'</>'} {baseModelId(currentModel) ?? t('claude.controls.model')}
-              {contextLimit ? <Text style={styles.controlSubText}>{` · ${contextLimit}`}</Text> : null}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.controlBtn} onPress={() => setShowEffortPicker(true)}>
-            <Text style={styles.controlText}>
-              {isCodexAgent
-                ? t('claude.controls.thinking', { value: effortLevel })
-                : t('claude.controls.effort', { value: effortLevel })}
-            </Text>
-          </TouchableOpacity>
-
-          {isCodexAgent && (
-            <>
-              <TouchableOpacity style={styles.controlBtn} onPress={() => setShowSandboxPicker(true)}>
-                <Text style={styles.controlText}>{t('claude.controls.sandbox', { value: codexSandboxMode })}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.controlBtn} onPress={() => setShowApprovalPicker(true)}>
-                <Text style={styles.controlText}>{t('claude.controls.approval', { value: codexApprovalPolicy })}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.controlBtn} onPress={openCodexAccountPicker}>
-                <Text style={styles.controlText}>account</Text>
-              </TouchableOpacity>
-            </>
-          )}
-
-          {isOpenAIAgent && (
-            <TouchableOpacity style={styles.controlBtn} onPress={handleCompact}>
-              <Text style={styles.controlText}>{t('claude.controls.compact')}</Text>
+              <Text style={styles.chipTextStrong}>
+                {baseModelId(currentModel) ?? t('claude.controls.model')}
+              </Text>
+              {contextLimit ? <Text style={styles.chipSubText}>{contextLimit}</Text> : null}
             </TouchableOpacity>
-          )}
 
-          <TouchableOpacity style={styles.controlBtn} onPress={handleFork}>
-            <Text style={styles.controlText}>{'\u2442'} {t('claude.controls.fork')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.controlBtn} onPress={handleUpload}>
-            <Text style={styles.controlText}>
-              {attachedImages.length > 0 ? `\uD83D\uDCCE ${attachedImages.length}/${MAX_IMAGES}` : '\uD83D\uDCCE'}
-            </Text>
-          </TouchableOpacity>
-
-          {turnActive && (
-            <TouchableOpacity
-              style={[styles.controlBtn, { backgroundColor: stopArmed ? appColors.warning : appColors.error, borderColor: stopArmed ? appColors.warning : appColors.error }]}
-              onPress={handleStop}
-            >
-              <Text style={[styles.controlText, { color: '#fff', fontWeight: '700' }]}>
-                {stopArmed ? t('claude.controls.stopAgain') : t('claude.controls.stop')}
+            <TouchableOpacity style={styles.chip} onPress={() => setShowEffortPicker(true)}>
+              <Text style={styles.chipText}>
+                {isCodexAgent
+                  ? t('claude.controls.thinking', { value: effortLevel })
+                  : t('claude.controls.effort', { value: effortLevel })}
               </Text>
             </TouchableOpacity>
-          )}
-        </ScrollView>
+          </ScrollView>
+
+          <TouchableOpacity
+            style={styles.overflowButton}
+            onPress={() => setShowMoreActions(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t('claude.controls.more')}
+          >
+            <Text style={styles.overflowIcon}>{'\u22EF'}</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Status + usage info row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.infoScroll} contentContainerStyle={styles.infoContent}>
@@ -1540,6 +1572,26 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 )
               }}
             />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Overflow sheet: the controls that are set once and then left alone */}
+      <Modal visible={showMoreActions} transparent animationType="fade" onRequestClose={() => setShowMoreActions(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMoreActions(false)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{t('claude.modal.moreActions')}</Text>
+            {moreActions.map((action, i) => (
+              <TouchableOpacity
+                key={action.key}
+                style={[styles.actionRow, i === moreActions.length - 1 && styles.actionRowLast]}
+                onPress={() => runFromMoreActions(action.onPress)}
+              >
+                <Text style={styles.actionLabel}>{action.label}</Text>
+                {action.value ? <Text style={styles.actionValue}>{action.value}</Text> : null}
+                <Text style={styles.actionChevron}>{'\u203A'}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1958,10 +2010,50 @@ const styles = StyleSheet.create({
     borderColor: appColors.border,
     textAlignVertical: 'center',
   },
+  // 44 is the iOS HIG / Material floor. The old 36 was already under it, and
+  // attach — the control this pair replaces from the chip row — was ~26x18.
+  attachButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: appColors.background,
+    borderWidth: 1,
+    borderColor: appColors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  attachIcon: {
+    fontSize: fontSize.xl,
+  },
+  attachBadge: {
+    position: 'absolute',
+    // Kept inside the button's 44x44 box rather than hung off the corner:
+    // Android clips absolutely-positioned children that overflow a parent
+    // carrying a background, which would shave the count off on half the
+    // fleet. The box corner still reads as "outside" the inscribed circle.
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Ringed in the bar's own colour so the count reads as a badge sitting on
+    // the button rather than a smudge inside its border.
+    borderWidth: 2,
+    borderColor: appColors.surface,
+  },
+  attachBadgeText: {
+    fontSize: fontSize.xs,
+    color: '#fff',
+    fontWeight: '700',
+  },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: appColors.accent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1976,29 +2068,107 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   // ---- Controls row ----
-  controlsScroll: {
+  // The scroller holds the mid-task settings; the overflow button sits outside
+  // it so it can never be scrolled out of reach.
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: spacing.md,
     paddingBottom: spacing.xs,
+  },
+  controlsScroll: {
+    flex: 1,
   },
   controlsContent: {
     paddingHorizontal: spacing.md,
+    alignItems: 'center',
   },
-  controlBtn: {
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // 38 keeps the row compact above the keyboard while staying a comfortable
+    // target; the 44pt floor is spent on attach and send, which are the two
+    // controls people reach for without looking.
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
+    borderRadius: 10,
     backgroundColor: appColors.background,
-    borderRadius: 6,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
     borderWidth: 1,
-    borderColor: appColors.border,
+    borderColor: appColors.borderStrong,
     marginRight: spacing.sm,
   },
-  controlText: {
-    fontSize: fontSize.xs,
+  chipText: {
+    fontSize: fontSize.sm,
     color: appColors.textSecondary,
     fontFamily: 'monospace',
   },
-  // Secondary detail inside a control chip (e.g. the model's context budget),
-  // dimmed so the model id stays the thing you read first.
-  controlSubText: {
+  // The current selection is the thing this row exists to report, so the model
+  // id and permission mode carry full text colour and weight.
+  chipTextStrong: {
+    fontSize: fontSize.sm,
+    color: appColors.text,
+    fontWeight: '600',
+    fontFamily: 'monospace',
+  },
+  // Secondary detail inside a chip (e.g. the model's context budget), dimmed so
+  // the model id stays the thing you read first.
+  chipSubText: {
+    fontSize: fontSize.xs,
+    color: appColors.textMuted,
+    fontFamily: 'monospace',
+    marginLeft: spacing.xs + 2,
+  },
+  chipTextOnFill: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  overflowButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: appColors.background,
+    borderWidth: 1,
+    borderColor: appColors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Holds a gap even when the scroller beside it is mid-scroll and its
+    // content runs right up to the shared edge.
+    marginLeft: spacing.sm,
+  },
+  overflowIcon: {
+    fontSize: fontSize.lg,
+    color: appColors.textSecondary,
+    lineHeight: fontSize.lg + 2,
+    // The glyph's own bearing sits it low; nudge it back onto the optical
+    // centre of the button.
+    marginTop: -2,
+  },
+  // ---- Overflow sheet rows ----
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: appColors.border,
+  },
+  actionRowLast: {
+    borderBottomWidth: 0,
+  },
+  actionLabel: {
+    flex: 1,
+    fontSize: fontSize.md,
+    color: appColors.text,
+  },
+  actionValue: {
+    fontSize: fontSize.sm,
+    color: appColors.textSecondary,
+    fontFamily: 'monospace',
+    marginRight: spacing.sm,
+  },
+  actionChevron: {
+    fontSize: fontSize.lg,
     color: appColors.textMuted,
   },
   // ---- Info row (usage + session/cwd) ----

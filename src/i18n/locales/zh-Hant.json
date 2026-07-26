@@ -398,7 +398,10 @@
       "compact": "精簡",
       "fork": "分支",
       "stop": "停止",
-      "stopAgain": "再點中斷"
+      "stopAgain": "再點中斷",
+      "more": "更多選項",
+      "attach": "附加圖片",
+      "send": "送出"
     },
     "modal": {
       "selectModel": "選擇模型",
@@ -406,10 +409,16 @@
       "selectEffort": "選擇強度",
       "selectSandbox": "選擇沙箱模式",
       "selectApproval": "選擇核准原則",
+      "moreActions": "更多選項",
       "effortOption": "effort: {{value}}",
       "thinkingOption": "thinking: {{value}}",
       "sandboxOption": "sandbox: {{value}}",
-      "approvalOption": "approval: {{value}}"
+      "approvalOption": "approval: {{value}}",
+      "actionFork": "分支工作階段",
+      "actionCompact": "精簡上下文",
+      "actionSandbox": "沙箱模式",
+      "actionApproval": "核准原則",
+      "actionAccount": "Codex 帳號"
     },
     "resume": {
       "title": "繼續工作階段",

@@ -9,6 +9,10 @@ export const appColors = {
   surfaceHover: '#2e2e2e',
   messageBubble: '#3a3a3a',
   border: '#333333',
+  // One step brighter than `border`. Interactive chips and buttons need to read
+  // as raised against the same surface a divider merely sits on; sharing one
+  // token made a tappable control look like a hairline rule.
+  borderStrong: '#3d3d3d',
   text: '#f5f5f5',
   textSecondary: '#a0a0a0',
   textMuted: '#666666',
