@@ -20,6 +20,8 @@ BAT Mobile 是 Better Agent Terminal 的 React Native 手機版（iOS + Android�
 
 由 git tag 驅動發布，兩個 workflow 分別為 `.github/workflows/release-aab.yml`（Android AAB → Google Play）與 `.github/workflows/release-testflight.yml`（iOS → TestFlight）。
 
+上正式版是另外三個手動 workflow，跟 tag 無關：`promote-play.yml`（Android）、`submit-appstore.yml`（iOS 送審）、`appstore-status.yml`（iOS 唯讀診斷）。
+
 Tag 格式（皆支援開頭可選的 `v`）：
 
 - `1.0.1` / `v1.0.1`：同時發 Android 與 iOS（兩邊用同一版號）。
@@ -46,6 +48,16 @@ git tag 1.0.30-ios
 git push origin 1.0.30-ios
 ```
 
+### 測試版（預設做法，雙平台）
+
+「發測試版」= 推一個**不帶平台後綴的遞增 tag**，兩邊都只到測試通道，**不 promote 到任何正式版**：
+
+- Android → Google Play `internal` + `beta`
+- iOS → TestFlight
+
+推完 tag 就結束了。上正式版是下面兩個獨立的手動 workflow，不會自己發生，也不該順手做掉——
+測試版的重點就是「先讓它待在測試通道」。
+
 ### 升上 Google Play 正式版（production）
 
 tag 只會發到 `internal` / `beta`。要上正式版，跑 `.github/workflows/promote-play.yml`（`workflow_dispatch`）——
@@ -58,3 +70,28 @@ versionCode，等於把一包沒人測過的 artifact 推上去。
 - `rolloutPercent` < 100 會是分階段發布（staged rollout），可以在 Play Console 隨時 halt；100% 沒辦法收回。
 - 要把分階段發布推到 100%：`fromTrack` 和 `toTrack` 都選 `production`，`rolloutPercent` 選 100 再跑一次。
 - `dryRun` 會印出將要送出的內容然後放棄該 edit，不會有任何實際變更。
+
+### 送上 App Store 正式版（送審）
+
+tag 只會到 TestFlight。要上架跑 `.github/workflows/submit-appstore.yml`（`workflow_dispatch`）——
+它把**已經在 TestFlight 上的那包**接到 App Store 版本上送審，不重 build（理由同 Play：重 build 會換成
+一包沒人測過的 artifact）。跑在 ubuntu，因為沒有編譯，只打 App Store Connect API。
+
+- `versionName` 必填，例如 `1.0.35`。
+- `buildNumber` 留白 = 用該版本上已有的 build。注意 **iOS build number 是每個 marketing version 從 1
+  重新數的**，不是 `github.run_number`——`1.0.35` 的第一包 build number 就是 `1`。要釘特定一包時別填錯。
+- `releaseNotes` 留白 = 完全不動商店文案。但新建的版本沒有「What's New」會被 review 打回，所以新版本要填。
+- `locale` 是 release notes 的語系，預設 `en-US`。
+- `submitForReview` 取消勾選 = 只把版本建好、接上 build，不送出。第一次跑或不確定時先用這個。
+- `automaticRelease` 勾選 = Apple 過審後自動上架，不用再回 App Store Connect 按。
+- workflow 綠燈只代表「已送審」，不代表上架。Apple 是人工審核，大約 24h。
+
+**Pending Developer Release 會擋掉之後所有版本。** App Store Connect 同時只允許一個可編輯的版本，
+一個已過審但沒按「發布」的版本會一直佔著那個位置，下一版連建都建不起來，`submit-appstore.yml`
+會失敗在 `You cannot create a new version of the App in the current state`，而錯誤訊息不會告訴你是哪一版卡住。
+
+這不是假想的：`1.0.30` 就這樣躺著，商店停在 `1.0.25`，`1.0.31`–`1.0.34` 全部只到 TestFlight 就沒下文。
+所以每次送審後要嘛讓它自動上架，要嘛記得回去把它處理掉。
+
+要查目前狀態跑 `.github/workflows/appstore-status.yml`（唯讀，隨時可跑），它會列出每個 App Store
+版本和它的 state，以及最近幾包 TestFlight build 的處理狀態。
