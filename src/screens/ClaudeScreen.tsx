@@ -896,12 +896,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
         continue
       }
       const ext = /^data:image\/png/.test(dataUrl) ? 'png' : 'jpg'
+      dlog('CLAUDE_IMAGE', `uploading to host tmp: ${base64.length} base64 chars, ext=${ext}`)
       try {
         hostPaths.push(await channels.fs.uploadToHostTmp(`photo-${Date.now()}.${ext}`, base64))
       } catch (e) {
-        console.warn('[Claude] uploadToHostTmp failed, sending inline:', e)
+        dlog('!CLAUDE_IMAGE', `uploadToHostTmp failed, sending inline: ${e}`)
         inlineImages.push(dataUrl)
       }
+    }
+    if (images.length > 0) {
+      dlog('CLAUDE_IMAGE', `sending ${inlineImages.length} inline, ${hostPaths.length} by host path`)
     }
 
     const messageText = hostPaths.length > 0
@@ -1160,30 +1164,60 @@ export function ClaudeScreen({ route, navigation }: Props) {
       Alert.alert(t('claude.errors.imageLimitTitle'), t('claude.errors.imageLimitMessage', { max: MAX_IMAGES }))
       return
     }
+    const slots = MAX_IMAGES - attachedImages.length
+    dlog('CLAUDE_IMAGE', `launchImageLibrary slots=${slots}`)
     try {
       launchImageLibrary(
         {
           mediaType: 'photo',
-          selectionLimit: MAX_IMAGES - attachedImages.length,
+          selectionLimit: slots,
           includeBase64: true,
           quality: 0.8,
           maxWidth: 2048,
           maxHeight: 2048,
         },
         (response) => {
-          if (response.didCancel || response.errorCode) return
-          const newImages = (response.assets || [])
+          // Every branch below used to be a silent `return`, so a photo the
+          // picker couldn't encode was indistinguishable from the button doing
+          // nothing. Each one now says which case it was — and if none of them
+          // logs at all, the native callback never fired, which is its own answer.
+          if (response.didCancel) {
+            dlog('CLAUDE_IMAGE', 'picker cancelled')
+            return
+          }
+          if (response.errorCode) {
+            dlog('!CLAUDE_IMAGE', `picker error ${response.errorCode}: ${response.errorMessage ?? ''}`)
+            Alert.alert(t('claude.errors.imagePickFailedTitle'), response.errorMessage || response.errorCode)
+            return
+          }
+          const assets = response.assets ?? []
+          dlog('CLAUDE_IMAGE', `picker returned ${assets.length} asset(s)`, assets.map(a => ({
+            type: a.type,
+            fileSize: a.fileSize,
+            uri: !!a.uri,
+            base64Chars: a.base64?.length ?? 0,
+          })))
+          const newImages = assets
             .filter(a => a.base64 && a.uri)
             .map(a => ({
               uri: a.uri!,
               dataUrl: `data:${a.type || 'image/jpeg'};base64,${a.base64}`,
             }))
-          if (newImages.length > 0) {
-            setAttachedImages(prev => [...prev, ...newImages].slice(0, MAX_IMAGES))
+          if (newImages.length === 0) {
+            // Assets came back with no bytes: the native side read the picked
+            // content:// uri but failed to encode it. Silently attaching nothing
+            // is what made this look like the picker was broken.
+            if (assets.length > 0) {
+              dlog('!CLAUDE_IMAGE', `picker returned ${assets.length} asset(s) with no usable base64`)
+              Alert.alert(t('claude.errors.imagePickFailedTitle'), t('claude.errors.imageDecodeFailedMessage'))
+            }
+            return
           }
+          setAttachedImages(prev => [...prev, ...newImages].slice(0, MAX_IMAGES))
         },
       )
-    } catch {
+    } catch (e) {
+      dlog('!CLAUDE_IMAGE', `launchImageLibrary threw: ${e}`)
       Alert.alert(t('claude.errors.rebuildRequiredTitle'), t('claude.errors.rebuildRequiredMessage'))
     }
   }, [attachedImages.length, t])

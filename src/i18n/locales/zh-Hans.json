@@ -380,6 +380,8 @@
       "resumeSessionFailed": "无法恢复会话",
       "imageLimitTitle": "已达上限",
       "imageLimitMessage": "最多允许 {{max}} 张图片。",
+      "imagePickFailedTitle": "无法附加图片",
+      "imageDecodeFailedMessage": "已选取照片，但读不到内容。请换一张，或改用存在本机的照片。",
       "rebuildRequiredTitle": "需要重新构建",
       "rebuildRequiredMessage": "图片选择器需要重新构建原生程序。请运行：npx react-native run-android"
     },

@@ -380,6 +380,8 @@
       "resumeSessionFailed": "無法繼續工作階段",
       "imageLimitTitle": "已達上限",
       "imageLimitMessage": "最多允許 {{max}} 張圖片。",
+      "imagePickFailedTitle": "無法附加圖片",
+      "imageDecodeFailedMessage": "已選取照片，但讀不到內容。請換一張，或改用存在本機的照片。",
       "rebuildRequiredTitle": "需要重新建置",
       "rebuildRequiredMessage": "圖片選擇器需要重新建置原生程式。請執行：npx react-native run-android"
     },

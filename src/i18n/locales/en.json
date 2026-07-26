@@ -380,6 +380,8 @@
       "resumeSessionFailed": "Unable to resume session",
       "imageLimitTitle": "Limit reached",
       "imageLimitMessage": "Maximum {{max}} images allowed.",
+      "imagePickFailedTitle": "Couldn't attach image",
+      "imageDecodeFailedMessage": "The photo was selected but its contents could not be read. Try a different photo, or one stored locally on this device.",
       "rebuildRequiredTitle": "Rebuild required",
       "rebuildRequiredMessage": "Image picker needs a native rebuild. Run: npx react-native run-android"
     },
