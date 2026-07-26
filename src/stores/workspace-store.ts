@@ -11,19 +11,10 @@ import type {
   ProfileEntry,
   AgentPresetId,
 } from '@/types'
-import { getAgentPreset } from '@/types'
+import { getAgentPreset, isSdkAgentSession } from '@/types'
 import { useConnectionStore } from './connection-store'
 
 type ProfileSummary = { profiles: ProfileEntry[]; activeProfileIds: string[] }
-
-const SDK_AGENT_PRESETS = new Set<AgentPresetId>([
-  'claude-code',
-  'claude-code-v2',
-  'claude-code-worktree',
-  'codex-agent',
-  'codex-agent-worktree',
-  'openai-agent',
-])
 
 /**
  * Result of the last `load()` attempt.
@@ -399,7 +390,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const terminal = terminals.find(t => t.id === terminalId)
     if (!terminal) return
 
-    if (terminal.agentPreset && SDK_AGENT_PRESETS.has(terminal.agentPreset)) {
+    if (isSdkAgentSession(terminal)) {
       await ignoreMissingRuntime(() => channels.claude.stopSession(terminalId))
     } else {
       await ignoreMissingRuntime(() => channels.pty.kill(terminalId))
@@ -460,7 +451,6 @@ function createTerminalForWorkspace(workspace: Workspace, agentPreset?: AgentPre
     title: preset ? preset.name : 'New Terminal',
     cwd: workspace.folderPath,
     scrollbackBuffer: [],
-    lastActivityTime: Date.now(),
     agentParams: normalizeAgentParams(normalizedPreset),
   }
 }

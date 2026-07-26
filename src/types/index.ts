@@ -51,6 +51,30 @@ export function getAgentPreset(id: string): AgentPreset | undefined {
   return AGENT_PRESETS.find(p => p.id === id)
 }
 
+/**
+ * Presets the host drives through the Claude SDK channel rather than a raw pty:
+ * the ones that open ClaudeScreen and answer `claude:getSessionState`.
+ *
+ * Navigation, the workspace store and every session list have to agree on this,
+ * and for a while they each kept their own copy of the literal set.
+ */
+const SDK_AGENT_PRESETS = new Set<string>([
+  'claude-code',
+  'claude-code-v2',
+  'claude-code-worktree',
+  'codex-agent',
+  'codex-agent-worktree',
+  'openai-agent',
+])
+
+export function isSdkAgentPreset(preset: string | null | undefined): boolean {
+  return !!preset && SDK_AGENT_PRESETS.has(preset)
+}
+
+export function isSdkAgentSession(terminal: Pick<TerminalInstance, 'agentPreset'>): boolean {
+  return isSdkAgentPreset(terminal.agentPreset)
+}
+
 export function normalizeAgentPresetsFromHost(value: unknown): AgentPreset[] {
   if (!Array.isArray(value)) return []
 
@@ -115,6 +139,16 @@ export interface Workspace {
 //   Terminal Instance
 // ============================================
 
+/**
+ * Note this is a *partial* view of the desktop's terminal record. The store
+ * spreads whatever the host sends and sends it back unchanged, so fields absent
+ * here still survive the round-trip — declaring one only means mobile reads it.
+ *
+ * `lastActivityTime`, `hasPendingAction`, `pendingPrompt` and `pendingImages`
+ * used to be declared and were never read; `lastActivityTime` was stamped once
+ * at creation and never updated, so it named something it did not hold. Session
+ * recency now lives in `stores/recents-store`, where mobile actually maintains it.
+ */
 export interface TerminalInstance {
   id: string
   workspaceId: string
@@ -125,13 +159,9 @@ export interface TerminalInstance {
   pid?: number
   cwd: string
   scrollbackBuffer: string[]
-  lastActivityTime?: number
-  hasPendingAction?: boolean
   sdkSessionId?: string
   model?: string
   agentParams?: Record<string, string | number | boolean | null>
-  pendingPrompt?: string
-  pendingImages?: string[]
   worktreePath?: string
   branchName?: string
   worktreeBranch?: string
