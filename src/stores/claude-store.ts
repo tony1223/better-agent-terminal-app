@@ -694,7 +694,28 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const nextMessages = rawMessages
       ? rawMessages.map(item => normalizeHistoryItem(sessionId, item))
       : session.messages
-    const shouldReplaceMessages = rawMessages !== null && (nextMessages.length > 0 || session.messages.length === 0)
+    // A snapshot carrying fewer messages than we already show is the host's
+    // live tail, not a shorter conversation. Long sessions get archived out of
+    // the host's memory, so `getSessionState` can answer with the last handful
+    // while the real transcript runs to hundreds — and this runs on every
+    // refocus and reconnect. Replacing on sight traded the conversation on
+    // screen for that handful, which is what "讀不到歷史對話" looks like:
+    // a blank scrollback above the few newest tool calls.
+    //
+    // Compaction is the one legitimate shrink — the host really does swap the
+    // conversation for a summary plus recent turns — and it announces itself
+    // with a summary message, so that still comes through. /new clears via
+    // handleSessionReset, which empties the list and lets the next snapshot in.
+    const carriesCompactSummary = nextMessages.some(item => 'role' in item
+      && isCompactSummaryMessage(item.role, item.content ?? '', item.isCompactSummary))
+    const shouldReplaceMessages = rawMessages !== null && (
+      session.messages.length === 0
+      || (nextMessages.length > 0
+        && (nextMessages.length >= session.messages.length || carriesCompactSummary))
+    )
+    if (rawMessages !== null && !shouldReplaceMessages) {
+      dlog('!CLAUDE_STORE', `kept ${session.messages.length} local messages over a ${nextMessages.length}-message snapshot sid=${sessionId}`)
+    }
     dlog('CLAUDE_STORE', `handleSessionState sid=${sessionId} messages=${rawMessages?.length ?? 'n/a'} streaming=${snapshot.isStreaming === true}`)
 
     // Authoritative correction on (re)focus: if the host is clearly working,
