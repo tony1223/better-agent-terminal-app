@@ -26,6 +26,7 @@ import {
   SUPPORTED_LANGUAGES,
   type LanguagePreference,
 } from '@/i18n/config'
+import { appVersionLabel } from '@/native/app-info'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import {
   getDebugLogText,
@@ -169,7 +170,7 @@ export function SettingsScreen() {
         <Text style={styles.sectionTitle}>{t('settings.about')}</Text>
         <View style={styles.card}>
           <Row label={t('settings.app')} value="BAT Mobile" />
-          <Row label={t('settings.version')} value="0.1.0" />
+          <Row label={t('settings.version')} value={appVersionLabel} />
         </View>
       </ScrollView>
 
