@@ -23,7 +23,7 @@ import type { KeyboardEvent } from 'react-native'
 import { launchImageLibrary } from 'react-native-image-picker'
 import { useTranslation } from 'react-i18next'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useClaudeStore, EMPTY_SESSION, type SessionStateMerge } from '@/stores/claude-store'
+import { useClaudeStore, registerSessionRecovery, EMPTY_SESSION, type SessionStateMerge } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore, type UsageWindow } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -498,6 +498,54 @@ export function ClaudeScreen({ route, navigation }: Props) {
       recoveryInFlightRef.current = false
     }
   }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions])
+
+  /**
+   * Put the host session back after it vanished underneath us.
+   *
+   * A send against a session the host no longer holds comes back as "session
+   * has no cwd" — its sidecar restarted, or the runtime was torn down while the
+   * phone was asleep. Re-sending cannot fix that; something has to rebuild the
+   * session first, which is exactly what the desktop does at the same point
+   * (renderer ClaudeAgentPanel.tsx `recoverMissingSession`). Without it the
+   * retry link is a dead button: every tap re-sends into the same hole.
+   *
+   * stopSession clears whatever phantom record a half-finished start left
+   * behind, then client-resume rebuilds from the SDK transcript so the
+   * conversation is still there afterwards rather than starting blank.
+   */
+  const reestablishSession = useCallback(async () => {
+    if (!channels || !terminalCwd) throw new Error('no host connection to re-establish the session on')
+    await channels.claude.stopSession(sessionId).catch(e => {
+      dlog('CLAUDE_SCREEN', `phantom session cleanup failed sessionId=${sessionId}: ${e}`)
+    })
+    // The mount path's dedupe key would otherwise read as "already loaded" and
+    // skip the rebuild the next time this screen mounts.
+    loadedSessionKeyRef.current = null
+    const model = resolveSessionModel()
+    const sdkSessionId = useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId || terminalSdkSessionId
+    if (sdkSessionId) {
+      await channels.claude.clientResume(sessionId, sdkSessionId, terminalCwd, model, buildResumeOptions(model))
+      return
+    }
+    // Never resumed, so there is no transcript to come back to and a plain
+    // start is the whole of the repair.
+    await channels.claude.startSession(sessionId, {
+      cwd: terminalCwd,
+      ...(isClaudeCodeAgent ? { permissionMode } : {}),
+      model,
+      effort: effortLevel,
+      agentPreset,
+      codexSandboxMode: resumeSandboxMode,
+      codexApprovalPolicy: resumeApprovalPolicy,
+      ...worktreeOptions,
+    })
+  }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions,
+    isClaudeCodeAgent, permissionMode, effortLevel, agentPreset, resumeSandboxMode, resumeApprovalPolicy,
+    worktreeOptions])
+
+  // The retry lives on a message bubble, which has no route back to this
+  // screen's session options — so hand the capability to the store instead.
+  useEffect(() => registerSessionRecovery(sessionId, reestablishSession), [sessionId, reestablishSession])
 
   /**
    * Catch up after a reconnect.
@@ -1065,21 +1113,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
       sendPayload: { messageText, images: sendImages },
     })
 
-    channels.claude.sendMessage(sessionId, messageText, sendImages)
-      .then(() => {
-        // Host acked receipt (invoke-result) → solidify the ghosted message.
-        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'sent')
-      })
-      .catch(e => {
-        // invoke-error or timeout → the send did not land. console.warn goes
-        // nowhere a phone user can read, so this has to reach both the Debug
-        // Logs screen and the message bubble; a send that fails in silence is
-        // indistinguishable from one still on its way.
-        const reason = e instanceof Error ? e.message : String(e)
-        dlog('!CLAUDE_SCREEN', `sendMessage failed session=${sessionId} `
-          + `promptLen=${messageText.length} images=${sendImages?.length ?? 0}: ${reason}`)
-        useClaudeStore.getState().setUserMessageStatus(sessionId, localId, 'failed', reason)
-      })
+    // Delivery, its status and the one-shot repair of a lost host session all
+    // live in the store, so the retry link on the bubble runs the same path
+    // this does rather than a thinner copy of it.
+    useClaudeStore.getState()
+      .deliverUserMessage(sessionId, localId, { messageText, images: sendImages })
       .finally(() => {
         sendInFlightRef.current = false
       })

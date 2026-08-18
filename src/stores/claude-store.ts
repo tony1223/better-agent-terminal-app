@@ -264,6 +264,58 @@ function normalizeUserContentForDedupe(content: string): string {
 }
 
 /**
+ * The mirror of findLocalDuplicateUserMessage: that one finds our copy in a
+ * list so the host's can replace it, this one asks whether the host's copy is
+ * already present so ours isn't put back alongside it.
+ */
+function hostEchoedLocalSend(
+  messages: (ClaudeMessage | ClaudeToolCall)[],
+  local: ClaudeMessage,
+): boolean {
+  const content = normalizeUserContentForDedupe(local.content)
+  if (!content) return false
+  return messages.some(existing =>
+    !('toolName' in existing) &&
+    existing.role === 'user' &&
+    !existing.id.startsWith('user-local-') &&
+    normalizeUserContentForDedupe(existing.content) === content &&
+    Math.abs(existing.timestamp - local.timestamp) < 60_000,
+  )
+}
+
+/**
+ * Un-acked local sends have to survive a merge. Nothing else local does.
+ *
+ * Every merge below rebuilds the transcript out of the host's copy, and a
+ * message the host never acked is by definition not in that copy — so the merge
+ * deletes it. Which lands at the worst possible moment: the send failed because
+ * the socket dropped, and the reconnect that follows immediately resyncs the
+ * transcript and takes the failed bubble down with it. The composer was already
+ * cleared when the send started, so at that point the text exists nowhere and
+ * there is no retry left to tap. That is what "輸入消失" is.
+ *
+ * 'sending' is carried for the same reason — an in-flight send has not been
+ * echoed yet either. If it did land, the host's echo is already in the merged
+ * list and hostEchoedLocalSend drops our copy rather than showing both.
+ */
+function carryPendingLocalSends(
+  local: (ClaudeMessage | ClaudeToolCall)[],
+  merged: (ClaudeMessage | ClaudeToolCall)[],
+): (ClaudeMessage | ClaudeToolCall)[] {
+  if (local === merged) return merged
+  const pending = local.filter((item): item is ClaudeMessage =>
+    !('toolName' in item) &&
+    item.id.startsWith('user-local-') &&
+    (item.status === 'sending' || item.status === 'failed') &&
+    !merged.some(existing => existing.id === item.id) &&
+    !hostEchoedLocalSend(merged, item),
+  )
+  if (pending.length === 0) return merged
+  dlog('!CLAUDE_STORE', `carried ${pending.length} un-acked local send(s) across a transcript merge`)
+  return [...merged, ...pending]
+}
+
+/**
  * The assistant counterpart of findLocalDuplicateUserMessage: locate the
  * locally committed copy of the reply the host is now echoing.
  *
@@ -343,6 +395,13 @@ interface ClaudeState {
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
   handleSessionReset: (sessionId: string) => void
   setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status'], failureReason?: string) => void
+  // Deliver an already-rendered optimistic user message, tracking its status
+  // and rebuilding the host session once if it turns out to have gone missing.
+  deliverUserMessage: (
+    sessionId: string,
+    id: string,
+    payload: NonNullable<ClaudeMessage['sendPayload']>,
+  ) => Promise<void>
   // Re-deliver a 'failed' optimistic user message using its stored payload.
   retryUserMessage: (sessionId: string, id: string) => void
 
@@ -350,6 +409,43 @@ interface ClaudeState {
   clearPermission: () => void
   clearAskUser: () => void
   clearPromptSuggestions: () => void
+}
+
+/**
+ * "session has no cwd" means the host lost the session underneath us — its
+ * sidecar restarted, or the runtime was torn down while the phone was asleep —
+ * and this end never noticed, so nothing re-established it. The send fails
+ * against a session that is not there, and so does every retry after it,
+ * because retrying only re-sends: it does not rebuild what is missing. Tapping
+ * the retry link then does nothing forever, which reads as the app being stuck.
+ *
+ * BAT Desktop matches the same string for the same reason
+ * (renderer/src/utils/agent-send-recovery.ts) — the host names the condition in
+ * the error text and nowhere else, so there is nothing better to key off.
+ */
+export function isMissingSessionCwdError(message: string): boolean {
+  return /session has no cwd/i.test(message)
+}
+
+/**
+ * How to put a lost host session back, registered by the screen that owns it.
+ *
+ * Re-establishing needs the cwd, model, agent preset and worktree options that
+ * only ClaudeScreen has assembled, so the store cannot do it alone. But the
+ * retry that needs it is triggered from a bubble deep inside the message list,
+ * which has no route back to the screen. Registering the capability keeps the
+ * knowledge where it already lives and still lets the store reach it.
+ */
+type SessionRecovery = () => Promise<void>
+const sessionRecoveries = new Map<string, SessionRecovery>()
+
+export function registerSessionRecovery(sessionId: string, recover: SessionRecovery): () => void {
+  sessionRecoveries.set(sessionId, recover)
+  return () => {
+    // Identity-checked: a remount registers before the old screen unregisters,
+    // and deleting blindly would strip the new screen's own entry.
+    if (sessionRecoveries.get(sessionId) === recover) sessionRecoveries.delete(sessionId)
+  }
 }
 
 export const useClaudeStore = create<ClaudeState>((set, get) => ({
@@ -471,27 +567,51 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     set({ sessions: { ...sessions, [sessionId]: { ...session, messages } } })
   },
 
+  deliverUserMessage: async (sessionId, id, payload) => {
+    const channels = useConnectionStore.getState().channels
+    const { messageText, images } = payload
+    if (!channels) {
+      get().setUserMessageStatus(sessionId, id, 'failed', 'Not connected to the host')
+      return
+    }
+    // Flip to the ghosted state first, so a retry looks like a fresh send:
+    // success solidifies it, another failure re-arms the retry affordance.
+    get().setUserMessageStatus(sessionId, id, 'sending')
+    try {
+      await channels.claude.sendMessage(sessionId, messageText, images)
+      get().setUserMessageStatus(sessionId, id, 'sent')
+      return
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      const recover = sessionRecoveries.get(sessionId)
+      if (!isMissingSessionCwdError(reason) || !recover) {
+        dlog('!CLAUDE_STORE', `sendMessage failed sid=${sessionId} id=${id} `
+          + `promptLen=${messageText.length} images=${images?.length ?? 0}: ${reason}`)
+        get().setUserMessageStatus(sessionId, id, 'failed', reason)
+        return
+      }
+      // Once, and only once: rebuild the session, then re-send the same
+      // payload. A second no-cwd means the rebuild itself isn't landing, and
+      // looping on that would only bury the reason under identical attempts.
+      dlog('!CLAUDE_STORE', `sendMessage hit no-cwd sid=${sessionId}; re-establishing the host session and retrying once`)
+      try {
+        await recover()
+        await channels.claude.sendMessage(sessionId, messageText, images)
+        get().setUserMessageStatus(sessionId, id, 'sent')
+      } catch (retryError) {
+        const retryReason = retryError instanceof Error ? retryError.message : String(retryError)
+        dlog('!CLAUDE_STORE', `no-cwd recovery failed sid=${sessionId} id=${id}: ${retryReason}`)
+        get().setUserMessageStatus(sessionId, id, 'failed', retryReason)
+      }
+    }
+  },
+
   retryUserMessage: (sessionId, id) => {
     const session = get().sessions[sessionId]
     if (!session) return
     const existing = session.messages.find(m => m.id === id)
     if (!existing || 'toolName' in existing || existing.status !== 'failed' || !existing.sendPayload) return
-    const channels = useConnectionStore.getState().channels
-    if (!channels) return
-
-    const { messageText, images } = existing.sendPayload
-    // Flip back to the ghosted state, then run the same deliver path as a
-    // fresh send: success solidifies it, another failure re-arms retry.
-    get().setUserMessageStatus(sessionId, id, 'sending')
-    channels.claude.sendMessage(sessionId, messageText, images)
-      .then(() => {
-        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'sent')
-      })
-      .catch(e => {
-        const reason = e instanceof Error ? e.message : String(e)
-        dlog('!CLAUDE_STORE', `retryUserMessage failed id=${id}: ${reason}`)
-        useClaudeStore.getState().setUserMessageStatus(sessionId, id, 'failed', reason)
-      })
+    void get().deliverUserMessage(sessionId, id, existing.sendPayload)
   },
 
   handleToolUse: (sessionId, rawTool) => {
@@ -809,7 +929,10 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
+          messages: carryPendingLocalSends(
+            session.messages,
+            stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
+          ),
           isStreaming: snapshot.isStreaming ?? session.isStreaming,
           streamingText: snapshot.streamingText ?? session.streamingText,
           streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
@@ -865,7 +988,10 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       dlog('!CLAUDE_STORE', `ignored an empty history payload over ${session.messages.length} local messages sid=${sessionId}`)
       return
     }
-    const messages = incoming.map(item => normalizeHistoryItem(sessionId, item))
+    const messages = carryPendingLocalSends(
+      session.messages,
+      incoming.map(item => normalizeHistoryItem(sessionId, item)),
+    )
 
     set({
       sessions: {
