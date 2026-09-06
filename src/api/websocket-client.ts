@@ -40,6 +40,7 @@ interface PendingPing {
 
 type EventHandler = (...args: unknown[]) => void
 type StatusListener = (status: ConnectionStatus) => void
+export type ChannelTransport = Pick<WebSocketClient, 'invoke' | 'invokeParams' | 'on'>
 type RemoteProtocol = typeof REMOTE_PROTOCOL_V2 | typeof REMOTE_PROTOCOL_LEGACY_V1
 type RemoteCompression = typeof REMOTE_COMPRESSION_GZIP | typeof REMOTE_COMPRESSION_NONE
 
@@ -197,6 +198,33 @@ export class WebSocketClient {
   private _counter = 0
   private _error: string | null = null
   private protocol: RemoteProtocol = REMOTE_PROTOCOL_LEGACY_V1
+  private capabilities: Record<string, unknown> = {}
+
+  get supportsProfileContext(): boolean {
+    return this.protocol === REMOTE_PROTOCOL_V2 && this.capabilities.profileContext === 1
+  }
+
+  get profileCacheKey(): string {
+    return `${this.host}:${this.port}/${this.fingerprint ?? 'ws'}`
+  }
+
+  scoped(contextId: string): ChannelTransport {
+    const generation = this.generation
+    const current = () => {
+      if (generation !== this.generation || !this.isConnected) throw new Error('Profile connection changed')
+    }
+    return {
+      invoke: async <T = unknown>(channel: string, ...args: unknown[]) => {
+        current()
+        return this.invokeWithContext<T>(contextId, channel, args)
+      },
+      invokeParams: async <T = unknown>(channel: string, params: unknown, args: unknown[] = [], opts?: { timeoutMs?: number }) => {
+        current()
+        return this.invokeParams<T>(channel, params, args, { ...opts, contextId })
+      },
+      on: (channel, handler) => this.on(`${contextId}/${canonicalRemoteChannel(channel)}`, handler),
+    }
+  }
 
   // Connection params
   private host = ''
@@ -417,6 +445,7 @@ export class WebSocketClient {
                   : REMOTE_COMPRESSION_NONE
                 dlog('WS', `auth success, connected! protocol=${this.protocol} compression=${this.compression}`)
                 this.sessionEstablished = true
+                this.capabilities = frame.capabilities ?? {}
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -452,8 +481,8 @@ export class WebSocketClient {
 
           if (frame.type === 'event' && frame.channel) {
             const channel = canonicalRemoteChannel(frame.channel)
-            if (!PROXIED_EVENTS.has(frame.channel) && !PROXIED_EVENTS.has(channel)) return
-            const handlers = this.listeners.get(channel)
+            if (!PROXIED_EVENTS.has(frame.channel) && !PROXIED_EVENTS.has(channel) && channel !== 'profile:status') return
+            const handlers = this.listeners.get(frame.contextId ? `${frame.contextId}/${channel}` : channel)
             if (handlers) {
               const args = frame.params !== undefined
                 ? eventParamsToArgs(channel, frame.params)
@@ -735,6 +764,10 @@ export class WebSocketClient {
   // ============================================
 
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
+    return this.invokeWithContext<T>(undefined, channel, args)
+  }
+
+  private invokeWithContext<T>(contextId: string | undefined, channel: string, args: unknown[]): Promise<T> {
     if (!this.isConnected) {
       return Promise.reject(new Error('Not connected to remote server'))
     }
@@ -742,7 +775,7 @@ export class WebSocketClient {
     const frameChannel = this.protocol === REMOTE_PROTOCOL_V2
       ? canonicalRemoteChannel(channel)
       : legacyRemoteChannel(channel)
-    const frame: RemoteFrame = { type: 'invoke', id: this.nextId(), channel: frameChannel, args }
+    const frame: RemoteFrame = { type: 'invoke', id: this.nextId(), channel: frameChannel, args, ...(contextId ? { contextId } : {}) }
     dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} args=${args.length}`)
 
     return new Promise((resolve, reject) => {
@@ -773,7 +806,7 @@ export class WebSocketClient {
     channel: string,
     params: unknown,
     legacyArgs: unknown[] = [],
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; contextId?: string },
   ): Promise<T> {
     if (!this.isConnected) {
       return Promise.reject(new Error('Not connected to remote server'))
@@ -794,6 +827,7 @@ export class WebSocketClient {
         id: this.nextId(),
         channel: frameChannel,
         params,
+        ...(opts?.contextId ? { contextId: opts.contextId } : {}),
       }
       : {
         type: 'invoke',

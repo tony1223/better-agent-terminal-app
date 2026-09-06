@@ -5,10 +5,27 @@
 
 import { AppState } from 'react-native'
 import { create } from 'zustand'
-import { WebSocketClient, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
+import { WebSocketClient, type ChannelTransport, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
 import { createChannels, type Channels } from '@/api/channels'
 import { dlog } from '@/utils/debug-log'
 import { getRemoteClientIdentity } from '@/utils/client-identity'
+import { activateProfileScope } from './profile-scope'
+
+export interface ProfileContext {
+  contextId: string
+  profileId: string
+  name: string
+  bindingKey: string
+  status: 'ready' | 'unavailable'
+}
+
+let selectionVersion = 0
+let profileStatusUnsubscribe: (() => void) | null = null
+const unavailableTransport: ChannelTransport = {
+  invoke: () => Promise.reject(new Error('Profile is not ready')),
+  invokeParams: () => Promise.reject(new Error('Profile is not ready')),
+  on: () => () => {},
+}
 
 interface ConnectionState {
   status: ConnectionStatus
@@ -25,6 +42,12 @@ interface ConnectionState {
    * left it instead of throwing them back to the host list.
    */
   sessionActive: boolean
+  profileContext: ProfileContext | null
+  profileViewKey: string | null
+  selectedProfileId: string | null
+  selectedProfileName: string | null
+  profileStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
+  selectProfile: (profileId: string, force?: boolean) => Promise<Channels>
 
   connect: (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => Promise<boolean>
   checkConnection: () => Promise<boolean>
@@ -42,8 +65,66 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   client: null,
   channels: null,
   sessionActive: false,
+  profileContext: null,
+  profileViewKey: null,
+  selectedProfileId: null,
+  selectedProfileName: null,
+  profileStatus: 'idle',
+
+  selectProfile: async (profileId, force = false) => {
+    const { client, channels, profileContext } = get()
+    if (!client || !channels) throw new Error('Not connected to host')
+    if (!client.supportsProfileContext) return channels
+    if (!force && profileContext?.profileId === profileId && get().profileStatus === 'ready') return channels
+    const version = ++selectionVersion
+    profileStatusUnsubscribe?.()
+    profileStatusUnsubscribe = null
+    set({ selectedProfileId: profileId, profileContext: null, profileStatus: 'loading', channels: createChannels(unavailableTransport, client) })
+    if (profileContext) client.invokeParams('profile:close', { contextId: profileContext.contextId }).catch(() => {})
+    try {
+      const context = await client.invokeParams<ProfileContext>('profile:open', { profileId })
+      if (version !== selectionVersion || get().client !== client) {
+        client.invokeParams('profile:close', { contextId: context.contextId }).catch(() => {})
+        throw new Error('Profile selection changed')
+      }
+      if (!context.contextId || context.profileId !== profileId || context.status !== 'ready') throw new Error('Profile unavailable')
+      const scoped = client.scoped(context.contextId)
+      const isCurrent = () => get().profileContext?.contextId === context.contextId && get().client === client
+      const guard = async <T,>(operation: () => Promise<T>): Promise<T> => {
+        if (!isCurrent()) throw new Error('Profile selection changed')
+        try {
+          const result = await operation()
+          if (!isCurrent()) throw new Error('Profile selection changed')
+          return result
+        } catch (error) {
+          if (isCurrent() && /profile context|unknown profile|profile changed or was removed|profile unavailable/i.test(String(error))) {
+            set({ profileStatus: 'unavailable' })
+          }
+          throw error
+        }
+      }
+      const transport: ChannelTransport = {
+        invoke: (channel, ...args) => guard(() => scoped.invoke(channel, ...args)),
+        invokeParams: (channel, params, args, opts) => guard(() => scoped.invokeParams(channel, params, args, opts)),
+        on: (channel, cb) => scoped.on(channel, (...args) => { if (isCurrent()) cb(...args) }),
+      }
+      const nextChannels = createChannels(transport, client)
+      activateProfileScope(`${client.profileCacheKey ?? `${get().host}:${get().port}`}/${context.bindingKey}`)
+      profileStatusUnsubscribe = scoped.on('profile:status', (payload: any) => {
+        if (!isCurrent()) return
+        if (payload?.status === 'unavailable') set({ profileStatus: 'unavailable' })
+      })
+      set({ profileContext: context, profileViewKey: context.bindingKey, selectedProfileName: context.name, profileStatus: 'ready', channels: nextChannels })
+      return nextChannels
+    } catch (error) {
+      if (version === selectionVersion && get().client === client) set({ profileStatus: 'unavailable' })
+      throw error
+    }
+  },
 
   connect: async (host: string, port: number, token: string, fingerprint?: string | null, context?: RemoteClientContext | null, useTLS?: boolean) => {
+    selectionVersion++
+    profileStatusUnsubscribe?.()
     const tls = useTLS ?? !!fingerprint
     dlog('!CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., tls=${tls}, fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
     const { client: existing } = get()
@@ -55,12 +136,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const client = new WebSocketClient()
 
     client.onStatusChange((status) => {
+      if (get().client !== client) return
       dlog(status === 'error' ? '!CONN' : 'CONN', `status changed: ${status}, error: ${client.error}`)
       // A reconnect reuses this client, and only the initial connect below
       // builds the channels — so a session that comes back after the first
       // attempt failed would otherwise be connected with nothing wired up.
-      const channels = status === 'connected' && !get().channels
-        ? createChannels(client)
+      const channels = status === 'connected' && (!get().channels || (client.supportsProfileContext && !get().profileContext))
+        ? createChannels(client.supportsProfileContext ? unavailableTransport : client, client)
         : get().channels
       const ended = (status === 'disconnected' || status === 'error') && !client.willRetry
       set({
@@ -68,10 +150,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         error: client.error,
         channels: ended ? null : channels,
         ...(ended ? { sessionActive: false } : {}),
+        ...(status !== 'connected' ? { profileContext: null, profileStatus: 'idle' as const } : {}),
       })
     })
 
-    set({ client, host, port, tls, status: 'connecting', error: null })
+    set({ client, host, port, tls, status: 'connecting', error: null, channels: null, profileContext: null, profileViewKey: null, selectedProfileId: null, selectedProfileName: null, profileStatus: 'idle' })
 
     try {
       const identity = getRemoteClientIdentity()
@@ -80,9 +163,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         clientInfo: identity,
       }
       const ok = await client.connect(host, port, token, identity.label, fingerprint, clientContext, tls)
+      if (get().client !== client) return false
       dlog(ok ? 'CONN' : '!CONN', `client.connect returned: ${ok}`)
 
       if (ok) {
+        if (!client.supportsProfileContext) activateProfileScope(`${host}:${port}/legacy`)
         const channels = get().channels ?? createChannels(client)
         set({ channels, status: 'connected', error: null, tls, sessionActive: true })
         return true
@@ -118,11 +203,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   retryNow: () => {
     const { client } = get()
     if (!client) return
+    const profileId = get().selectedProfileId
+    if (client.isConnected && profileId && client.supportsProfileContext) {
+      get().selectProfile(profileId, true).catch(() => {})
+      return
+    }
     dlog('CONN', 'manual retry requested')
     client.resume()
   },
 
   disconnect: () => {
+    selectionVersion++
+    profileStatusUnsubscribe?.()
+    profileStatusUnsubscribe = null
     const { client } = get()
     if (client) {
       client.disconnect()
@@ -136,6 +229,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       tls: false,
       error: null,
       sessionActive: false,
+      profileContext: null,
+      selectedProfileId: null,
+      selectedProfileName: null,
+      profileViewKey: null,
+      profileStatus: 'idle',
     })
   },
 }))

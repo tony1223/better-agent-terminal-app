@@ -2,7 +2,7 @@
  * Worktree Channel Proxy
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 // worktree:create / merge / remove / rehydrate are slow git mutations on the
 // host; the protocol gives them a long invoke timeout (desktop uses 120s).

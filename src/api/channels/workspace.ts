@@ -2,7 +2,7 @@
  * Workspace Channel Proxy
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 export function createWorkspaceChannel(ws: WebSocketClient) {
   // Per the v2 protocol, clients SHOULD omit windowId entirely on

@@ -3,7 +3,7 @@
  * Synced with BAT Desktop protocol.
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 import type { ProfileEntry } from '@/types'
 
 export interface ProfileListResult {

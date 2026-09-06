@@ -15,6 +15,7 @@ import { getAgentPreset, isSdkAgentSession } from '@/types'
 import { useConnectionStore } from './connection-store'
 
 type ProfileSummary = { profiles: ProfileEntry[]; activeProfileIds: string[] }
+let profileLoadGeneration = 0
 
 /**
  * Result of the last `load()` attempt.
@@ -80,6 +81,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   loadError: null,
 
   load: async () => {
+    if (useConnectionStore.getState().profileStatus === 'loading') return
+    const generation = profileLoadGeneration
     const channels = useConnectionStore.getState().channels
     if (!channels) {
       set({ loadStatus: 'no-channel', loadError: null })
@@ -95,15 +98,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       activeProfileIds: get().activeProfileIds,
     }
     const loadedSummary = await loadProfileSummary(channels, value => {
+      if (generation !== profileLoadGeneration) return
       summary = value
       set(value)
     })
     if (loadedSummary) summary = loadedSummary
+    if (generation !== profileLoadGeneration) return
 
     // Keep the device's pinned profile across refreshes; only re-resolve
     // from the host's active set when no pin exists or it disappeared.
     const sticky = get().activeLocalProfileId
-    const activeProfileId = (sticky && summary.profiles.some(p => p.id === sticky))
+    const activeProfileId = (sticky && (useConnectionStore.getState().client?.supportsProfileContext || summary.profiles.some(p => p.id === sticky)))
       ? sticky
       : resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
 
@@ -134,6 +139,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   loadProfileWorkspace: async (profileId) => {
+    const generation = ++profileLoadGeneration
     const channels = useConnectionStore.getState().channels
     if (!channels) {
       set({ loadStatus: 'no-channel', loadError: null })
@@ -158,7 +164,33 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ activeLocalProfileId: profileId })
     }
 
+    const connection = useConnectionStore.getState()
+    if (connection.client?.supportsProfileContext) {
+      try {
+        const scopedChannels = await connection.selectProfile(profileId)
+        if (generation !== profileLoadGeneration) return
+        const raw = await scopedChannels.workspace.load(profileId)
+        if (generation !== profileLoadGeneration) return
+        if (raw == null) {
+          set({ workspaces: [], terminals: [], loadStatus: 'no-window', loadError: null })
+        } else {
+          get().applySnapshot(raw, { preserveActiveWorkspace: !isProfileSwitch })
+        }
+      } catch (error) {
+        if (generation !== profileLoadGeneration) return
+        set({ loadStatus: 'rpc-error', loadError: String(error) })
+        throw error
+      }
+      return
+    }
+    if (get().profiles.find(p => p.id === profileId)?.type === 'remote') {
+      const error = new Error('Update BAT to open this profile')
+      set({ loadStatus: 'rpc-error', loadError: error.message })
+      throw error
+    }
+
     await loadProfileSummary(channels, ({ profiles, activeProfileIds }) => {
+      if (generation !== profileLoadGeneration) return
       set({ profiles, activeProfileIds })
     })
 
@@ -168,6 +200,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // terminals), which made reopened sessions show old, archived messages.
     try {
       const raw = await channels.workspace.load(profileId)
+      if (generation !== profileLoadGeneration) return
       if (raw != null) {
         get().applySnapshot(raw, { preserveActiveWorkspace: !isProfileSwitch })
         return
@@ -179,6 +212,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     try {
       const snapshot = await channels.profile.loadSnapshot(profileId)
+      if (generation !== profileLoadGeneration) return
       const state = stateFromProfileSnapshot(snapshot)
       if (!state) {
         set({ loadStatus: 'parse-error', loadError: `Invalid profile snapshot: ${profileId}` })
@@ -186,6 +220,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
       get().applyState(state, { preserveActiveWorkspace: !isProfileSwitch })
     } catch (e) {
+      if (generation !== profileLoadGeneration) return
       set({ loadStatus: 'rpc-error', loadError: String(e) })
     }
   },
@@ -217,6 +252,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     if (payload && typeof payload === 'object') {
       const record = payload as Record<string, unknown>
+      if (record.refresh === true) {
+        const id = viewedProfileId(get())
+        if (id && (!record.profileId || record.profileId === id)) get().loadProfileWorkspace(id).catch(() => {})
+        return
+      }
       // The host broadcasts workspace:reload to every connected client, so a
       // payload may belong to a profile this device isn't viewing. When the host
       // stamps a profileId, drop reloads for any other profile; apply only when
@@ -231,10 +271,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
       const snapshot = record.snapshot ?? record.data ?? record.workspace
       if (typeof snapshot === 'string') {
+        profileLoadGeneration++
         get().applySnapshot(snapshot)
         return
       }
       if (Array.isArray(record.workspaces) || Array.isArray(record.terminals)) {
+        profileLoadGeneration++
         get().applyState(record as unknown as AppState)
         return
       }
@@ -295,7 +337,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // pinned profile — only its disappearance forces a re-resolve.
     set(summary)
     const sticky = get().activeLocalProfileId
-    const activeId = (sticky && summary.profiles.some(p => p.id === sticky))
+    const activeId = (sticky && (useConnectionStore.getState().client?.supportsProfileContext || summary.profiles.some(p => p.id === sticky)))
       ? sticky
       : resolveActiveLocalProfileId(summary.profiles, summary.activeProfileIds)
     if (activeId) {
@@ -326,6 +368,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   requestAddSession: async (workspaceId, agentPreset) => {
     const channels = useConnectionStore.getState().channels
     if (!channels) throw new Error('Not connected to remote server')
+    const activeProfileId = viewedProfileId(get())
+    const stillViewing = () => useConnectionStore.getState().channels === channels && viewedProfileId(get()) === activeProfileId
 
     const { workspaces, terminals, activeWorkspaceId, activeTerminalId } = get()
     const workspace = workspaces.find(w => w.id === workspaceId)
@@ -334,6 +378,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     let terminal = createTerminalForWorkspace(workspace, agentPreset)
     if (isWorktreePreset(agentPreset)) {
       const result = await channels.worktree.create(terminal.id, workspace.folderPath, false)
+      if (!stillViewing()) throw new Error('Profile selection changed')
       const worktree = normalizeWorktreeResult(result)
       if (!worktree.success || !worktree.worktreePath) {
         throw new Error(worktree.error || 'Host failed to create worktree')
@@ -368,11 +413,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     get().applyState(nextState)
 
     try {
-      const activeProfileId = viewedProfileId(get())
       const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
       if (!saved) throw new Error('Host rejected workspace save')
     } catch (e) {
-      get().applyState(previousState)
+      if (stillViewing()) get().applyState(previousState)
       if (terminal.worktreePath) {
         await ignoreMissingRuntime(() => channels.worktree.remove(terminal.id, true))
       }
@@ -385,6 +429,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   requestCloseSession: async (terminalId, options) => {
     const channels = useConnectionStore.getState().channels
     if (!channels) throw new Error('Not connected to remote server')
+    const activeProfileId = viewedProfileId(get())
 
     const { workspaces, terminals, activeWorkspaceId, activeTerminalId } = get()
     const terminal = terminals.find(t => t.id === terminalId)
@@ -419,10 +464,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       focusedTerminalId: nextActiveTerminalId,
     }
 
-    const activeProfileId = viewedProfileId(get())
     const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
     if (!saved) throw new Error('Host rejected workspace save')
-    await get().load()
+    if (useConnectionStore.getState().channels === channels && viewedProfileId(get()) === activeProfileId) await get().load()
   },
 
   getWorkspaceTerminals: (workspaceId: string) => {

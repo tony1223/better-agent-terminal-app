@@ -356,6 +356,8 @@ function findCommittedStreamDuplicate(
 export type SessionStateMerge = 'adopted' | 'stitched' | 'kept-local' | 'no-messages'
 
 interface ClaudeState {
+  scopeKey: string
+  switchScope: (key: string) => void
   sessions: Record<string, SessionState>
   activeSessionId: string | null
 
@@ -427,6 +429,17 @@ export function isMissingSessionCwdError(message: string): boolean {
   return /session has no cwd/i.test(message)
 }
 
+function assertSendSucceeded(result: unknown): void {
+  if (!result || typeof result !== 'object') return
+  const response = result as { ok?: unknown; error?: unknown; cancelled?: unknown }
+  if (response.ok !== false) return
+  throw new Error(
+    typeof response.error === 'string' && response.error.trim()
+      ? response.error
+      : response.cancelled === true ? 'Message send cancelled' : 'Host rejected the message',
+  )
+}
+
 /**
  * How to put a lost host session back, registered by the screen that owns it.
  *
@@ -438,17 +451,27 @@ export function isMissingSessionCwdError(message: string): boolean {
  */
 type SessionRecovery = () => Promise<void>
 const sessionRecoveries = new Map<string, SessionRecovery>()
+const scopedSessions = new Map<string, Record<string, SessionState>>()
 
 export function registerSessionRecovery(sessionId: string, recover: SessionRecovery): () => void {
-  sessionRecoveries.set(sessionId, recover)
+  const key = `${useClaudeStore.getState().scopeKey}/${sessionId}`
+  sessionRecoveries.set(key, recover)
   return () => {
     // Identity-checked: a remount registers before the old screen unregisters,
     // and deleting blindly would strip the new screen's own entry.
-    if (sessionRecoveries.get(sessionId) === recover) sessionRecoveries.delete(sessionId)
+    if (sessionRecoveries.get(key) === recover) sessionRecoveries.delete(key)
   }
 }
 
 export const useClaudeStore = create<ClaudeState>((set, get) => ({
+  scopeKey: 'legacy',
+  switchScope: (key) => {
+    const state = get()
+    if (state.scopeKey === key) return
+    scopedSessions.set(state.scopeKey, state.sessions)
+    set({ scopeKey: key, sessions: scopedSessions.get(key) ?? {}, activeSessionId: null,
+      pendingPermission: null, pendingAskUser: null, promptSuggestions: [] })
+  },
   sessions: {},
   activeSessionId: null,
   pendingPermission: null,
@@ -568,26 +591,40 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   deliverUserMessage: async (sessionId, id, payload) => {
+    const scopeKey = get().scopeKey
+    const updateStatus = (status: ClaudeMessage['status'], reason?: string) => {
+      if (get().scopeKey === scopeKey) {
+        get().setUserMessageStatus(sessionId, id, status, reason)
+        return
+      }
+      const sessions = scopedSessions.get(scopeKey)
+      const session = sessions?.[sessionId]
+      if (!sessions || !session) return
+      scopedSessions.set(scopeKey, { ...sessions, [sessionId]: { ...session,
+        messages: session.messages.map(m => m.id === id && !('toolName' in m)
+          ? { ...m, status, failureReason: reason } : m) } })
+    }
     const channels = useConnectionStore.getState().channels
     const { messageText, images } = payload
     if (!channels) {
-      get().setUserMessageStatus(sessionId, id, 'failed', 'Not connected to the host')
+      updateStatus('failed', 'Not connected to the host')
       return
     }
     // Flip to the ghosted state first, so a retry looks like a fresh send:
     // success solidifies it, another failure re-arms the retry affordance.
-    get().setUserMessageStatus(sessionId, id, 'sending')
+    updateStatus('sending')
     try {
-      await channels.claude.sendMessage(sessionId, messageText, images)
-      get().setUserMessageStatus(sessionId, id, 'sent')
+      assertSendSucceeded(await channels.claude.sendMessage(sessionId, messageText, images))
+      updateStatus('sent')
       return
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e)
-      const recover = sessionRecoveries.get(sessionId)
+      const recover = get().scopeKey === scopeKey && useConnectionStore.getState().channels === channels
+        ? sessionRecoveries.get(`${scopeKey}/${sessionId}`) : undefined
       if (!isMissingSessionCwdError(reason) || !recover) {
         dlog('!CLAUDE_STORE', `sendMessage failed sid=${sessionId} id=${id} `
           + `promptLen=${messageText.length} images=${images?.length ?? 0}: ${reason}`)
-        get().setUserMessageStatus(sessionId, id, 'failed', reason)
+        updateStatus('failed', reason)
         return
       }
       // Once, and only once: rebuild the session, then re-send the same
@@ -596,12 +633,13 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       dlog('!CLAUDE_STORE', `sendMessage hit no-cwd sid=${sessionId}; re-establishing the host session and retrying once`)
       try {
         await recover()
-        await channels.claude.sendMessage(sessionId, messageText, images)
-        get().setUserMessageStatus(sessionId, id, 'sent')
+        if (get().scopeKey !== scopeKey || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
+        assertSendSucceeded(await channels.claude.sendMessage(sessionId, messageText, images))
+        updateStatus('sent')
       } catch (retryError) {
         const retryReason = retryError instanceof Error ? retryError.message : String(retryError)
         dlog('!CLAUDE_STORE', `no-cwd recovery failed sid=${sessionId} id=${id}: ${retryReason}`)
-        get().setUserMessageStatus(sessionId, id, 'failed', retryReason)
+        updateStatus('failed', retryReason)
       }
     }
   },

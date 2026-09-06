@@ -41,7 +41,7 @@ interface SessionPreviewState {
  * tab switch pushes a detail screen, which pushes a session — and without this
  * each would ask for the same rows.
  */
-const inFlight = new Set<string>()
+const requestsByChannels = new WeakMap<object, Set<string>>()
 
 /** At most this many archive reads at a time, so the socket stays usable. */
 const MAX_CONCURRENT_FETCHES = 4
@@ -120,6 +120,8 @@ export const useSessionPreviewStore = create<SessionPreviewState>((set, get) => 
   load: async (sessionIds) => {
     const channels = useConnectionStore.getState().channels
     if (!channels) return
+    const inFlight = requestsByChannels.get(channels) ?? new Set<string>()
+    requestsByChannels.set(channels, inFlight)
 
     // Forget sessions that no longer exist, so closing one drops its line
     // rather than leaving the cache to grow for the life of the app.
@@ -146,7 +148,7 @@ export const useSessionPreviewStore = create<SessionPreviewState>((set, get) => 
           // uncached so the next visit tries again.
           return
         }
-        if (!preview) return
+        if (!preview || useConnectionStore.getState().channels !== channels) return
 
         set(state => {
           // The session may have been closed while this was in flight; adding

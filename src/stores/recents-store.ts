@@ -17,6 +17,12 @@ import { createMMKV } from 'react-native-mmkv'
 
 const storage = createMMKV({ id: 'bat-recents' })
 const STORAGE_KEY = 'recents-state-v1'
+let activeStorageKey = STORAGE_KEY
+
+export function switchRecentsScope(scope: string) {
+  activeStorageKey = `${STORAGE_KEY}:${scope}`
+  useRecentsStore.setState(loadFromStorage())
+}
 
 /**
  * Enough for the strip plus history to survive a few detours; past this the
@@ -61,7 +67,7 @@ function normalizeEntries(value: unknown): Record<string, RecentEntry> {
 
 function loadFromStorage(): StoredState {
   try {
-    const raw = storage.getString(STORAGE_KEY)
+    const raw = storage.getString(activeStorageKey)
     if (!raw) return { workspaces: {}, sessions: {} }
     const parsed = JSON.parse(raw)
     return {
@@ -74,7 +80,7 @@ function loadFromStorage(): StoredState {
 }
 
 function persist(state: StoredState) {
-  storage.set(STORAGE_KEY, JSON.stringify(state))
+  storage.set(activeStorageKey, JSON.stringify(state))
 }
 
 /** Drop the coldest entries once the map outgrows MAX_TRACKED. */

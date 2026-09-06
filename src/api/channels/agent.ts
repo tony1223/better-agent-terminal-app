@@ -2,7 +2,7 @@
  * Agent metadata channel.
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 import type { AgentPreset } from '@/types'
 
 export function createAgentChannel(ws: WebSocketClient) {

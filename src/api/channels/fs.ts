@@ -2,7 +2,7 @@
  * File System Channel Proxy
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 // One raw MiB per chunk, matching the desktop remote client. The host caps a
 // decoded chunk at 4 MiB and the whole file at 64 MiB. 1398104 base64 chars

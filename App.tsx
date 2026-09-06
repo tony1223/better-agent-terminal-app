@@ -37,7 +37,9 @@ function App() {
   useEffect(() => {
     if (status === 'connected' && channels) {
       // Load workspace data
-      useWorkspaceStore.getState().load()
+      if (useConnectionStore.getState().profileStatus !== 'loading') {
+        useWorkspaceStore.getState().load().catch(e => dlog('PROFILE', String(e)))
+      }
 
       // Subscribe to remote events
       const unsubscribeClaude = subscribeClaudeEvents(channels.claude)
@@ -47,7 +49,9 @@ function App() {
       // predate the pull channel answer with an error; the broadcast still
       // arrives eventually, so there is nothing to tell the user about.
       channels.claude.getUsageSnapshot()
-        .then(snapshot => useUsageStore.getState().applyHostSnapshotMap(snapshot))
+        .then(snapshot => {
+          if (useConnectionStore.getState().channels === channels) useUsageStore.getState().applyHostSnapshotMap(snapshot)
+        })
         .catch(e => dlog('USAGE', `host has no usage-snapshot channel: ${e instanceof Error ? e.message : String(e)}`))
 
       const unsubscribeWorkspaceReload = channels.workspace.onReload((payload) => {

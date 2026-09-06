@@ -2,7 +2,7 @@
  * Channel Proxies - unified export
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 import { createPtyChannel, type PtyChannel } from './pty'
 import { createClaudeChannel, type ClaudeChannel } from './claude'
 import { createWorkspaceChannel, type WorkspaceChannel } from './workspace'
@@ -33,7 +33,7 @@ export interface Channels {
   app: AppChannel
 }
 
-export function createChannels(ws: WebSocketClient): Channels {
+export function createChannels(ws: WebSocketClient, root: WebSocketClient = ws): Channels {
   return {
     pty: createPtyChannel(ws),
     claude: createClaudeChannel(ws),
@@ -42,12 +42,12 @@ export function createChannels(ws: WebSocketClient): Channels {
     git: createGitChannel(ws),
     fs: createFsChannel(ws),
     snippets: createSnippetsChannel(ws),
-    profile: createProfileChannel(ws),
+    profile: createProfileChannel(root),
     github: createGithubChannel(ws),
     worktree: createWorktreeChannel(ws),
     openai: createOpenAIChannel(ws),
     agent: createAgentChannel(ws),
-    app: createAppChannel(ws),
+    app: createAppChannel(root),
   }
 }
 

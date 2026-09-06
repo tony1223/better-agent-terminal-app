@@ -3,7 +3,7 @@
  * Reference: BAT Desktop electron/preload.ts (pty section)
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 import type {
   CreatePtyOptions,
   SetViewportModeOptions,

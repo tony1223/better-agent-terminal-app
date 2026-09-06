@@ -197,6 +197,56 @@ describe('sending into a host session that is gone', () => {
     expect(statusOf('user-local-1')).toBe('failed')
   })
 
+  test('a no-cwd error returned as a result also rebuilds the session', async () => {
+    const sendMessage = jest.fn()
+      .mockResolvedValueOnce({ ok: false, error: NO_CWD })
+      .mockResolvedValueOnce({ ok: true })
+    mockSend(sendMessage)
+    const recover = jest.fn().mockResolvedValue(undefined)
+    registerSessionRecovery(SESSION_ID, recover)
+    pendingMessage()
+
+    await useClaudeStore.getState()
+      .deliverUserMessage(SESSION_ID, 'user-local-1', { messageText: 'hello' })
+
+    expect(recover).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledTimes(2)
+    expect(statusOf('user-local-1')).toBe('sent')
+  })
+
+  test('a rejected result after repair leaves the message retryable', async () => {
+    const sendMessage = jest.fn().mockResolvedValue({ ok: false, error: NO_CWD })
+    mockSend(sendMessage)
+    const recover = jest.fn().mockResolvedValue(undefined)
+    registerSessionRecovery(SESSION_ID, recover)
+    pendingMessage()
+
+    await useClaudeStore.getState()
+      .deliverUserMessage(SESSION_ID, 'user-local-1', { messageText: 'hello' })
+
+    expect(recover).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledTimes(2)
+    expect(statusOf('user-local-1')).toBe('failed')
+  })
+
+  test.each([
+    { ok: false, error: 'session stopped' },
+    { ok: false, cancelled: true },
+    { ok: false },
+  ])('does not acknowledge a rejected send: %j', async result => {
+    const sendMessage = jest.fn().mockResolvedValue(result)
+    mockSend(sendMessage)
+    const recover = jest.fn().mockResolvedValue(undefined)
+    registerSessionRecovery(SESSION_ID, recover)
+    pendingMessage()
+
+    await useClaudeStore.getState()
+      .deliverUserMessage(SESSION_ID, 'user-local-1', { messageText: 'hello' })
+
+    expect(recover).not.toHaveBeenCalled()
+    expect(statusOf('user-local-1')).toBe('failed')
+  })
+
   test('an ordinary send failure is not treated as a lost session', async () => {
     const sendMessage = jest.fn().mockRejectedValue(new Error('Remote invoke timeout: agent:send-message'))
     mockSend(sendMessage)

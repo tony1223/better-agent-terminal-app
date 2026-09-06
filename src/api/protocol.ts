@@ -28,6 +28,8 @@ export interface RemoteFrame {
   result?: unknown
   error?: string
   token?: string
+  contextId?: string
+  capabilities?: Record<string, unknown>
 }
 
 export const REMOTE_PROTOCOL_V2 = 'bat-remote/v2'

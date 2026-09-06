@@ -2,7 +2,7 @@
  * OpenAI direct agent channel proxy.
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 export function createOpenAIChannel(ws: WebSocketClient) {
   return {

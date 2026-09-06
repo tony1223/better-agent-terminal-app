@@ -117,6 +117,41 @@ afterEach(() => {
 })
 
 describe('recovering from a drop', () => {
+  it('routes requests and events through immutable profile contexts', async () => {
+    const { client, socket } = await connectedClient()
+    const a = client.scoped('context-a')
+    const b = client.scoped('context-b')
+    const onA = jest.fn()
+    const onB = jest.fn()
+    const onRoot = jest.fn()
+    a.on('agent:message', onA)
+    b.on('agent:message', onB)
+    client.on('agent:message', onRoot)
+    const request = a.invokeParams('agent:send-message', { sessionId: 'same-id', prompt: 'hello' })
+    const frame = JSON.parse(socket.sent.at(-1)!)
+    expect(frame.contextId).toBe('context-a')
+    socket.cb.onMessage?.(JSON.stringify({ type: 'invoke-result', id: frame.id, result: { ok: true } }))
+    await expect(request).resolves.toEqual({ ok: true })
+    socket.cb.onMessage?.(JSON.stringify({ type: 'event', channel: 'agent:message', contextId: 'context-b',
+      params: { sessionId: 'same-id', message: { content: 'remote hello' } } }))
+    expect(onA).not.toHaveBeenCalled()
+    expect(onRoot).not.toHaveBeenCalled()
+    expect(onB).toHaveBeenCalledWith('same-id', { content: 'remote hello' })
+    client.disconnect()
+  })
+
+  it('keeps positional file requests scoped and refuses an expired connection', async () => {
+    const { client, socket } = await connectedClient()
+    const scoped = client.scoped('context-a')
+    const request = scoped.invoke('fs:readFile', '/project/readme.md')
+    const frame = JSON.parse(socket.sent.at(-1)!)
+    expect(frame).toMatchObject({ contextId: 'context-a', args: ['/project/readme.md'] })
+    socket.cb.onMessage?.(JSON.stringify({ type: 'invoke-result', id: frame.id, result: 'hello' }))
+    await expect(request).resolves.toBe('hello')
+    client.disconnect()
+    await expect(scoped.invoke('fs:readFile', '/other')).rejects.toThrow('Profile connection changed')
+  })
+
   it('retries after the peer closes an established session', async () => {
     const { client, socket } = await connectedClient()
 

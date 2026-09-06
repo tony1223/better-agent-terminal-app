@@ -48,6 +48,7 @@ export function WorkspaceListScreen() {
   const [query, setQuery] = React.useState('')
   const channels = useConnectionStore(s => s.channels)
   const disconnect = useConnectionStore(s => s.disconnect)
+  const selectedProfileName = useConnectionStore(s => s.selectedProfileName)
   const recentWorkspaces = useRecentsStore(s => s.workspaces)
 
   // Pull workspaces fresh from the host whenever this screen regains focus so
@@ -55,7 +56,7 @@ export function WorkspaceListScreen() {
   // manual pull-to-refresh.
   useFocusEffect(
     useCallback(() => {
-      load()
+      load().catch(() => {})
 
       // Workspaces is the first tab / app root: back exits to the home (Connect)
       // screen by disconnecting, which flips RootNavigator back to ConnectScreen.
@@ -80,9 +81,9 @@ export function WorkspaceListScreen() {
     const viewing = activeLocalProfileId
       ? profiles.find(profile => profile.id === activeLocalProfileId)
       : activeProfiles[0]
-    if (!viewing) return t('workspaceList.profile.defaultLabel')
+    if (!viewing) return selectedProfileName || t('workspaceList.profile.defaultLabel')
     return viewing.name || viewing.id
-  }, [activeLocalProfileId, profiles, activeProfiles, t])
+  }, [activeLocalProfileId, profiles, activeProfiles, selectedProfileName, t])
 
   const filteredWorkspaces = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -162,8 +163,8 @@ export function WorkspaceListScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true)
-    await load()
-    setRefreshing(false)
+    try { await load() } catch (e) { setProfileError(String(e)) }
+    finally { setRefreshing(false) }
   }
 
   const selectProfile = async (profile: ProfileEntry) => {
@@ -373,9 +374,6 @@ function ProfileModal({
                 >
                   <View style={styles.profileTextBlock}>
                     <Text style={styles.profileName} numberOfLines={1}>{item.name || item.id}</Text>
-                    <Text style={styles.profileMeta} numberOfLines={1}>
-                      {item.type || 'local'} / {item.id}
-                    </Text>
                   </View>
                   {switching ? (
                     <ActivityIndicator color={appColors.accent} />
@@ -700,11 +698,6 @@ const styles = StyleSheet.create({
     color: appColors.text,
     fontSize: fontSize.md,
     fontWeight: '800',
-  },
-  profileMeta: {
-    color: appColors.textSecondary,
-    fontSize: fontSize.xs,
-    marginTop: spacing.xs,
   },
   profileState: {
     color: appColors.textSecondary,

@@ -7,7 +7,7 @@
  * surface that as "host too old to update remotely".
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 export interface HostUpdateCheck {
   available: boolean

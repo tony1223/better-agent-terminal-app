@@ -218,6 +218,7 @@ export function RootNavigator() {
   const { t } = useTranslation()
   const status = useConnectionStore(s => s.status)
   const sessionActive = useConnectionStore(s => s.sessionActive)
+  const profileKey = useConnectionStore(s => s.profileViewKey ?? undefined)
   // Stay in the app while a drop is being retried. Swapping the stack on any
   // non-connected status unmounted every screen — the user lost their place
   // (and any open session) over a blip that healed a second later.
@@ -227,7 +228,7 @@ export function RootNavigator() {
     <NavigationContainer theme={navTheme}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {isConnected ? (
-          <RootStack.Screen name="Main" component={MainTabs} />
+          <RootStack.Screen name="Main" component={MainTabs} navigationKey={profileKey} />
         ) : (
           <RootStack.Screen
             name="Connect"

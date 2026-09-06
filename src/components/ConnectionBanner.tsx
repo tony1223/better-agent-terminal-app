@@ -7,7 +7,7 @@
  * and give a way to stop waiting out the backoff.
  */
 
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
@@ -21,10 +21,19 @@ export function ConnectionBanner() {
   const sessionActive = useConnectionStore(s => s.sessionActive)
   const retryNow = useConnectionStore(s => s.retryNow)
   const disconnect = useConnectionStore(s => s.disconnect)
+  const profileStatus = useConnectionStore(s => s.profileStatus)
+  const attempts = useRef(0)
+  useEffect(() => {
+    if (profileStatus === 'ready') attempts.current = 0
+    if (status !== 'connected' || profileStatus !== 'unavailable' || attempts.current >= 3) return
+    const delay = 1000 * 2 ** attempts.current++
+    const timer = setTimeout(retryNow, delay)
+    return () => clearTimeout(timer)
+  }, [status, profileStatus, retryNow])
 
   // Only while a session is being restored: a fresh connect has its own
   // screen, and a session that truly ended already sends the user back there.
-  if (!sessionActive || status === 'connected') return null
+  if (!sessionActive || (status === 'connected' && profileStatus !== 'unavailable')) return null
 
   return (
     <View style={[styles.wrap, { top: insets.top + spacing.xs }]} pointerEvents="box-none">

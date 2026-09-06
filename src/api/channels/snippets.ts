@@ -2,7 +2,7 @@
  * Snippets Channel Proxy
  */
 
-import type { WebSocketClient } from '../websocket-client'
+import type { ChannelTransport as WebSocketClient } from '../websocket-client'
 
 export function createSnippetsChannel(ws: WebSocketClient) {
   return {
