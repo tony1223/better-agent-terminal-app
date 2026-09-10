@@ -336,7 +336,14 @@
     "button": {
       "add": "新增",
       "close": "關閉",
-      "up": "上層"
+      "up": "上層",
+      "download": "下載"
+    },
+    "download": {
+      "accessibilityLabel": "下載 {{name}}",
+      "savedTitle": "檔案已儲存",
+      "savedMessage": "已將 {{name}} 儲存到裝置。",
+      "failedTitle": "無法下載檔案"
     },
     "modal": {
       "addSession": "新增工作階段"

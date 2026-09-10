@@ -16,6 +16,8 @@
 		A1B2C3D4E5F60718293A4B5E /* TLSWebSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5F /* TLSWebSocket.m */; };
 		A1B2C3D4E5F60718293A4B60 /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B61 /* AppInfo.swift */; };
 		A1B2C3D4E5F60718293A4B62 /* AppInfo.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B63 /* AppInfo.m */; };
+		B2C3D4E5F60718293A4B5C60 /* FileExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C61 /* FileExporter.swift */; };
+		B2C3D4E5F60718293A4B5C62 /* FileExporter.m in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C63 /* FileExporter.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +34,8 @@
 		A1B2C3D4E5F60718293A4B5F /* TLSWebSocket.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = TLSWebSocket.m; path = BATMobile/TLSWebSocket.m; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B61 /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppInfo.swift; path = BATMobile/AppInfo.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B63 /* AppInfo.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppInfo.m; path = BATMobile/AppInfo.m; sourceTree = "<group>"; };
+		B2C3D4E5F60718293A4B5C61 /* FileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FileExporter.swift; path = BATMobile/FileExporter.swift; sourceTree = "<group>"; };
+		B2C3D4E5F60718293A4B5C63 /* FileExporter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FileExporter.m; path = BATMobile/FileExporter.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -56,6 +60,8 @@
 				A1B2C3D4E5F60718293A4B5F /* TLSWebSocket.m */,
 				A1B2C3D4E5F60718293A4B61 /* AppInfo.swift */,
 				A1B2C3D4E5F60718293A4B63 /* AppInfo.m */,
+				B2C3D4E5F60718293A4B5C61 /* FileExporter.swift */,
+				B2C3D4E5F60718293A4B5C63 /* FileExporter.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -263,6 +269,8 @@
 				A1B2C3D4E5F60718293A4B5E /* TLSWebSocket.m in Sources */,
 				A1B2C3D4E5F60718293A4B60 /* AppInfo.swift in Sources */,
 				A1B2C3D4E5F60718293A4B62 /* AppInfo.m in Sources */,
+				B2C3D4E5F60718293A4B5C60 /* FileExporter.swift in Sources */,
+				B2C3D4E5F60718293A4B5C62 /* FileExporter.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

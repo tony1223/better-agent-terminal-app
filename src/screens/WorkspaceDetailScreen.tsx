@@ -22,6 +22,7 @@ import { useRecentsStore } from '@/stores/recents-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, fontSize, spacing } from '@/theme/colors'
+import { saveBase64File } from '@/utils/file-export'
 import {
   isSdkAgentSession,
   normalizeAgentPresetsFromHost,
@@ -368,7 +369,8 @@ function FilesPane({ rootPath }: { rootPath: string }) {
   const [entries, setEntries] = useState<FsEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<{ title: string; body?: string; imageUrl?: string; error?: string } | null>(null)
+  const [preview, setPreview] = useState<{ title: string; path: string; body?: string; imageUrl?: string; error?: string } | null>(null)
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
 
   useEffect(() => setCurrentPath(rootPath), [rootPath])
 
@@ -395,21 +397,40 @@ function FilesPane({ rootPath }: { rootPath: string }) {
       return
     }
     const ext = fileExt(entry.name)
-    setPreview({ title: entry.name, body: t('workspaceDetail.status.loading') })
+    setPreview({ title: entry.name, path: entry.path, body: t('workspaceDetail.status.loading') })
     try {
       if (IMAGE_EXTS.has(ext)) {
         const imageUrl = await channels.fs.readImageAsDataUrl(entry.path)
-        setPreview({ title: entry.name, imageUrl })
+        setPreview({ title: entry.name, path: entry.path, imageUrl })
         return
       }
       const result = await channels.fs.readFile(entry.path)
       setPreview({
         title: entry.name,
+        path: entry.path,
         body: result.content ?? '',
         error: result.error,
       })
     } catch (e) {
-      setPreview({ title: entry.name, error: String(e) })
+      setPreview({ title: entry.name, path: entry.path, error: String(e) })
+    }
+  }
+
+  const downloadEntry = async (entry: FsEntry) => {
+    if (!channels || entry.isDirectory || downloadingPath) return
+    setDownloadingPath(entry.path)
+    try {
+      // This host endpoint returns the original bytes as base64. Although it
+      // was introduced for image previews, it preserves arbitrary file bytes.
+      const dataUrl = await channels.fs.readImageAsDataUrl(entry.path)
+      const saved = await saveBase64File(entry.name, dataUrl)
+      if (saved) {
+        Alert.alert(t('workspaceDetail.download.savedTitle'), t('workspaceDetail.download.savedMessage', { name: entry.name }))
+      }
+    } catch (e) {
+      Alert.alert(t('workspaceDetail.download.failedTitle'), String(e))
+    } finally {
+      setDownloadingPath(null)
     }
   }
 
@@ -441,11 +462,33 @@ function FilesPane({ rootPath }: { rootPath: string }) {
                 <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
                 <Text style={styles.mutedMono} numberOfLines={1}>{item.path}</Text>
               </View>
+              {!item.isDirectory && (
+                <TouchableOpacity
+                  style={styles.downloadButton}
+                  onPress={() => downloadEntry(item)}
+                  disabled={!!downloadingPath}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('workspaceDetail.download.accessibilityLabel', { name: item.name })}
+                >
+                  {downloadingPath === item.path ? (
+                    <ActivityIndicator size="small" color={appColors.accent} />
+                  ) : (
+                    <Text style={styles.downloadButtonText}>{t('workspaceDetail.button.download')}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </TouchableOpacity>
           )}
         />
       )}
-      <PreviewModal preview={preview} onClose={() => setPreview(null)} />
+      <PreviewModal
+        preview={preview}
+        onClose={() => setPreview(null)}
+        onDownload={preview
+          ? () => downloadEntry({ name: preview.title, path: preview.path, isDirectory: false })
+          : undefined}
+        downloading={!!preview && downloadingPath === preview.path}
+      />
     </View>
   )
 }
@@ -612,9 +655,13 @@ function GitHubListItem({ item, prefix }: { item: GitHubItem; prefix: string }) 
 function PreviewModal({
   preview,
   onClose,
+  onDownload,
+  downloading,
 }: {
   preview: { title: string; body?: string; imageUrl?: string; error?: string } | null
   onClose: () => void
+  onDownload?: () => void
+  downloading?: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -622,6 +669,15 @@ function PreviewModal({
       <View style={styles.modalRoot}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle} numberOfLines={1}>{preview?.title}</Text>
+          {onDownload && (
+            <TouchableOpacity style={[styles.smallButton, styles.modalHeaderButton]} onPress={onDownload} disabled={downloading}>
+              {downloading ? (
+                <ActivityIndicator size="small" color={appColors.accent} />
+              ) : (
+                <Text style={styles.smallButtonText}>{t('workspaceDetail.button.download')}</Text>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={styles.smallButton} onPress={onClose}>
             <Text style={styles.smallButtonText}>{t('workspaceDetail.button.close')}</Text>
           </TouchableOpacity>
@@ -630,7 +686,7 @@ function PreviewModal({
           <Image source={{ uri: preview.imageUrl }} style={styles.previewImage} resizeMode="contain" />
         ) : (
           <ScrollView style={styles.previewScroll}>
-            <Text style={[styles.previewText, preview?.error && styles.errorText]}>
+            <Text style={[styles.previewText, preview?.error && styles.errorText]} selectable>
               {preview?.error || preview?.body || ''}
             </Text>
           </ScrollView>
@@ -876,6 +932,23 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: '700',
   },
+  downloadButton: {
+    minWidth: 54,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    backgroundColor: appColors.surfaceHover,
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  downloadButtonText: {
+    color: appColors.accent,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+  },
   fileIcon: {
     color: appColors.accent,
     fontSize: fontSize.xs,
@@ -962,6 +1035,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: '800',
     marginRight: spacing.md,
+  },
+  modalHeaderButton: {
+    marginRight: spacing.sm,
   },
   previewScroll: {
     flex: 1,

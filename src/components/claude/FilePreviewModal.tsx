@@ -9,6 +9,7 @@ import {
   Text,
   Modal,
   TouchableOpacity,
+  Clipboard,
   FlatList,
   ActivityIndicator,
   StyleSheet,
@@ -64,15 +65,15 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
   }, [visible, filePath, channels, t])
 
   const handleCopy = useCallback(() => {
-    // TODO: add @react-native-clipboard/clipboard for copy support
+    Clipboard.setString(lines.join('\n'))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-  }, [])
+  }, [lines])
 
   const renderLine = useCallback(({ item, index }: { item: string; index: number }) => (
     <View style={styles.lineRow}>
       <Text style={styles.lineNum}>{index + 1}</Text>
-      <Text style={styles.lineText}>{item || ' '}</Text>
+      <Text style={styles.lineText} selectable>{item || ' '}</Text>
     </View>
   ), [])
 
@@ -96,7 +97,7 @@ export function FilePreviewModal({ filePath, visible, onClose }: Props) {
               <Text style={styles.fileName} numberOfLines={1}>{name}</Text>
               <Text style={styles.filePath} numberOfLines={1}>{filePath}</Text>
             </View>
-            <TouchableOpacity style={styles.headerBtn} onPress={handleCopy}>
+            <TouchableOpacity style={styles.headerBtn} onPress={handleCopy} disabled={loading || !!error}>
               <Text style={styles.headerBtnText}>{copied ? '\u2713' : t('common.copy')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.headerBtn} onPress={onClose}>

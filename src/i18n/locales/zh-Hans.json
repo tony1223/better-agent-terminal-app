@@ -336,7 +336,14 @@
     "button": {
       "add": "添加",
       "close": "关闭",
-      "up": "上一级"
+      "up": "上一级",
+      "download": "下载"
+    },
+    "download": {
+      "accessibilityLabel": "下载 {{name}}",
+      "savedTitle": "文件已保存",
+      "savedMessage": "已将 {{name}} 保存到设备。",
+      "failedTitle": "无法下载文件"
     },
     "modal": {
       "addSession": "添加会话"

@@ -336,7 +336,14 @@
     "button": {
       "add": "Add",
       "close": "Close",
-      "up": "Up"
+      "up": "Up",
+      "download": "Download"
+    },
+    "download": {
+      "accessibilityLabel": "Download {{name}}",
+      "savedTitle": "File saved",
+      "savedMessage": "{{name}} was saved to your device.",
+      "failedTitle": "Unable to download file"
     },
     "modal": {
       "addSession": "Add Session"
