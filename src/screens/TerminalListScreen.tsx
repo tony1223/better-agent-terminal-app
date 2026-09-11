@@ -22,13 +22,14 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useFocusEffect } from '@react-navigation/native'
 import { useConnectionStore } from '@/stores/connection-store'
+import { useSupportedSessionTypes } from '@/hooks/use-supported-session-types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-import { isSdkAgentSession, normalizeAgentPresetsFromHost } from '@/types'
-import type { AgentPreset, AgentPresetId, TerminalInstance } from '@/types'
+import { isSdkAgentSession } from '@/types'
+import type { AgentPresetId, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
 type Props = {
@@ -37,15 +38,8 @@ type Props = {
 
 type Scope = 'workspace' | 'all'
 
-// A transient "not connected" during the initial connect or a reconnect blip is
-// not a real failure, so we shouldn't surface it as a blocking alert.
-function isNotConnectedError(e: unknown): boolean {
-  return e instanceof Error && /not connected to remote server/i.test(e.message)
-}
-
 export function TerminalListScreen({ navigation }: Props) {
   const { t } = useTranslation()
-  const channels = useConnectionStore(s => s.channels)
   const connectionStatus = useConnectionStore(s => s.status)
   const {
     activeWorkspaceId,
@@ -58,8 +52,8 @@ export function TerminalListScreen({ navigation }: Props) {
   } = useWorkspaceStore()
   const [scope, setScope] = useState<Scope>('all')
   const [showAddModal, setShowAddModal] = useState(false)
-  const [availableSessionTypes, setAvailableSessionTypes] = useState<AgentPreset[] | null>(null)
-  const [loadingTypes, setLoadingTypes] = useState(false)
+  const { availableSessionTypes, loadingTypes, loadSupportedSessionTypes } =
+    useSupportedSessionTypes(t('terminalList.alerts.loadTypesFailedTitle'))
   const [creatingType, setCreatingType] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
   const createRequestRef = useRef(0)
@@ -98,37 +92,6 @@ export function TerminalListScreen({ navigation }: Props) {
   }, [scope, terminals, workspaces, activeWorkspaceId, visibleTerminals])
 
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
-
-  const loadSupportedSessionTypes = useCallback(async () => {
-    if (!channels) return
-    setLoadingTypes(true)
-    try {
-      const presets = await channels.agent.listPresets()
-        .then(normalizeAgentPresetsFromHost)
-        .catch(() => [])
-      if (presets.length > 0) {
-        setAvailableSessionTypes(presets)
-        return
-      }
-
-      const ids = await channels.agent.getSupportedSessionTypes()
-      setAvailableSessionTypes(normalizeAgentPresetsFromHost(ids))
-    } catch (e) {
-      // Leave the list unloaded so the status-driven effect retries once we're
-      // connected again, instead of blocking with an alert on a transient blip.
-      if (isNotConnectedError(e)) return
-      setAvailableSessionTypes([])
-      Alert.alert(t('terminalList.alerts.loadTypesFailedTitle'), String(e))
-    } finally {
-      setLoadingTypes(false)
-    }
-  }, [channels, t])
-
-  // Only load (and reload) once the socket is actually connected, so the initial
-  // connect / reconnect race can't fire an invoke before the server is ready.
-  useEffect(() => {
-    if (connectionStatus === 'connected') loadSupportedSessionTypes()
-  }, [connectionStatus, loadSupportedSessionTypes])
 
   // Taken from `sections`, not the raw list, so the active workspace's rows are
   // fetched first — previews are pulled a few at a time and the top of the list

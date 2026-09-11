@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo } from 'react'
 import { Text, type TextStyle } from 'react-native'
+import type { RenderFunction, RenderRules } from 'react-native-markdown-display'
 import { tokenizePaths } from '@/utils/path-tokenizer'
 import { FilePreviewModal } from './FilePreviewModal'
 
@@ -57,11 +58,25 @@ export function LinkedText({ text, style }: Props) {
   )
 }
 
+const selectableCodeBlock: RenderFunction = (node, _children, _parent, styles, inheritedStyles = {}) => (
+  <Text key={node.key} style={[inheritedStyles, styles[node.type]]} selectable>
+    {node.content.replace(/\n$/, '')}
+  </Text>
+)
+
 /**
- * Custom rules for react-native-markdown-display
- * Replaces default text renderer with LinkedText to detect file paths
+ * Shared by completed and streaming messages. Selection must be enabled on
+ * the outer Text that owns each paragraph, heading, list item or table cell;
+ * selectable nested LinkedText nodes alone cannot enable native selection.
  */
-export const pathLinkerRules = {
+export const pathLinkerRules: RenderRules = {
+  textgroup: (node, children, _parent, styles) => (
+    <Text key={node.key} style={styles.textgroup} selectable>
+      {children}
+    </Text>
+  ),
+  code_block: selectableCodeBlock,
+  fence: selectableCodeBlock,
   text: (node: any, _children: any, _parent: any, styles: any) => (
     <LinkedText key={node.key} text={node.content} style={{ ...styles?.body, ...styles?.text }} />
   ),
