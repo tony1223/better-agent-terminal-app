@@ -7,6 +7,12 @@ import { useWorkspaceStore } from './workspace-store'
 
 const REFRESH_MS = 10_000
 const MAX_CONCURRENT = 3
+const refreshListeners = new Set<() => Promise<void>>()
+
+/** Refresh badges when the workspace list is opened or explicitly refreshed. */
+export async function refreshSessionActivity(): Promise<void> {
+  await Promise.all([...refreshListeners].map(refresh => refresh()))
+}
 
 /** Bootstrap quiet, already-running sessions; live events remain the fast path.
  * Metadata only: never fetch a transcript or start/resume a session for a badge.
@@ -83,9 +89,11 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
     }
     refresh()
   })
+  refreshListeners.add(refresh)
   refresh()
   return () => {
     disposed = true
+    refreshListeners.delete(refresh)
     if (timer) clearTimeout(timer)
     appState.remove()
     unsubscribeWorkspace()

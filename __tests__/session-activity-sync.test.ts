@@ -1,5 +1,5 @@
 import { AppState } from 'react-native'
-import { subscribeSessionActivity } from '../src/stores/session-activity-sync'
+import { refreshSessionActivity, subscribeSessionActivity } from '../src/stores/session-activity-sync'
 import { useClaudeStore } from '../src/stores/claude-store'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
@@ -37,6 +37,18 @@ test('an already-running quiet session is recognised before it has been opened',
   expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
   expect(useClaudeStore.getState().sessions.s.messages).toEqual([])
   expect(useClaudeStore.getState().sessions.s.lastDataAt).toBe(1000)
+})
+
+test('returning to or refreshing the workspace list refreshes activity even when session IDs are unchanged', async () => {
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  getMeta.mockResolvedValue(meta({ isStreaming: false, runtimeStatus: null }))
+  await refreshSessionActivity()
+  expect(getMeta).toHaveBeenCalledTimes(2)
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('idle')
+  stop()
+  await refreshSessionActivity()
+  expect(getMeta).toHaveBeenCalledTimes(2)
 })
 
 test('metadata corrects missed turn end without erasing partial output or inventing completion time', async () => {

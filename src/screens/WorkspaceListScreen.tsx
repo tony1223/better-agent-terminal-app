@@ -2,7 +2,7 @@
  * WorkspaceListScreen - List and switch workspaces
  */
 
-import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   View,
   Text,
@@ -20,8 +20,12 @@ import { useTranslation } from 'react-i18next'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
 import { useConnectionStore, workspaceShortcutServerKey } from '@/stores/connection-store'
-import { recentWorkspaceShortcuts, useWorkspaceShortcutsStore, type WorkspaceShortcut } from '@/stores/workspace-shortcuts-store'
-import { WorkspaceActivity } from '@/components/session/WorkspaceActivity'
+import { recentWorkspaceShortcuts, useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
+import { useWorkspaceNavigationStore } from '@/stores/workspace-navigation-store'
+import { WorkspaceActivity, WorkspaceActivityCounts } from '@/components/session/WorkspaceActivity'
+import { useWorkspaceShortcutActivity } from '@/hooks/use-workspace-shortcut-activity'
+import { workspaceActivityKey } from '@/stores/workspace-shortcut-activity'
+import { refreshSessionActivity } from '@/stores/session-activity-sync'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { getAgentPreset } from '@/types'
 import type { ProfileEntry, Workspace } from '@/types'
@@ -44,8 +48,8 @@ export function WorkspaceListScreen() {
   const navigation = useNavigation<any>()
   const [refreshing, setRefreshing] = React.useState(false)
   const [profileModalVisible, setProfileModalVisible] = React.useState(false)
-  const [switchingProfileId, setSwitchingProfileId] = React.useState<string | null>(null)
-  const [profileError, setProfileError] = React.useState<string | null>(null)
+  const [selectingProfileId, setSwitchingProfileId] = React.useState<string | null>(null)
+  const [selectionError, setProfileError] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState('')
   const channels = useConnectionStore(s => s.channels)
   const disconnect = useConnectionStore(s => s.disconnect)
@@ -53,13 +57,51 @@ export function WorkspaceListScreen() {
   const serverKey = useConnectionStore(workspaceShortcutServerKey)
   const shortcutServers = useWorkspaceShortcutsStore(s => s.servers)
   const switching = useRef(false)
+  const pendingWorkspace = useWorkspaceNavigationStore(s => s.pending)
+  const workspaceOpenError = useWorkspaceNavigationStore(s => s.error)
+  const openShortcut = useWorkspaceNavigationStore(s => s.open)
+  const switchingProfileId = pendingWorkspace?.profileId ?? selectingProfileId
+  const profileError = selectionError ?? workspaceOpenError
+  const profileViewKey = useConnectionStore(s => s.profileViewKey ?? null)
+  const mountedViewKey = useRef(profileViewKey).current
+
+  useEffect(() => {
+    if (!pendingWorkspace || useWorkspaceNavigationStore.getState().pending?.id !== pendingWorkspace.id) return
+    const connection = useConnectionStore.getState()
+    const { finish } = useWorkspaceNavigationStore.getState()
+    if (connection.client !== pendingWorkspace.client || workspaceShortcutServerKey(connection) !== pendingWorkspace.serverKey) {
+      finish(pendingWorkspace.id)
+      return
+    }
+    if (!pendingWorkspace.ready || pendingWorkspace.viewKey !== mountedViewKey) return
+    if (activeLocalProfileId !== pendingWorkspace.profileId) { finish(pendingWorkspace.id); return }
+    // Another automatic reload may supersede the original load. Let its
+    // validated snapshot arrive instead of treating an in-flight load as failure.
+    if (loadStatus === 'idle' || loadStatus === 'no-channel') return
+    if (loadStatus !== 'ok' && loadStatus !== 'empty') {
+      finish(pendingWorkspace.id, loadError || t('workspaceList.quickSwitchFailed'))
+      return
+    }
+    if (!workspaces.some(workspace => workspace.id === pendingWorkspace.workspaceId)) {
+      useWorkspaceShortcutsStore.getState().forget(pendingWorkspace.serverKey, pendingWorkspace.profileId, pendingWorkspace.workspaceId)
+      finish(pendingWorkspace.id, t('workspaceList.workspaceUnavailable'))
+      return
+    }
+    finish(pendingWorkspace.id)
+    switchWorkspace(pendingWorkspace.workspaceId)
+    navigation.navigate('WorkspaceDetail', { workspaceId: pendingWorkspace.workspaceId })
+  }, [pendingWorkspace, mountedViewKey, activeLocalProfileId, loadStatus, loadError, workspaces, switchWorkspace, navigation, t])
 
   // Pull workspaces fresh from the host whenever this screen regains focus so
   // sessions added/closed on another device (or the desktop) show up without a
   // manual pull-to-refresh.
   useFocusEffect(
     useCallback(() => {
-      load().catch(() => {})
+      // The shortcut already requested this snapshot; a profile remount must
+      // not supersede it with a competing load before navigation can complete.
+      if (!useWorkspaceNavigationStore.getState().pending) {
+        load().then(() => refreshSessionActivity()).catch(() => {})
+      }
 
       // Workspaces is the first tab / app root: back exits to the home (Connect)
       // screen by disconnecting, which flips RootNavigator back to ConnectScreen.
@@ -111,14 +153,15 @@ export function WorkspaceListScreen() {
     profiles.map(p => p.id), activeLocalProfileId, workspaces,
     loadStatus === 'ok' || loadStatus === 'empty',
   ), [serverKey, shortcutServers, profiles, activeLocalProfileId, workspaces, loadStatus])
+  const shortcutActivity = useWorkspaceShortcutActivity(shortcuts.filter(item => item.profileId !== activeLocalProfileId))
 
   // The open is recorded by WorkspaceDetailScreen rather than here, so every
   // arrival counts once however you got there — chip, card, or deep link.
   const openWorkspace = useCallback((workspace: Workspace) => {
-    if (switching.current) return
+    if (switching.current || pendingWorkspace) return
     switchWorkspace(workspace.id)
     navigation.navigate('WorkspaceDetail', { workspaceId: workspace.id })
-  }, [navigation, switchWorkspace])
+  }, [navigation, switchWorkspace, pendingWorkspace])
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -146,14 +189,16 @@ export function WorkspaceListScreen() {
   }, [navigation, profileLabel, disconnect])
 
   const onRefresh = async () => {
-    if (switching.current) return
+    if (switching.current || pendingWorkspace) return
     setRefreshing(true)
-    try { await load() } catch (e) { setProfileError(String(e)) }
+    try {
+      await Promise.all([load().then(() => refreshSessionActivity()), shortcutActivity.refresh()])
+    } catch (e) { setProfileError(String(e)) }
     finally { setRefreshing(false) }
   }
 
   const selectProfile = async (profile: ProfileEntry) => {
-    if (!channels || switching.current) return
+    if (!channels || switching.current || pendingWorkspace) return
     switching.current = true
     setSwitchingProfileId(profile.id)
     setProfileError(null)
@@ -169,36 +214,6 @@ export function WorkspaceListScreen() {
     } finally {
       setSwitchingProfileId(null)
       switching.current = false
-    }
-  }
-
-  const openShortcut = async (shortcut: WorkspaceShortcut) => {
-    if (!channels || switching.current) return
-    switching.current = true
-    const client = useConnectionStore.getState().client
-    setSwitchingProfileId(shortcut.profileId)
-    setProfileError(null)
-    try {
-      await loadProfileWorkspace(shortcut.profileId)
-      const connection = useConnectionStore.getState()
-      if (connection.client !== client || workspaceShortcutServerKey(connection) !== serverKey) return
-      const current = useWorkspaceStore.getState()
-      if (current.activeLocalProfileId !== shortcut.profileId) return
-      if (current.loadStatus !== 'ok' && current.loadStatus !== 'empty') {
-        throw new Error(current.loadError || t('workspaceList.quickSwitchFailed'))
-      }
-      if (!current.workspaces.some(w => w.id === shortcut.workspaceId)) {
-        if (serverKey) useWorkspaceShortcutsStore.getState().forget(serverKey, shortcut.profileId, shortcut.workspaceId)
-        throw new Error(t('workspaceList.workspaceUnavailable'))
-      }
-      setQuery('')
-      current.switchWorkspace(shortcut.workspaceId)
-      navigation.navigate('WorkspaceDetail', { workspaceId: shortcut.workspaceId })
-    } catch (e) {
-      setProfileError(String(e))
-    } finally {
-      switching.current = false
-      setSwitchingProfileId(null)
     }
   }
 
@@ -252,6 +267,7 @@ export function WorkspaceListScreen() {
                 {shortcuts.map(shortcut => {
                   const isCurrent = shortcut.profileId === activeLocalProfileId && shortcut.workspaceId === activeWorkspaceId
                   const workspace = shortcut.profileId === activeLocalProfileId ? workspaces.find(w => w.id === shortcut.workspaceId) : null
+                  const activity = shortcutActivity.summaries[workspaceActivityKey(shortcut)]
                   return (
                     <TouchableOpacity
                       key={JSON.stringify([shortcut.profileId, shortcut.workspaceId])}
@@ -259,7 +275,7 @@ export function WorkspaceListScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`${profiles.find(p => p.id === shortcut.profileId)?.name ?? shortcut.profileName} / ${workspace?.alias || workspace?.name || shortcut.name}`}
                       style={[styles.shortcutCard, isCurrent && styles.cardActive]}
-                      onPress={() => openShortcut(shortcut)}
+                      onPress={() => { setProfileError(null); return openShortcut(shortcut) }}
                       disabled={!!switchingProfileId}
                     >
                       <View style={styles.cardHeader}>
@@ -269,6 +285,7 @@ export function WorkspaceListScreen() {
                       <Text style={styles.name} numberOfLines={1}>{workspace?.alias || workspace?.name || shortcut.name}</Text>
                       <Text style={styles.path} numberOfLines={1}>{workspace?.folderPath ?? shortcut.folderPath}</Text>
                       {shortcut.profileId === activeLocalProfileId && <WorkspaceActivity terminals={terminals.filter(terminal => terminal.workspaceId === shortcut.workspaceId)} />}
+                      {shortcut.profileId !== activeLocalProfileId && activity && <WorkspaceActivityCounts {...activity} />}
                     </TouchableOpacity>
                   )
                 })}
