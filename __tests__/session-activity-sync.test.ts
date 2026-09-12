@@ -52,6 +52,58 @@ test('metadata corrects missed turn end without erasing partial output or invent
   expect(useClaudeStore.getState().sessions.s.lastDataAt).toBe(1234)
 })
 
+test('host restart clears a stale working badge when the runtime is explicitly missing', async () => {
+  useClaudeStore.getState().handleStatus('s', meta({ isStreaming: true, runtimeStatus: 'queued', lastDataAt: 1000 }))
+  useClaudeStore.getState().handleStream('s', { text: 'reply received before BAT restarted' })
+  getMeta.mockResolvedValue(null)
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  const session = useClaudeStore.getState().sessions.s
+  expect(deriveAgentActivity(session)).toBe('idle')
+  expect(session.isStreaming).toBe(false)
+  expect(session.turnStartedAt).toBeNull()
+  expect(session.meta?.runtimeStatus).toBeNull()
+  expect(session.lastCompletedAt).toBeNull()
+  expect(session.lastDataAt).toBe(1000)
+  expect(session.messages).toEqual(expect.arrayContaining([expect.objectContaining({ content: 'reply received before BAT restarted' })]))
+})
+
+test('a missing response cannot clear newer live output that arrived during the probe', async () => {
+  let finish!: (value: null) => void
+  getMeta.mockReturnValue(new Promise(resolve => { finish = resolve }))
+  stop = subscribeSessionActivity(channel)
+  useClaudeStore.getState().handleStream('s', { text: 'new live output' })
+  finish(null)
+  await flush()
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
+})
+
+test('failed probes and usage-only replies do not masquerade as a missing runtime', async () => {
+  useClaudeStore.getState().handleStream('s', { text: 'running' })
+  getMeta.mockRejectedValueOnce(new Error('remote profile disconnected')).mockResolvedValue(meta({}))
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
+  await jest.advanceTimersByTimeAsync(10_000)
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
+})
+
+test('remote work remains active even if its last output was yesterday', async () => {
+  getMeta.mockResolvedValue(meta({ isStreaming: true, runtimeStatus: null, lastDataAt: Date.now() - 86_400_000 }))
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
+})
+
+test('missing runtime while a local send is pending does not cancel the starting turn', async () => {
+  useClaudeStore.getState().handleStatus('s', meta({ runtimeStatus: 'starting' }))
+  useClaudeStore.getState().handleMessage('s', { id: 'pending', sessionId: 's', role: 'user', content: 'start', timestamp: Date.now(), status: 'sending' })
+  getMeta.mockResolvedValue(null)
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  expect(deriveAgentActivity(useClaudeStore.getState().sessions.s)).toBe('working')
+})
+
 test('late idle metadata cannot override a newer stream but can advance host output time', async () => {
   let finish!: (value: SessionMeta) => void
   getMeta.mockReturnValue(new Promise(resolve => { finish = resolve }))

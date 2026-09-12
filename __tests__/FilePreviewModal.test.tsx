@@ -12,7 +12,10 @@ jest.unmock('react-native-markdown-display')
 const mockT = (key: string) => key
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockT }) }))
 let mockChannels: any
-jest.mock('../src/stores/connection-store', () => ({ useConnectionStore: (selector: any) => selector({ channels: mockChannels }) }))
+let mockProfileStatus = 'ready'
+let mockUsesProfileContext = false
+const mockRetryConnection = jest.fn()
+jest.mock('../src/stores/connection-store', () => ({ useConnectionStore: (selector: any) => selector({ channels: mockChannels, profileStatus: mockProfileStatus, client: { supportsProfileContext: mockUsesProfileContext }, retryNow: mockRetryConnection }) }))
 const mockSave = jest.fn().mockResolvedValue(true)
 jest.mock('../src/utils/file-export', () => ({ saveBase64File: (...args: any[]) => mockSave(...args) }))
 
@@ -22,6 +25,9 @@ let renderer: Renderer.ReactTestRenderer
 beforeEach(() => {
   mockChannels = { fs: { readFile: jest.fn().mockResolvedValue({ content: 'hello' }), readImageAsDataUrl: jest.fn().mockResolvedValue(png) } }
   mockSave.mockClear()
+  mockProfileStatus = 'ready'
+  mockUsesProfileContext = false
+  mockRetryConnection.mockClear()
 })
 afterEach(() => { if (renderer) act(() => renderer.unmount()); jest.restoreAllMocks() })
 
@@ -143,4 +149,28 @@ test('a profile change discards its old in-flight file response', async () => {
   await act(async () => { finish({ content: 'old profile' }) })
   expect(renderer.root.findAllByType(Text).some(text => text.props.children === 'new profile')).toBe(true)
   expect(renderer.root.findAllByType(Text).some(text => text.props.children === 'old profile')).toBe(false)
+})
+
+test('preview waits for the selected remote profile before issuing a file request', async () => {
+  mockUsesProfileContext = true
+  mockProfileStatus = 'loading'
+  await render(<FilePreviewModal filePath="/remote/readme.md" visible onClose={jest.fn()} />)
+  expect(mockChannels.fs.readFile).not.toHaveBeenCalled()
+  expect(mockChannels.fs.readImageAsDataUrl).not.toHaveBeenCalled()
+  mockProfileStatus = 'ready'
+  await act(async () => { renderer.update(<FilePreviewModal filePath="/remote/readme.md" visible onClose={jest.fn()} />) })
+  expect(mockChannels.fs.readFile).toHaveBeenCalledWith('/remote/readme.md')
+})
+
+test('an unavailable remote profile retries its connection, not the stale file channel', async () => {
+  mockUsesProfileContext = true
+  mockProfileStatus = 'unavailable'
+  await render(<FilePreviewModal filePath="/remote/image.png" visible onClose={jest.fn()} />)
+  expect(renderer.root.findAllByType(Text).some(node => node.props.children === 'filePreview.profileUnavailable')).toBe(true)
+  await pressButton('connection.retry')
+  expect(mockRetryConnection).toHaveBeenCalledTimes(1)
+  expect(mockChannels.fs.readImageAsDataUrl).not.toHaveBeenCalled()
+  mockProfileStatus = 'ready'
+  await act(async () => { renderer.update(<FilePreviewModal filePath="/remote/image.png" visible onClose={jest.fn()} />) })
+  expect(mockChannels.fs.readImageAsDataUrl).toHaveBeenCalledWith('/remote/image.png')
 })

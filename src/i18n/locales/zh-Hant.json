@@ -543,7 +543,19 @@
     "title": "訊息時間",
     "hint": "查看完整日期與時間"
   },
+  "sessionTabs": {
+    "session": "Session",
+    "files": "File",
+    "git": "Git",
+    "returnToSession": "返回對話",
+    "lastData": "最後資料"
+  },
   "filePreview": {
+    "profileUnavailable": "遠端 profile 暫時無法使用，點重試可重新連接目前選取的 profile。",
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "fitImage": "符合畫面",
+    "zoomHint": "雙指縮放・拖曳移動・雙擊放大或還原",
     "back": "返回上一層預覽",
     "openImage": "點擊開啟大圖",
     "imageUnavailable": "無法顯示圖片",

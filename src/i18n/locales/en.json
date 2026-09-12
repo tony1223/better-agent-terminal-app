@@ -543,7 +543,19 @@
     "title": "Message time",
     "hint": "Show full date and time"
   },
+  "sessionTabs": {
+    "session": "Session",
+    "files": "File",
+    "git": "Git",
+    "returnToSession": "Return to session",
+    "lastData": "Last data"
+  },
   "filePreview": {
+    "profileUnavailable": "Remote profile is unavailable. Retry to reconnect to the selected profile.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fitImage": "Fit",
+    "zoomHint": "Pinch to zoom · Drag to pan · Double-tap to zoom/reset",
     "back": "Back to previous preview",
     "openImage": "Tap to open image",
     "imageUnavailable": "Image unavailable",

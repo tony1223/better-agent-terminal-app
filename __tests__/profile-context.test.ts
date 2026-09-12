@@ -42,6 +42,24 @@ test('local and remote selections use the same open contract and stale channels 
   expect(client.invokeParams).not.toHaveBeenCalledWith('agent:send-message', expect.anything(), expect.anything())
 })
 
+test('file, image and Git previews use the selected remote context, never the entry host', async () => {
+  const client = mockClient()
+  const targetInvoke = jest.fn().mockImplementation((channel: string) => Promise.resolve(
+    channel === 'fs:readFile' ? { content: 'from remote target' } : 'data:image/png;base64,aA==',
+  ))
+  client.scoped.mockReturnValue({ invoke: targetInvoke, invokeParams: targetInvoke, on: jest.fn().mockReturnValue(() => {}) })
+  useConnectionStore.setState({ client: client as any })
+  const channels = await useConnectionStore.getState().selectProfile('remote')
+  await expect(channels.fs.readFile('/repo/docs/readme.md')).resolves.toEqual({ content: 'from remote target' })
+  await channels.fs.readImageAsDataUrl('/repo/docs/image.png')
+  await channels.git.diff('/repo', 'working', 'file.ts')
+  expect(client.scoped).toHaveBeenCalledWith('ctx-remote')
+  expect(targetInvoke).toHaveBeenCalledWith('fs:readFile', '/repo/docs/readme.md')
+  expect(targetInvoke).toHaveBeenCalledWith('image:read-as-data-url', '/repo/docs/image.png')
+  expect(targetInvoke).toHaveBeenCalledWith('git:diff', '/repo', 'working', 'file.ts')
+  expect(client.invoke).not.toHaveBeenCalled()
+})
+
 test('a late profile open cannot replace the newer selection', async () => {
   const client = mockClient()
   const late = deferred<any>()

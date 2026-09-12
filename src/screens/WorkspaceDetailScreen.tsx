@@ -346,7 +346,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   )
 }
 
-function FilesPane({ rootPath }: { rootPath: string }) {
+export function FilesPane({ rootPath, active = true }: { rootPath: string; active?: boolean }) {
   const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [currentPath, setCurrentPath] = useState(rootPath)
@@ -355,24 +355,29 @@ function FilesPane({ rootPath }: { rootPath: string }) {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
+  const loadGeneration = useRef(0)
 
   useEffect(() => setCurrentPath(rootPath), [rootPath])
 
   const load = useCallback(async () => {
     if (!channels) return
+    const generation = ++loadGeneration.current
     setLoading(true)
     setError(null)
     try {
       const raw = await channels.fs.readdir(currentPath)
+      if (generation !== loadGeneration.current) return
       setEntries(normalizeFsEntries(raw))
     } catch (e) {
+      if (generation !== loadGeneration.current) return
+      setEntries([])
       setError(String(e))
     } finally {
-      setLoading(false)
+      if (generation === loadGeneration.current) setLoading(false)
     }
   }, [channels, currentPath])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (active) load(); return () => { loadGeneration.current++ } }, [load, active])
 
   const openEntry = (entry: FsEntry) => {
     if (!channels) return
@@ -453,38 +458,43 @@ function FilesPane({ rootPath }: { rootPath: string }) {
   )
 }
 
-function GitPane({ cwd }: { cwd: string }) {
+export function GitPane({ cwd, active = true }: { cwd: string; active?: boolean }) {
   const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [branch, setBranch] = useState<string | null>(null)
   const [root, setRoot] = useState<string | null>(null)
   const [files, setFiles] = useState<GitFileEntry[]>([])
   const [diff, setDiff] = useState<{ file: string; text: string } | null>(null)
+  const loadGeneration = useRef(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!channels) return
+    const generation = ++loadGeneration.current
     setLoading(true)
     setError(null)
     try {
       const [nextBranch, nextRoot, nextFiles] = await Promise.all([
         channels.git.branch(cwd).catch(() => null),
         channels.git.getRoot(cwd).catch(() => null),
-        channels.git.status(cwd).catch(() => []),
+        channels.git.status(cwd),
       ])
+      if (generation !== loadGeneration.current) return
       setBranch(nextBranch)
       setRoot(nextRoot)
       setFiles(normalizeGitFiles(nextFiles))
       setDiff(null)
     } catch (e) {
+      if (generation !== loadGeneration.current) return
+      setFiles([])
       setError(String(e))
     } finally {
-      setLoading(false)
+      if (generation === loadGeneration.current) setLoading(false)
     }
   }, [channels, cwd])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (active) load(); return () => { loadGeneration.current++ } }, [load, active])
 
   const openDiff = async (file: GitFileEntry) => {
     if (!channels) return

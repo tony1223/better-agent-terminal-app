@@ -255,7 +255,7 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams('agent:get-account-info', { sessionId }, [sessionId]),
 
     getSessionMeta: (sessionId: string) =>
-      ws.invokeParams<SessionMeta>('agent:get-session-meta', { sessionId }, [sessionId]),
+      ws.invokeParams<SessionMeta | null>('agent:get-session-meta', { sessionId }, [sessionId]),
 
     getSessionState: (sessionId: string) =>
       ws.invokeParams<SessionStateSnapshot | null>('agent:get-session-state', { sessionId }, [sessionId]),

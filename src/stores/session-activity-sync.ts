@@ -36,10 +36,17 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
           try {
             const meta = await claude.getSessionMeta(id)
             if (!isCurrent() || !sessionIds().includes(id)) continue
+            const unchanged = useClaudeStore.getState().sessions[id] === before
+            // Successful null means the selected execution host no longer has
+            // this runtime (e.g. BAT restarted). It is different from an RPC
+            // error/timeout and must clear a cached pre-restart working badge.
+            if (meta === null) {
+              if (unchanged) useClaudeStore.getState().handleRuntimeMissing(id)
+              continue
+            }
             // A stream/status/result received after this request began is
             // newer evidence. Never let a late idle poll overwrite it.
             if (!meta || typeof meta !== 'object') continue
-            const unchanged = useClaudeStore.getState().sessions[id] === before
             // Output time is independently monotonic and still useful while
             // live deltas are changing the transcript during this read.
             if (meta.lastDataAt !== undefined) useClaudeStore.getState().handleLastDataAt(id, meta.lastDataAt)

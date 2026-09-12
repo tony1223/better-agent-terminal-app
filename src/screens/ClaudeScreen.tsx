@@ -37,6 +37,7 @@ import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
+import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
@@ -1541,6 +1542,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
       />
+      <SessionWorkspaceTabs sessionId={sessionId} cwd={terminalCwd}>
       <ChatFilterStrip sessionId={sessionId} counts={kindCounts} />
       {/* Message list */}
       <View style={styles.listContainer}>
@@ -1778,6 +1780,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         </ScrollView>
       </View>
 
+      </SessionWorkspaceTabs>
       {/* Model picker modal */}
       <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModelPicker(false)}>

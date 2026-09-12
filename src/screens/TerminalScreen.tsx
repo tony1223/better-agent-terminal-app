@@ -15,6 +15,7 @@ import { appColors, fontSize, spacing } from '@/theme/colors'
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar'
 import { terminalHtml } from '@/components/terminal/terminal-html'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
+import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import { HIDDEN_TAB_BAR_STYLE, MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import type { TerminalViewportState } from '@/types'
@@ -370,6 +371,7 @@ export function TerminalScreen({ route, navigation }: Props) {
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
       />
+      <SessionWorkspaceTabs sessionId={terminalId} cwd={terminal?.cwd || workspace?.folderPath}>
       <View style={styles.viewportBar}>
         <Text style={styles.viewportLabel}>{t('terminal.layoutLabel')}</Text>
         <View style={styles.segmented}>
@@ -429,6 +431,7 @@ export function TerminalScreen({ route, navigation }: Props) {
           keyboardActive={keyboardFocused}
         />
       </View>
+      </SessionWorkspaceTabs>
     </View>
   )
 }

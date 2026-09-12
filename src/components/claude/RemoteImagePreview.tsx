@@ -8,17 +8,17 @@ import { PreviewNavigation } from './PreviewNavigation'
 
 export function RemoteImagePreview({ path = 'image.png', dataUrl }: { path?: string; dataUrl?: string }) {
   const { t } = useTranslation()
-  const { imageUrl, loading, error, disconnected, retry } = useFilePreview(path, dataUrl, true)
+  const { imageUrl, loading, error, disconnected, profileUnavailable, retry } = useFilePreview(path, dataUrl, true)
   const [open, setOpen] = useState(false)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const navigate = useContext(PreviewNavigation)
-  const failed = error || disconnected || (!!imageUrl && failedUrl === imageUrl)
+  const failed = error || disconnected || profileUnavailable || (!!imageUrl && failedUrl === imageUrl)
   return (
     <View style={styles.card}>
       {loading && <ActivityIndicator color={appColors.accent} />}
       {failed ? (
         <TouchableOpacity accessibilityRole="button" onPress={() => { setFailedUrl(null); retry() }}>
-          <Text style={styles.error} selectable>{disconnected ? t('filePreview.notConnected') : error || t('filePreview.imageUnavailable')}</Text>
+          <Text style={styles.error} selectable>{disconnected ? t('filePreview.notConnected') : profileUnavailable ? t('filePreview.profileUnavailable') : error || t('filePreview.imageUnavailable')}</Text>
           <Text style={styles.caption} selectable>{path}</Text>
           <Text style={styles.caption}>{t('connection.retry')}</Text>
         </TouchableOpacity>

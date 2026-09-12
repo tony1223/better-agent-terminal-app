@@ -386,6 +386,7 @@ interface ClaudeState {
   handleTurnEnd: (sessionId: string) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
+  handleRuntimeMissing: (sessionId: string) => void
   /**
    * Reconciles the host's live window with what is already on screen and reports
    * which way it went, because only the caller knows whether 'kept-local' is
@@ -851,6 +852,26 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const valid = timestamp === null || (Number.isFinite(timestamp) && timestamp > 0)
     if (!valid || (session.lastDataAt != null && (timestamp == null || timestamp <= session.lastDataAt)) || session.lastDataAt === timestamp) return
     set(state => ({ sessions: { ...state.sessions, [sessionId]: { ...session, lastDataAt: timestamp } } }))
+  },
+
+  handleRuntimeMissing: (sessionId) => {
+    const session = get().sessions[sessionId]
+    if (!session) return
+    // A new send can be queued on the host while its runtime is starting.
+    // Let delivery succeed/fail before reconciling that optimistic turn.
+    if (session.messages.some(item => 'role' in item && item.role === 'user' && item.status === 'sending')) return
+    if (!session.isStreaming && session.turnStartedAt == null && !session.meta?.runtimeStatus) return
+    set(state => ({ sessions: { ...state.sessions, [sessionId]: {
+      ...session,
+      messages: commitStreamedText(sessionId, session),
+      isStreaming: false,
+      streamingText: '',
+      streamingThinking: '',
+      turnStartedAt: null,
+      runtimeStatusSince: null,
+      lastCompletedAt: null,
+      meta: session.meta ? clearedRuntimeMeta({ ...session.meta, isStreaming: false }) : null,
+    } } }))
   },
 
   handleStatus: (sessionId, meta) => {

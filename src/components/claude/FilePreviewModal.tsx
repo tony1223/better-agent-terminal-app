@@ -1,6 +1,6 @@
 /** Shared host-file preview for chat, image tools and the file browser. */
 import React, { useMemo, useState } from 'react'
-import { ActivityIndicator, Alert, Clipboard, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Clipboard, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
 import { useFilePreview } from '@/hooks/use-file-preview'
@@ -11,6 +11,7 @@ import { hostMarkdown } from '@/utils/host-markdown'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { createPathLinkerRules } from './LinkedText'
 import { PreviewNavigation } from './PreviewNavigation'
+import { ZoomableImage } from './ZoomableImage'
 
 interface Props {
   filePath: string
@@ -54,12 +55,12 @@ function PreviewStack({ filePath, inlineImage, onClose }: Props) {
 
 function PreviewPage({ path, inlineImage }: { path: string; inlineImage?: string }) {
   const { t } = useTranslation()
-  const { content, imageUrl, error, loading, disconnected, retry, channels } = useFilePreview(path, inlineImage)
+  const { content, imageUrl, error, loading, disconnected, profileUnavailable, retry, channels } = useFilePreview(path, inlineImage)
   const [source, setSource] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [failedImage, setFailedImage] = useState<string | null>(null)
   const rules = useMemo(() => createPathLinkerRules(fileDirectory(path)), [path])
-  const problem = disconnected ? t('filePreview.notConnected') : error || (imageUrl && failedImage === imageUrl ? t('filePreview.imageUnavailable') : null)
+  const problem = disconnected ? t('filePreview.notConnected') : profileUnavailable ? t('filePreview.profileUnavailable') : error || (imageUrl && failedImage === imageUrl ? t('filePreview.imageUnavailable') : null)
   const download = async () => {
     if (downloading || (!channels && !inlineImage)) return
     setDownloading(true)
@@ -77,7 +78,7 @@ function PreviewPage({ path, inlineImage }: { path: string; inlineImage?: string
         <TouchableOpacity accessibilityRole="button" style={styles.button} disabled={content === undefined} onPress={() => Clipboard.setString(content || '')}>
           <Text style={styles.buttonText}>{t('common.copy')}</Text>
         </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" style={styles.button} disabled={downloading || disconnected} onPress={download}>
+        <TouchableOpacity accessibilityRole="button" style={styles.button} disabled={downloading || disconnected || profileUnavailable || loading} onPress={download}>
           {downloading ? <ActivityIndicator color={appColors.accent} /> : <Text style={styles.buttonText}>{t('workspaceDetail.button.download')}</Text>}
         </TouchableOpacity>
         {isMarkdownFile(path) && content !== undefined && <TouchableOpacity accessibilityRole="button" style={styles.button} onPress={() => setSource(value => !value)}><Text style={styles.buttonText}>{t(source ? 'filePreview.rendered' : 'filePreview.source')}</Text></TouchableOpacity>}
@@ -87,7 +88,7 @@ function PreviewPage({ path, inlineImage }: { path: string; inlineImage?: string
         <Text style={styles.error} selectable>{problem}</Text>
         <TouchableOpacity accessibilityRole="button" style={styles.button} onPress={() => { setFailedImage(null); retry() }}><Text style={styles.buttonText}>{t('connection.retry')}</Text></TouchableOpacity>
       </View>}
-      {!loading && !problem && imageUrl && <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="contain" onError={() => setFailedImage(imageUrl)} />}
+      {!loading && !problem && imageUrl && <ZoomableImage uri={imageUrl} onError={() => setFailedImage(imageUrl)} />}
       {!loading && !problem && content !== undefined && <ScrollView style={styles.page} contentContainerStyle={styles.content}>
         {isMarkdownFile(path) && !source ? <Markdown markdownit={hostMarkdown} style={markdownStyles} rules={rules}>{content}</Markdown> : <Text style={styles.code} selectable>{content}</Text>}
       </ScrollView>}
@@ -109,7 +110,6 @@ const styles = StyleSheet.create({
   content: { padding: spacing.md },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
   error: { color: appColors.error },
-  image: { flex: 1, width: '100%' },
   code: { color: appColors.text, fontFamily: 'monospace', fontSize: fontSize.sm },
 })
 
