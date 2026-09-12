@@ -2,7 +2,7 @@
  * WorkspaceListScreen - List and switch workspaces
  */
 
-import React, { useCallback, useLayoutEffect, useMemo } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   View,
   Text,
@@ -19,8 +19,9 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useWorkspaceStore, type WorkspaceLoadStatus } from '@/stores/workspace-store'
-import { useConnectionStore } from '@/stores/connection-store'
-import { rankRecents, useRecentsStore } from '@/stores/recents-store'
+import { useConnectionStore, workspaceShortcutServerKey } from '@/stores/connection-store'
+import { recentWorkspaceShortcuts, useWorkspaceShortcutsStore, type WorkspaceShortcut } from '@/stores/workspace-shortcuts-store'
+import { WorkspaceActivity } from '@/components/session/WorkspaceActivity'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { getAgentPreset } from '@/types'
 import type { ProfileEntry, Workspace } from '@/types'
@@ -49,7 +50,9 @@ export function WorkspaceListScreen() {
   const channels = useConnectionStore(s => s.channels)
   const disconnect = useConnectionStore(s => s.disconnect)
   const selectedProfileName = useConnectionStore(s => s.selectedProfileName)
-  const recentWorkspaces = useRecentsStore(s => s.workspaces)
+  const serverKey = useConnectionStore(workspaceShortcutServerKey)
+  const shortcutServers = useWorkspaceShortcutsStore(s => s.servers)
+  const switching = useRef(false)
 
   // Pull workspaces fresh from the host whenever this screen regains focus so
   // sessions added/closed on another device (or the desktop) show up without a
@@ -103,35 +106,16 @@ export function WorkspaceListScreen() {
     })
   }, [query, workspaces])
 
-  const sessionCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const terminal of terminals) {
-      counts[terminal.workspaceId] = (counts[terminal.workspaceId] ?? 0) + 1
-    }
-    return counts
-  }, [terminals])
-
-  /**
-   * The handful you keep coming back to, hoisted above the alphabet.
-   *
-   * Suppressed below a threshold: with a short list every workspace is already
-   * one glance away, and a shortcut strip would just be chrome pushing the real
-   * list down. Suppressed at one entry too — a "Frequent" heading over a single
-   * chip says nothing the list doesn't.
-   */
-  const frequentWorkspaces = useMemo(() => {
-    if (workspaces.length < 6) return []
-    const ranked = rankRecents(recentWorkspaces, workspaces.map(w => w.id), Date.now(), 5)
-    if (ranked.length < 2) return []
-    return ranked.flatMap(id => {
-      const workspace = workspaces.find(w => w.id === id)
-      return workspace ? [workspace] : []
-    })
-  }, [workspaces, recentWorkspaces])
+  const shortcuts = useMemo(() => recentWorkspaceShortcuts(
+    serverKey ? shortcutServers[serverKey] ?? [] : [],
+    profiles.map(p => p.id), activeLocalProfileId, workspaces,
+    loadStatus === 'ok' || loadStatus === 'empty',
+  ), [serverKey, shortcutServers, profiles, activeLocalProfileId, workspaces, loadStatus])
 
   // The open is recorded by WorkspaceDetailScreen rather than here, so every
   // arrival counts once however you got there — chip, card, or deep link.
   const openWorkspace = useCallback((workspace: Workspace) => {
+    if (switching.current) return
     switchWorkspace(workspace.id)
     navigation.navigate('WorkspaceDetail', { workspaceId: workspace.id })
   }, [navigation, switchWorkspace])
@@ -162,13 +146,15 @@ export function WorkspaceListScreen() {
   }, [navigation, profileLabel, disconnect])
 
   const onRefresh = async () => {
+    if (switching.current) return
     setRefreshing(true)
     try { await load() } catch (e) { setProfileError(String(e)) }
     finally { setRefreshing(false) }
   }
 
   const selectProfile = async (profile: ProfileEntry) => {
-    if (!channels) return
+    if (!channels || switching.current) return
+    switching.current = true
     setSwitchingProfileId(profile.id)
     setProfileError(null)
     try {
@@ -176,10 +162,42 @@ export function WorkspaceListScreen() {
       // host's active set belongs to its desktop windows and must not be
       // collapsed when a mobile client switches views.
       await loadProfileWorkspace(profile.id)
+      setQuery('')
       setProfileModalVisible(false)
     } catch (e) {
       setProfileError(String(e))
     } finally {
+      setSwitchingProfileId(null)
+      switching.current = false
+    }
+  }
+
+  const openShortcut = async (shortcut: WorkspaceShortcut) => {
+    if (!channels || switching.current) return
+    switching.current = true
+    const client = useConnectionStore.getState().client
+    setSwitchingProfileId(shortcut.profileId)
+    setProfileError(null)
+    try {
+      await loadProfileWorkspace(shortcut.profileId)
+      const connection = useConnectionStore.getState()
+      if (connection.client !== client || workspaceShortcutServerKey(connection) !== serverKey) return
+      const current = useWorkspaceStore.getState()
+      if (current.activeLocalProfileId !== shortcut.profileId) return
+      if (current.loadStatus !== 'ok' && current.loadStatus !== 'empty') {
+        throw new Error(current.loadError || t('workspaceList.quickSwitchFailed'))
+      }
+      if (!current.workspaces.some(w => w.id === shortcut.workspaceId)) {
+        if (serverKey) useWorkspaceShortcutsStore.getState().forget(serverKey, shortcut.profileId, shortcut.workspaceId)
+        throw new Error(t('workspaceList.workspaceUnavailable'))
+      }
+      setQuery('')
+      current.switchWorkspace(shortcut.workspaceId)
+      navigation.navigate('WorkspaceDetail', { workspaceId: shortcut.workspaceId })
+    } catch (e) {
+      setProfileError(String(e))
+    } finally {
+      switching.current = false
       setSwitchingProfileId(null)
     }
   }
@@ -192,6 +210,7 @@ export function WorkspaceListScreen() {
       <TouchableOpacity
         style={[styles.card, isActive && styles.cardActive]}
         onPress={() => openWorkspace(item)}
+        disabled={!!switchingProfileId}
       >
         <View style={styles.cardHeader}>
           {preset && (
@@ -203,7 +222,7 @@ export function WorkspaceListScreen() {
             {item.alias || item.name}
           </Text>
           {isActive && (
-            <View style={styles.activeDot} />
+            <Text style={styles.currentLabel}>{t('workspaceList.profile.active')}</Text>
           )}
         </View>
         <Text style={styles.path} numberOfLines={1}>
@@ -212,6 +231,7 @@ export function WorkspaceListScreen() {
         {item.group && (
           <Text style={styles.group}>{item.group}</Text>
         )}
+        <WorkspaceActivity terminals={terminals.filter(terminal => terminal.workspaceId === item.id)} />
       </TouchableOpacity>
     )
   }
@@ -224,8 +244,45 @@ export function WorkspaceListScreen() {
         renderItem={renderWorkspace}
         contentContainerStyle={styles.list}
         ListHeaderComponent={
-          workspaces.length > 0 ? (
             <View>
+              <View style={styles.frequentBlock}>
+                <Text style={styles.frequentTitle}>{t('workspaceList.recent.title')}</Text>
+                <Text style={styles.recentHint}>{t('workspaceList.recent.hint')}</Text>
+                {shortcuts.length === 0 && <Text style={styles.recentHint}>{t('workspaceList.recent.empty')}</Text>}
+                {shortcuts.map(shortcut => {
+                  const isCurrent = shortcut.profileId === activeLocalProfileId && shortcut.workspaceId === activeWorkspaceId
+                  const workspace = shortcut.profileId === activeLocalProfileId ? workspaces.find(w => w.id === shortcut.workspaceId) : null
+                  return (
+                    <TouchableOpacity
+                      key={JSON.stringify([shortcut.profileId, shortcut.workspaceId])}
+                      testID={`workspace-shortcut-${shortcut.profileId}-${shortcut.workspaceId}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${profiles.find(p => p.id === shortcut.profileId)?.name ?? shortcut.profileName} / ${workspace?.alias || workspace?.name || shortcut.name}`}
+                      style={[styles.shortcutCard, isCurrent && styles.cardActive]}
+                      onPress={() => openShortcut(shortcut)}
+                      disabled={!!switchingProfileId}
+                    >
+                      <View style={styles.cardHeader}>
+                        <Text style={styles.shortcutProfile}>{profiles.find(p => p.id === shortcut.profileId)?.name ?? shortcut.profileName}</Text>
+                        {switchingProfileId === shortcut.profileId ? <ActivityIndicator color={appColors.accent} /> : isCurrent ? <Text style={styles.currentLabel}>{t('workspaceList.profile.active')}</Text> : null}
+                      </View>
+                      <Text style={styles.name} numberOfLines={1}>{workspace?.alias || workspace?.name || shortcut.name}</Text>
+                      <Text style={styles.path} numberOfLines={1}>{workspace?.folderPath ?? shortcut.folderPath}</Text>
+                      {shortcut.profileId === activeLocalProfileId && <WorkspaceActivity terminals={terminals.filter(terminal => terminal.workspaceId === shortcut.workspaceId)} />}
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+              <Text style={styles.frequentTitle}>{t('workspaceList.browseTitle')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profileStrip}>
+                {profiles.map(profile => (
+                  <TouchableOpacity key={profile.id} accessibilityRole="button" accessibilityState={{ selected: profile.id === activeLocalProfileId }} style={[styles.profileChip, profile.id === activeLocalProfileId && styles.cardActive]} onPress={() => selectProfile(profile)} disabled={!!switchingProfileId}>
+                    <Text style={styles.profileChipText}>{profile.name}</Text>
+                    {switchingProfileId === profile.id && <ActivityIndicator color={appColors.accent} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              {profileError && !profileModalVisible ? <Text accessibilityRole="alert" style={styles.profileError}>{profileError}</Text> : null}
               <TextInput
                 style={styles.searchInput}
                 value={query}
@@ -236,43 +293,11 @@ export function WorkspaceListScreen() {
                 autoCorrect={false}
                 clearButtonMode="while-editing"
               />
-              {!query.trim() && frequentWorkspaces.length > 0 ? (
-                <View style={styles.frequentBlock}>
-                  <Text style={styles.frequentTitle}>{t('workspaceList.recent.title')}</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.frequentStrip}
-                  >
-                    {frequentWorkspaces.map(workspace => {
-                      const count = sessionCounts[workspace.id] ?? 0
-                      return (
-                        <TouchableOpacity
-                          key={workspace.id}
-                          style={[
-                            styles.frequentChip,
-                            workspace.id === activeWorkspaceId && styles.frequentChipActive,
-                          ]}
-                          onPress={() => openWorkspace(workspace)}
-                        >
-                          <Text style={styles.frequentChipText} numberOfLines={1}>
-                            {workspace.alias || workspace.name}
-                          </Text>
-                          {count > 0 ? (
-                            <Text style={styles.frequentChipCount}>{count}</Text>
-                          ) : null}
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
             </View>
-          ) : null
         }
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={refreshing || !!switchingProfileId}
             onRefresh={onRefresh}
             tintColor={appColors.accent}
           />
@@ -527,38 +552,29 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
   },
-  frequentStrip: {
+  profileStrip: {
     gap: spacing.sm,
-    // The strip is inside the list's padded content, so cancel the left inset
-    // and pad the tail instead: chips should start flush with the cards above
-    // and still scroll clear of the screen edge.
-    paddingRight: spacing.lg,
+    paddingBottom: spacing.md,
   },
-  frequentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    maxWidth: 200,
-    minHeight: 38,
+  shortcutCard: {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: appColors.borderStrong,
     backgroundColor: appColors.surface,
-    paddingHorizontal: spacing.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
   },
-  frequentChipActive: {
-    borderColor: appColors.accent,
-  },
-  frequentChipText: {
-    flexShrink: 1,
-    color: appColors.text,
+  recentHint: {
+    color: appColors.textSecondary,
     fontSize: fontSize.sm,
-    fontWeight: '700',
+    marginBottom: spacing.xs,
   },
-  frequentChipCount: {
+  shortcutProfile: {
+    flex: 1,
     color: appColors.accent,
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: '800',
-    marginLeft: spacing.sm,
+    marginBottom: spacing.xs,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -574,11 +590,10 @@ const styles = StyleSheet.create({
     color: appColors.text,
     fontWeight: '600',
   },
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: appColors.success,
+  currentLabel: {
+    fontSize: fontSize.sm,
+    color: appColors.accent,
+    fontWeight: '700',
   },
   path: {
     fontSize: fontSize.xs,

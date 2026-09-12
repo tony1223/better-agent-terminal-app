@@ -23,6 +23,28 @@ beforeEach(() => {
 })
 
 describe('streamed replies survive every way a turn can end', () => {
+  it('does not leave a failed send marked as working or freshly completed', () => {
+    const store = useClaudeStore.getState()
+    stream('Earlier reply')
+    store.handleTurnEnd(SESSION_ID)
+    store.handleMessage(SESSION_ID, { id: 'pending', sessionId: SESSION_ID, role: 'user', content: 'Next', timestamp: Date.now(), status: 'sending' })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].turnStartedAt).not.toBeNull()
+    store.setUserMessageStatus(SESSION_ID, 'pending', 'failed', 'offline')
+    expect(useClaudeStore.getState().sessions[SESSION_ID].turnStartedAt).toBeNull()
+    expect(useClaudeStore.getState().sessions[SESSION_ID].lastCompletedAt).toBeNull()
+  })
+  it('records an observed completion but not an error or an empty turn-end replay', () => {
+    const store = useClaudeStore.getState()
+    store.handleTurnEnd(SESSION_ID)
+    expect(useClaudeStore.getState().sessions[SESSION_ID].lastCompletedAt).toBeFalsy()
+    stream('Done')
+    store.handleTurnEnd(SESSION_ID)
+    expect(useClaudeStore.getState().sessions[SESSION_ID].lastCompletedAt).toBeGreaterThan(0)
+    stream('Next task')
+    store.handleError(SESSION_ID, 'Failed')
+    store.handleTurnEnd(SESSION_ID)
+    expect(useClaudeStore.getState().sessions[SESSION_ID].lastCompletedAt).toBeFalsy()
+  })
   it('keeps the reply when the turn ends without a result frame', () => {
     // The live repro: tool calls rendered, the whole prose reply vanished,
     // because only handleResult ever committed streamingText.

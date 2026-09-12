@@ -33,6 +33,8 @@ interface SessionState {
   // turn (waiting → thinking → responding → tools) until turn-end — drives the
   // persistent "Working… · Xs" bar, mirroring the host's turn status line.
   turnStartedAt: number | null
+  /** Only observed successful turn endings; history loads do not set this. */
+  lastCompletedAt?: number | null
 }
 
 export const EMPTY_SESSION: SessionState = {
@@ -569,6 +571,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           streamingText: '',
           streamingThinking: '',
           turnStartedAt: startsTurn ? (session.turnStartedAt ?? Date.now()) : session.turnStartedAt,
+          lastCompletedAt: msg.role === 'user' ? null : session.lastCompletedAt,
         },
       },
     })
@@ -587,7 +590,11 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     if ('toolName' in existing || existing.status === status) return
     const messages = [...session.messages]
     messages[idx] = { ...existing, status, failureReason: status === 'failed' ? failureReason : undefined }
-    set({ sessions: { ...sessions, [sessionId]: { ...session, messages } } })
+    const failedBeforeStream = status === 'failed' && !session.isStreaming
+    set({ sessions: { ...sessions, [sessionId]: {
+      ...session, messages,
+      ...(failedBeforeStream ? { turnStartedAt: null, runtimeStatusSince: null, meta: clearedRuntimeMeta(session.meta), lastCompletedAt: null } : {}),
+    } } })
   },
 
   deliverUserMessage: async (sessionId, id, payload) => {
@@ -601,6 +608,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       const session = sessions?.[sessionId]
       if (!sessions || !session) return
       scopedSessions.set(scopeKey, { ...sessions, [sessionId]: { ...session,
+        ...(status === 'failed' && !session.isStreaming
+          ? { turnStartedAt: null, runtimeStatusSince: null, meta: clearedRuntimeMeta(session.meta), lastCompletedAt: null } : {}),
         messages: session.messages.map(m => m.id === id && !('toolName' in m)
           ? { ...m, status, failureReason: reason } : m) } })
     }
@@ -668,6 +677,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           // Tool execution is part of the active turn; keep the bar alive
           // through tool gaps where nothing is streaming.
           turnStartedAt: session.turnStartedAt ?? Date.now(),
+          lastCompletedAt: null,
         },
       },
     })
@@ -733,6 +743,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: session.turnStartedAt ?? Date.now(),
+          lastCompletedAt: null,
         },
       },
     })
@@ -771,6 +782,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: null,
+          lastCompletedAt: result?.subtype === 'success' ? Date.now() : null,
         },
       },
     })
@@ -791,6 +803,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: null,
+          lastCompletedAt: session.turnStartedAt != null || session.isStreaming
+            ? Date.now() : session.lastCompletedAt,
         },
       },
     })
@@ -821,6 +835,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: null,
+          lastCompletedAt: null,
         },
       },
     })

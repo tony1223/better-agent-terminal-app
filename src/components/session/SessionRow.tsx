@@ -21,6 +21,8 @@ import {
 } from '@/utils/session-status'
 import { useClaudeStore } from '@/stores/claude-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
+import { ActivityBadge, ACTIVITY_COLOR } from './ActivityBadge'
+import { useActivityClock } from '@/hooks/use-activity-clock'
 
 interface Props {
   terminal: TerminalInstance
@@ -30,12 +32,6 @@ interface Props {
   onCloseSession: (terminal: TerminalInstance, options?: { cleanWorktree?: boolean }) => Promise<void>
   /** Shown above the title when the list spans workspaces. */
   contextLabel?: string
-}
-
-const ACTIVITY_TONE: Record<SessionActivity, { color: string; labelKey: string }> = {
-  working: { color: appColors.warning, labelKey: 'session.activity.working' },
-  idle: { color: appColors.success, labelKey: 'session.activity.ready' },
-  stopped: { color: appColors.textMuted, labelKey: 'session.activity.stopped' },
 }
 
 export function SessionRow({
@@ -49,26 +45,32 @@ export function SessionRow({
   const { t } = useTranslation()
   const preset = terminal.agentPreset ? getAgentPreset(terminal.agentPreset) : null
 
-  // Two primitive selectors rather than one for the whole session: a streaming
+  // Primitive selectors rather than one for the whole session: a streaming
   // turn rewrites `messages` and `streamingText` continuously, and a list has no
-  // business re-rendering on every token. These two only change at turn edges.
+  // business re-rendering on every token. Activity changes at turn edges.
   const isStreaming = useClaudeStore(s => s.sessions[terminal.id]?.isStreaming ?? false)
   const runtimeStatus = useClaudeStore(s => s.sessions[terminal.id]?.meta?.runtimeStatus ?? null)
+  const turnStartedAt = useClaudeStore(s => s.sessions[terminal.id]?.turnStartedAt ?? null)
+  const lastCompletedAt = useClaudeStore(s => s.sessions[terminal.id]?.lastCompletedAt ?? null)
+  const now = useActivityClock()
   const preview = useSessionPreviewStore(s => s.previews[terminal.id])
 
   // A plain shell has no agent turn to report, so its process really is the
   // whole story; only SDK sessions have live agent activity to consult.
-  const live = { isStreaming, meta: { runtimeStatus } }
+  const live = { isStreaming, turnStartedAt, lastCompletedAt, meta: { runtimeStatus } }
   const activity: SessionActivity = isSdkAgentSession(terminal)
-    ? deriveAgentActivity(live)
+    ? deriveAgentActivity(live, now)
     : derivePtyActivity(terminal)
-  const tone = ACTIVITY_TONE[activity]
   // The host's phase word ("queued", "compacting") beats a generic "Working"
   // when it has one — it's the difference between "busy" and "stuck on me".
-  const activityLabel = (activity === 'working' && runtimePhaseLabel(live)) || t(tone.labelKey)
+  const phase = activity === 'working' && runtimePhaseLabel(live)
 
   return (
-    <TouchableOpacity style={styles.card} onPress={() => onPress(terminal)} disabled={closing}>
+    <TouchableOpacity style={[styles.card, (activity === 'working' || activity === 'completed') && [styles.highlightedCard, { borderColor: ACTIVITY_COLOR[activity] }]]} onPress={() => onPress(terminal)} disabled={closing}>
+      <View style={styles.statusRow}>
+        <ActivityBadge activity={activity} />
+        {phase ? <Text style={styles.phase}>{t(`claude.runtimeStatus.${runtimeStatus === 'starting' ? 'preparing' : runtimeStatus === 'waiting_for_api' ? 'waiting' : runtimeStatus}`)}</Text> : null}
+      </View>
       <View style={styles.row}>
         <Text style={[styles.icon, preset ? { color: preset.color } : null]}>
           {preset?.icon || '>'}
@@ -93,18 +95,13 @@ export function SessionRow({
           </TouchableOpacity>
         )}
       </View>
-      <View style={styles.statusRow}>
-        <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
-        <Text style={[styles.statusText, { color: tone.color }]} numberOfLines={1}>
-          {activityLabel}
-        </Text>
-      </View>
       <WorktreeControls terminal={terminal} closing={closing} onCloseSession={onCloseSession} />
     </TouchableOpacity>
   )
 }
 
 const styles = StyleSheet.create({
+  highlightedCard: { borderLeftWidth: 5 },
   card: {
     backgroundColor: appColors.surface,
     borderRadius: 12,
@@ -152,18 +149,13 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.xs,
-  },
-  statusText: {
+  phase: {
+    flexShrink: 1,
+    color: appColors.textSecondary,
     fontSize: fontSize.xs,
-    fontWeight: '700',
-    textTransform: 'capitalize',
   },
   trailing: {
     marginLeft: spacing.sm,

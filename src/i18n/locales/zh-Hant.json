@@ -231,6 +231,7 @@
   "session": {
     "activity": {
       "working": "執行中",
+      "completed": "剛完成",
       "ready": "待命",
       "stopped": "已停止"
     }
@@ -267,11 +268,17 @@
     }
   },
   "workspaceList": {
+    "browseTitle": "瀏覽工作區",
+    "sessions": "{{count}} 個工作階段",
+    "quickSwitchFailed": "切換工作區失敗，請重試。",
+    "workspaceUnavailable": "這個工作區已不存在，已從快捷列表移除。",
     "search": {
       "placeholder": "搜尋工作區"
     },
     "recent": {
-      "title": "常用"
+      "title": "最近工作區",
+      "hint": "這台伺服器最近開啟的 3 個工作區，點選即可連同 profile 切換。",
+      "empty": "開啟工作區後會顯示在這裡，跨 profile 保留。"
     },
     "empty": {
       "noMatch": "沒有符合「{{query}}」的工作區。",

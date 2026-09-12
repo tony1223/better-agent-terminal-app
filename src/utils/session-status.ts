@@ -20,6 +20,7 @@ import type { SessionMeta, TerminalInstance } from '@/types'
 export type SessionActivity =
   // The agent is mid-turn: streaming, or the host is preparing/queueing a request.
   | 'working'
+  | 'completed'
   // Nothing in flight — waiting on you.
   | 'idle'
   // Process is gone. Plain terminals only; an agent session has no pid to lose.
@@ -39,6 +40,8 @@ export function isActiveRuntimeStatus(status: string | null | undefined): boolea
 /** The slice of a claude-store session that says whether it is busy. */
 export interface LiveSessionActivity {
   isStreaming?: boolean
+  turnStartedAt?: number | null
+  lastCompletedAt?: number | null
   meta?: Pick<SessionMeta, 'runtimeStatus'> | null
 }
 
@@ -50,10 +53,14 @@ export interface LiveSessionActivity {
  * continuously, so silence is evidence of *not* working. The row can be at most
  * a second or so behind a turn that began before we connected.
  */
-export function deriveAgentActivity(live: LiveSessionActivity | undefined): SessionActivity {
+export const RECENT_COMPLETION_MS = 5 * 60 * 1000
+
+export function deriveAgentActivity(live: LiveSessionActivity | undefined, now = Date.now()): SessionActivity {
   if (!live) return 'idle'
   if (live.isStreaming === true) return 'working'
   if (isActiveRuntimeStatus(live.meta?.runtimeStatus)) return 'working'
+  if (live.turnStartedAt != null) return 'working'
+  if (live.lastCompletedAt != null && now >= live.lastCompletedAt && now - live.lastCompletedAt < RECENT_COMPLETION_MS) return 'completed'
   return 'idle'
 }
 

@@ -231,6 +231,7 @@
   "session": {
     "activity": {
       "working": "Working",
+      "completed": "Just finished",
       "ready": "Ready",
       "stopped": "Stopped"
     }
@@ -267,11 +268,17 @@
     }
   },
   "workspaceList": {
+    "browseTitle": "Browse workspaces",
+    "sessions": "Sessions: {{count}}",
+    "quickSwitchFailed": "Could not switch workspace. Please try again.",
+    "workspaceUnavailable": "This workspace no longer exists and was removed from shortcuts.",
     "search": {
       "placeholder": "Search workspaces"
     },
     "recent": {
-      "title": "Frequent"
+      "title": "Recent workspaces",
+      "hint": "Your 3 most recently opened workspaces on this server. Tap to switch workspace and profile together.",
+      "empty": "Open a workspace to add it here. Shortcuts stay across profiles."
     },
     "empty": {
       "noMatch": "No workspaces match \"{{query}}\".",

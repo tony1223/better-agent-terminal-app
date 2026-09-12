@@ -3,6 +3,7 @@ import {
   derivePtyActivity,
   runtimePhaseLabel,
   type LiveSessionActivity,
+  RECENT_COMPLETION_MS,
 } from '../src/utils/session-status'
 import type { TerminalInstance } from '../src/types'
 
@@ -11,6 +12,13 @@ function live(overrides: Partial<LiveSessionActivity> = {}): LiveSessionActivity
 }
 
 describe('deriveAgentActivity', () => {
+  test('tool gaps stay working and completion expires after five minutes', () => {
+    const now = 1700000000000
+    expect(deriveAgentActivity(live({ turnStartedAt: now - 1000 }), now)).toBe('working')
+    expect(deriveAgentActivity(live({ lastCompletedAt: now }), now)).toBe('completed')
+    expect(deriveAgentActivity(live({ lastCompletedAt: now }), now + RECENT_COMPLETION_MS)).toBe('idle')
+    expect(deriveAgentActivity(live({ isStreaming: true, lastCompletedAt: now }), now)).toBe('working')
+  })
   test('a session we have heard nothing about is idle, not working', () => {
     // Silence is evidence: a session with a turn in flight emits stream events
     // continuously, so no entry at all means nothing is running. Guessing

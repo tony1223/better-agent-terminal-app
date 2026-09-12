@@ -231,6 +231,7 @@
   "session": {
     "activity": {
       "working": "执行中",
+      "completed": "刚完成",
       "ready": "待命",
       "stopped": "已停止"
     }
@@ -267,11 +268,17 @@
     }
   },
   "workspaceList": {
+    "browseTitle": "浏览工作区",
+    "sessions": "{{count}} 个会话",
+    "quickSwitchFailed": "切换工作区失败，请重试。",
+    "workspaceUnavailable": "此工作区已不存在，已从快捷列表移除。",
     "search": {
       "placeholder": "搜索工作区"
     },
     "recent": {
-      "title": "常用"
+      "title": "最近工作区",
+      "hint": "此服务器最近打开的 3 个工作区，点击即可连同 profile 切换。",
+      "empty": "打开工作区后会显示在这里，跨 profile 保留。"
     },
     "empty": {
       "noMatch": "没有匹配“{{query}}”的工作区。",

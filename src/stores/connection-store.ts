@@ -56,6 +56,11 @@ interface ConnectionState {
   disconnect: () => void
 }
 
+/** The connected server, independent of the currently selected profile. */
+export function workspaceShortcutServerKey(state: Pick<ConnectionState, 'host' | 'port' | 'client'>): string | null {
+  return state.host ? (state.client?.profileCacheKey ?? `${state.host}:${state.port}`) : null
+}
+
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   status: 'disconnected',
   host: null,

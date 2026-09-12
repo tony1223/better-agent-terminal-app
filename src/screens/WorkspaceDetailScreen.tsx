@@ -16,10 +16,11 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useFocusEffect } from '@react-navigation/native'
 import { useTranslation } from 'react-i18next'
-import { useConnectionStore } from '@/stores/connection-store'
+import { useConnectionStore, workspaceShortcutServerKey } from '@/stores/connection-store'
 import { useSupportedSessionTypes } from '@/hooks/use-supported-session-types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
+import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
 import { appColors, fontSize, spacing } from '@/theme/colors'
@@ -74,20 +75,36 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!workspaceId) return
     switchWorkspace(workspaceId)
-    // Every route into a workspace lands here, so this is the one place that
-    // can count an open exactly once — which is what the "Frequent" strip on
-    // the list screen ranks by.
-    useRecentsStore.getState().touchWorkspace(workspaceId)
   }, [switchWorkspace, workspaceId])
 
   // Refresh workspace/terminal state from the host on focus, then keep the
   // viewed workspace active, so sessions changed elsewhere stay in sync.
   useFocusEffect(
     useCallback(() => {
+      let focused = true
+      const client = useConnectionStore.getState().client
       const store = useWorkspaceStore.getState()
+      const requestedProfile = store.activeLocalProfileId
       store.load()
-        .then(() => { if (workspaceId) store.switchWorkspace(workspaceId) })
+        .then(() => {
+          const connection = useConnectionStore.getState()
+          const state = useWorkspaceStore.getState()
+          if (!focused || !workspaceId || connection.client !== client ||
+            (requestedProfile && requestedProfile !== state.activeLocalProfileId)) return
+          const opened = state.workspaces.find(w => w.id === workspaceId)
+          if (!opened) return
+          state.switchWorkspace(workspaceId)
+          useRecentsStore.getState().touchWorkspace(workspaceId)
+          const serverKey = workspaceShortcutServerKey(connection)
+          const profileId = state.activeLocalProfileId
+          if (serverKey && profileId) {
+            const profileName = state.profiles.find(p => p.id === profileId)?.name
+              ?? connection.selectedProfileName ?? profileId
+            useWorkspaceShortcutsStore.getState().touch(serverKey, profileId, profileName, opened)
+          }
+        })
         .catch(() => {})
+      return () => { focused = false }
     }, [workspaceId]),
   )
 
