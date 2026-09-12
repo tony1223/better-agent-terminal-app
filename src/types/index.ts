@@ -274,6 +274,10 @@ export function isToolCall(item: ClaudeMessage | ClaudeToolCall): item is Claude
 // ============================================
 
 export interface SessionMeta {
+  /** Host-owned turn activity (Codex includes this even between output frames). */
+  isStreaming?: boolean
+  /** Host epoch milliseconds of the last output; null means none recorded. */
+  lastDataAt?: number | null
   model?: string
   sdkSessionId?: string
   cwd?: string

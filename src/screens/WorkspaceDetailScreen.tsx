@@ -23,6 +23,10 @@ import { useRecentsStore } from '@/stores/recents-store'
 import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
+import { SessionSortControl } from '@/components/session/SessionSortControl'
+import { useSessionOrder } from '@/hooks/use-session-order'
+import type { SessionSort } from '@/utils/session-recency'
+import { FilePreviewModal } from '@/components/claude/FilePreviewModal'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { saveBase64File } from '@/utils/file-export'
 import {
@@ -56,7 +60,6 @@ interface GitHubItem {
   updatedAt?: string
 }
 
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const TABS: Array<{ id: DetailTab; labelKey: string }> = [
   { id: 'sessions', labelKey: 'workspaceDetail.tab.sessions' },
   { id: 'files', labelKey: 'workspaceDetail.tab.files' },
@@ -153,6 +156,7 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
 
 function SessionsPane({ workspaceId, navigation }: { workspaceId: string; navigation: any }) {
   const { t } = useTranslation()
+  const [sort, setSort] = useState<SessionSort>('recent')
   const connectionStatus = useConnectionStore(s => s.status)
   const allTerminals = useWorkspaceStore(s => s.terminals)
   const setActiveTerminal = useWorkspaceStore(s => s.setActiveTerminal)
@@ -169,6 +173,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     [allTerminals, workspaceId],
   )
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
+  const orderedTerminals = useSessionOrder(terminals, sort)
 
   // Same session previews the Terminals tab shows, from the same store — which
   // screen you arrived from shouldn't change how much you're told. This pane
@@ -278,8 +283,9 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
           <Text style={styles.smallButtonText}>{t('workspaceDetail.button.add')}</Text>
         </TouchableOpacity>
       </View>
+      <SessionSortControl value={sort} onChange={setSort} />
       <FlatList
-        data={terminals}
+        data={orderedTerminals}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noSessionsTitle')} body={t('workspaceDetail.empty.noSessionsBody')} />}
@@ -347,7 +353,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
   const [entries, setEntries] = useState<FsEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<{ title: string; path: string; body?: string; imageUrl?: string; error?: string } | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
 
   useEffect(() => setCurrentPath(rootPath), [rootPath])
@@ -368,30 +374,13 @@ function FilesPane({ rootPath }: { rootPath: string }) {
 
   useEffect(() => { load() }, [load])
 
-  const openEntry = async (entry: FsEntry) => {
+  const openEntry = (entry: FsEntry) => {
     if (!channels) return
     if (entry.isDirectory) {
       setCurrentPath(entry.path)
       return
     }
-    const ext = fileExt(entry.name)
-    setPreview({ title: entry.name, path: entry.path, body: t('workspaceDetail.status.loading') })
-    try {
-      if (IMAGE_EXTS.has(ext)) {
-        const imageUrl = await channels.fs.readImageAsDataUrl(entry.path)
-        setPreview({ title: entry.name, path: entry.path, imageUrl })
-        return
-      }
-      const result = await channels.fs.readFile(entry.path)
-      setPreview({
-        title: entry.name,
-        path: entry.path,
-        body: result.content ?? '',
-        error: result.error,
-      })
-    } catch (e) {
-      setPreview({ title: entry.name, path: entry.path, error: String(e) })
-    }
+    setPreview(entry.path)
   }
 
   const downloadEntry = async (entry: FsEntry) => {
@@ -459,14 +448,7 @@ function FilesPane({ rootPath }: { rootPath: string }) {
           )}
         />
       )}
-      <PreviewModal
-        preview={preview}
-        onClose={() => setPreview(null)}
-        onDownload={preview
-          ? () => downloadEntry({ name: preview.title, path: preview.path, isDirectory: false })
-          : undefined}
-        downloading={!!preview && downloadingPath === preview.path}
-      />
+      {preview && <FilePreviewModal filePath={preview} visible onClose={() => setPreview(null)} />}
     </View>
   )
 }

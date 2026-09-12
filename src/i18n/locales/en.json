@@ -229,6 +229,13 @@
     }
   },
   "session": {
+    "recency": {
+      "lastData": "Last host output",
+      "lastOpened": "Last opened on this phone",
+      "noData": "No output recorded",
+      "unavailable": "Not provided by host",
+      "sort": { "recent": "Recently opened", "activity": "Latest output", "original": "Workspace order" }
+    },
     "activity": {
       "working": "Working",
       "completed": "Just finished",
@@ -532,7 +539,16 @@
   "terminalToolbar": {
     "showKeyboard": "Show keyboard"
   },
+  "chatTimestamp": {
+    "title": "Message time",
+    "hint": "Show full date and time"
+  },
   "filePreview": {
+    "back": "Back to previous preview",
+    "openImage": "Tap to open image",
+    "imageUnavailable": "Image unavailable",
+    "source": "Source",
+    "rendered": "Preview",
     "notConnected": "Not connected to server",
     "unexpectedFormat": "Unexpected response format"
   }

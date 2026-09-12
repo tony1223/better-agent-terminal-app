@@ -15,6 +15,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
+import { subscribeSessionActivity } from '@/stores/session-activity-sync'
 import { useUsageStore } from '@/stores/usage-store'
 import { openConnectionLink } from '@/utils/connection-link'
 import { dlog } from '@/utils/debug-log'
@@ -43,6 +44,7 @@ function App() {
 
       // Subscribe to remote events
       const unsubscribeClaude = subscribeClaudeEvents(channels.claude)
+      const unsubscribeActivity = subscribeSessionActivity(channels.claude)
 
       // The quota broadcast is every ~150s, so connecting just after a tick
       // would leave the 5h/7d chips blank for most of the wait. Hosts that
@@ -62,6 +64,7 @@ function App() {
       })
       unsubRef.current = () => {
         unsubscribeClaude()
+        unsubscribeActivity()
         unsubscribeWorkspaceReload()
         unsubscribeProfileChanged()
       }

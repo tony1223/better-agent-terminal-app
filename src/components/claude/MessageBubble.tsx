@@ -2,17 +2,20 @@
  * MessageBubble - Renders a single Claude message
  */
 
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
-import { pathLinkerRules } from './LinkedText'
+import { createPathLinkerRules } from './LinkedText'
+import { hostMarkdown } from '@/utils/host-markdown'
+import { ChatTimestamp } from './ChatTimestamp'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { useClaudeStore } from '@/stores/claude-store'
 import type { ClaudeMessage } from '@/types'
 
 interface Props {
   message: ClaudeMessage
+  cwd?: string
 }
 
 function tint(hex: string, opacity: number): string {
@@ -24,10 +27,11 @@ function tint(hex: string, opacity: number): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message }: Props) {
+export const MessageBubble = React.memo(function MessageBubble({ message, cwd }: Props) {
   const { t } = useTranslation()
   const [showThinking, setShowThinking] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const rules = useMemo(() => createPathLinkerRules(cwd), [cwd])
 
   // The agent's own context summary, replayed as a user turn. Full width and
   // folded shut: it carries the user role but the user never wrote it, and
@@ -35,6 +39,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
   if (message.isCompactSummary) {
     return (
       <View style={styles.compactContainer}>
+        <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
         <TouchableOpacity
           onPress={() => setShowSummary(!showSummary)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -54,6 +59,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
   if (message.role === 'system') {
     return (
       <View style={styles.systemContainer}>
+        <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
         <Text style={styles.systemText} selectable>{message.content}</Text>
       </View>
     )
@@ -85,6 +91,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
         failed && styles.failedBubble,
       ]}
     >
+      <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
       {/* Thinking toggle */}
       {message.thinking && (
         <TouchableOpacity
@@ -106,7 +113,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
       {isUser ? (
         <Text style={styles.userText} selectable>{message.content}</Text>
       ) : message.content.trim() ? (
-        <Markdown style={markdownStyles} rules={pathLinkerRules}>
+        <Markdown markdownit={hostMarkdown} style={markdownStyles} rules={rules}>
           {message.content}
         </Markdown>
       ) : null}
@@ -143,6 +150,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message }: Prop
 })
 
 const styles = StyleSheet.create({
+  timestampRow: {
+    alignItems: 'flex-end',
+    marginBottom: spacing.xs,
+  },
   container: {
     marginBottom: spacing.md,
     maxWidth: '95%',

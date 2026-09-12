@@ -2,21 +2,24 @@
  * StreamingText - Displays streaming Claude response with cursor
  */
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import { View, Text, StyleSheet, Animated } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
-import { pathLinkerRules } from './LinkedText'
+import { createPathLinkerRules } from './LinkedText'
+import { hostMarkdown } from '@/utils/host-markdown'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
   text: string
   thinking?: string
+  cwd?: string
 }
 
-export const StreamingText = React.memo(function StreamingText({ text, thinking }: Props) {
+export const StreamingText = React.memo(function StreamingText({ text, thinking, cwd }: Props) {
   const { t } = useTranslation()
   const cursorOpacity = useRef(new Animated.Value(1)).current
+  const rules = useMemo(() => createPathLinkerRules(cwd), [cwd])
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -48,7 +51,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking 
 
       {text ? (
         <View style={styles.textBlock}>
-          <Markdown style={markdownStyles} rules={pathLinkerRules}>
+          <Markdown markdownit={hostMarkdown} style={markdownStyles} rules={rules}>
             {text}
           </Markdown>
           <Animated.View style={[styles.cursor, { opacity: cursorOpacity }]} />

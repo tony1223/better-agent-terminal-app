@@ -35,6 +35,8 @@ interface SessionState {
   turnStartedAt: number | null
   /** Only observed successful turn endings; history loads do not set this. */
   lastCompletedAt?: number | null
+  /** Server timestamp, never the time this phone fetched a snapshot. */
+  lastDataAt?: number | null
 }
 
 export const EMPTY_SESSION: SessionState = {
@@ -153,9 +155,11 @@ function normalizeToolCall(sessionId: string, tool: ClaudeToolCall): ClaudeToolC
 }
 
 function normalizeHistoryItem(sessionId: string, item: ClaudeMessage | ClaudeToolCall): ClaudeMessage | ClaudeToolCall {
-  return 'toolName' in item
+  const normalized = 'toolName' in item
     ? normalizeToolCall(sessionId, item)
     : normalizeClaudeMessage(sessionId, item)
+  // Missing historical time is unknown, not the time we reloaded the history.
+  return { ...normalized, timestamp: typeof item.timestamp === 'number' ? item.timestamp : 0 }
 }
 
 function hasAssistantTextSinceLastUser(messages: (ClaudeMessage | ClaudeToolCall)[], text: string): boolean {
@@ -390,6 +394,7 @@ interface ClaudeState {
    * window, so a gap may still be there".
    */
   handleSessionState: (sessionId: string, snapshot: SessionStateSnapshot | null | undefined) => SessionStateMerge
+  handleLastDataAt: (sessionId: string, timestamp: number | null) => void
   handlePermissionRequest: (sessionId: string, data: PermissionRequest) => void
   handlePermissionResolved: (sessionId: string, toolUseId: string) => void
   handleAskUser: (sessionId: string, data: AskUserRequest) => void
@@ -841,7 +846,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     })
   },
 
+  handleLastDataAt: (sessionId, timestamp) => {
+    const session = get().sessions[sessionId] || createEmptySession()
+    const valid = timestamp === null || (Number.isFinite(timestamp) && timestamp > 0)
+    if (!valid || (session.lastDataAt != null && (timestamp == null || timestamp <= session.lastDataAt)) || session.lastDataAt === timestamp) return
+    set(state => ({ sessions: { ...state.sessions, [sessionId]: { ...session, lastDataAt: timestamp } } }))
+  },
+
   handleStatus: (sessionId, meta) => {
+    if (meta?.lastDataAt !== undefined) get().handleLastDataAt(sessionId, meta.lastDataAt)
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     // A status meta is a turn/usage snapshot and does not always carry the
@@ -849,9 +862,11 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // host model adopted by handleSessionState (which reads it from the
     // snapshot's top level), so the model chip would blink out on every
     // refresh. Keep the last known value when the incoming meta omits one.
-    const mergedMeta = meta
+    const activityMeta = meta && meta.isStreaming === undefined && meta.runtimeStatus === undefined
+      ? { ...session.meta, ...meta } : meta
+    const mergedMeta = activityMeta
       ? {
-          ...meta,
+          ...activityMeta,
           ...(meta.model == null && session.meta?.model ? { model: session.meta.model } : {}),
           ...(meta.permissionMode == null && session.meta?.permissionMode
             ? { permissionMode: session.meta.permissionMode }
@@ -861,21 +876,34 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             : {}),
         }
       : meta
-    const runtimeStatusSince = meta?.runtimeStatus
-      ? (session.meta?.runtimeStatus === meta.runtimeStatus
+    const runtimeStatusSince = activityMeta?.runtimeStatus
+      ? (session.meta?.runtimeStatus === activityMeta.runtimeStatus
         ? (session.runtimeStatusSince ?? Date.now())
         : Date.now())
       : null
-    // A runtime status means the host is working this turn; keep the existing
-    // turn start so elapsed spans the whole turn. Clearing happens on turn-end.
-    const turnStartedAt = meta?.runtimeStatus
+    // Codex's status/meta carries isStreaming for the entire turn, including
+    // quiet tool/API waits. A null runtimeStatus alone does NOT mean idle.
+    const hostActive = meta?.isStreaming === true || !!activityMeta?.runtimeStatus
+    const hostIdle = meta?.isStreaming === false && !activityMeta?.runtimeStatus
+    const turnStartedAt = hostActive
       ? (session.turnStartedAt ?? Date.now())
-      : session.turnStartedAt
+      : hostIdle ? null : session.turnStartedAt
 
     set({
       sessions: {
         ...sessions,
-        [sessionId]: { ...session, meta: mergedMeta, runtimeStatusSince, turnStartedAt },
+        [sessionId]: {
+          ...session, meta: mergedMeta, runtimeStatusSince, turnStartedAt,
+          isStreaming: hostIdle ? false : meta?.isStreaming === true ? true : session.isStreaming,
+          ...(hostActive ? { lastCompletedAt: null } : {}),
+          // Correcting a missed turn-end must not discard the partial reply,
+          // nor label an arbitrarily old completion as "just completed".
+          ...(hostIdle ? {
+            messages: commitStreamedText(sessionId, session),
+            streamingText: '',
+            streamingThinking: '',
+          } : {}),
+        },
       },
     })
 

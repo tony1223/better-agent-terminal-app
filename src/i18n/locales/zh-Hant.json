@@ -229,6 +229,13 @@
     }
   },
   "session": {
+    "recency": {
+      "lastData": "Remote 最後資料",
+      "lastOpened": "本機最近開啟",
+      "noData": "尚無資料紀錄",
+      "unavailable": "伺服器尚未提供",
+      "sort": { "recent": "最近開啟", "activity": "最後資料", "original": "Workspace 順序" }
+    },
     "activity": {
       "working": "執行中",
       "completed": "剛完成",
@@ -532,7 +539,16 @@
   "terminalToolbar": {
     "showKeyboard": "顯示鍵盤"
   },
+  "chatTimestamp": {
+    "title": "訊息時間",
+    "hint": "查看完整日期與時間"
+  },
   "filePreview": {
+    "back": "返回上一層預覽",
+    "openImage": "點擊開啟大圖",
+    "imageUnavailable": "無法顯示圖片",
+    "source": "原始碼",
+    "rendered": "預覽",
     "notConnected": "未連線到伺服器",
     "unexpectedFormat": "非預期的回應格式"
   }

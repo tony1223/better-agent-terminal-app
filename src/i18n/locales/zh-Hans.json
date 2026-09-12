@@ -229,6 +229,13 @@
     }
   },
   "session": {
+    "recency": {
+      "lastData": "Remote 最后数据",
+      "lastOpened": "本机最近打开",
+      "noData": "暂无数据记录",
+      "unavailable": "服务器尚未提供",
+      "sort": { "recent": "最近打开", "activity": "最后数据", "original": "Workspace 顺序" }
+    },
     "activity": {
       "working": "执行中",
       "completed": "刚完成",
@@ -532,7 +539,16 @@
   "terminalToolbar": {
     "showKeyboard": "显示键盘"
   },
+  "chatTimestamp": {
+    "title": "消息时间",
+    "hint": "查看完整日期与时间"
+  },
   "filePreview": {
+    "back": "返回上一层预览",
+    "openImage": "点击打开大图",
+    "imageUnavailable": "无法显示图片",
+    "source": "源代码",
+    "rendered": "预览",
     "notConnected": "未连接到服务器",
     "unexpectedFormat": "意外的响应格式"
   }

@@ -11,9 +11,13 @@ import { AskUserSummary } from './AskUserSummary'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { askUserExchange, summarizeAskUserInput } from '@/utils/ask-user-answers'
 import type { ClaudeToolCall } from '@/types'
+import { toolPreviewImage } from '@/utils/file-preview'
+import { RemoteImagePreview } from './RemoteImagePreview'
+import { ChatTimestamp } from './ChatTimestamp'
 
 interface Props {
   tool: ClaudeToolCall
+  cwd?: string
 }
 
 const TOOL_RESULT_MAX_HEIGHT = 220
@@ -29,9 +33,10 @@ function toolInputSummary(input: Record<string, unknown>): string {
   return ''
 }
 
-export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
+export const ToolCallCard = React.memo(function ToolCallCard({ tool, cwd }: Props) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const image = toolPreviewImage(tool, cwd)
 
   const dotColor = tool.denied ? appColors.error
     : tool.status === 'running' ? appColors.accent
@@ -48,7 +53,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
   const desc = tool.input?.description ? String(tool.input.description) : null
   const summary = exchange.length > 0
     ? summarizeAskUserInput(tool.input)
-    : desc || toolInputSummary(tool.input)
+    : desc || toolInputSummary(tool.input) || image?.path
 
   return (
     <View style={styles.container}>
@@ -58,16 +63,18 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
         activeOpacity={0.7}
       >
         <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <Text style={styles.toolName}>{tool.toolName}</Text>
-        {summary ? (
-          <LinkedText text={summary} style={styles.summary} />
-        ) : null}
+        <Text style={styles.toolName} numberOfLines={1}>{tool.toolName}</Text>
+        <ChatTimestamp timestamp={tool.timestamp} />
         <Text style={styles.expand}>{expanded ? '\u25BC' : '\u25B6'}</Text>
       </TouchableOpacity>
+
+      {summary ? <View style={styles.summaryRow}><LinkedText text={summary} style={styles.summary} /></View> : null}
 
       {exchange.length > 0 && (
         <AskUserSummary exchange={exchange} showOptions={expanded} />
       )}
+
+      {image && <RemoteImagePreview key={tool.id} path={image.path} dataUrl={image.dataUrl} />}
 
       {expanded && exchange.length === 0 && (
         <View style={styles.details}>
@@ -76,7 +83,7 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool }: Props) {
             {JSON.stringify(tool.input, null, 2)}
           </Text>
 
-          {tool.result && (
+          {tool.result && !image && (
             <>
               <Text style={styles.detailLabel}>{t('toolCall.result')}</Text>
               <ScrollView
@@ -113,6 +120,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   toolName: {
+    flex: 1,
+    minWidth: 0,
     fontSize: fontSize.sm,
     color: appColors.accent,
     fontWeight: '600',
@@ -120,11 +129,14 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   summary: {
-    flex: 1,
     fontSize: fontSize.sm,
     color: '#bbb',
     fontFamily: 'monospace',
     minWidth: 0,
+  },
+  summaryRow: {
+    marginLeft: 16,
+    marginTop: spacing.xs,
   },
   expand: {
     fontSize: fontSize.xs,

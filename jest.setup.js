@@ -85,5 +85,7 @@ jest.mock('react-native-vision-camera', () => ({
 jest.mock('react-native-markdown-display', () => {
   const React = require('react');
   const { Text } = require('react-native');
-  return ({ children }) => React.createElement(Text, null, children);
+  return Object.assign(({ children }) => React.createElement(Text, null, children), {
+    MarkdownIt: require('markdown-it'),
+  });
 });

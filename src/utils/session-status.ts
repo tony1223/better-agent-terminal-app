@@ -10,9 +10,9 @@
  * wrong twice over. It returns no activity at all — the host's
  * `session_state_from_notification_snapshot` carries `active`/`isResting`/
  * `model` and neither `isStreaming` nor `meta` — and it was never needed,
- * because `subscribeClaudeEvents` (App.tsx) subscribes to `agent:stream` and
- * `agent:status` for *every* session, not just the open one. A working session
- * announces itself continuously; we only had to listen.
+ * Live events update all rows, while session-activity-sync bootstraps and
+ * reconciles lightweight host metadata. A busy session can be quiet while
+ * waiting for a tool or API, so absence of stream events does not prove idle.
  */
 
 import type { SessionMeta, TerminalInstance } from '@/types'
@@ -48,10 +48,8 @@ export interface LiveSessionActivity {
 /**
  * Derive activity from the events we have already received for this session.
  *
- * `undefined` means no event has arrived since the app connected. That reads as
- * idle rather than unknown on purpose: a session with a turn in flight emits
- * continuously, so silence is evidence of *not* working. The row can be at most
- * a second or so behind a turn that began before we connected.
+ * A missing session retains the idle fallback until a live event or the
+ * connection-wide metadata sweep supplies activity; silence is not a probe.
  */
 export const RECENT_COMPLETION_MS = 5 * 60 * 1000
 

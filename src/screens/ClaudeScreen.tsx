@@ -1458,10 +1458,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
       )
     }
     if (isToolCall(item.data)) {
-      return <ToolCallCard tool={item.data} />
+      return <ToolCallCard tool={item.data} cwd={terminalCwd} />
     }
-    return <MessageBubble message={item.data} />
-  }, [sessionId, setChatFilterKind])
+    return <MessageBubble message={item.data} cwd={terminalCwd} />
+  }, [sessionId, setChatFilterKind, terminalCwd])
 
   const showStreaming = session.isStreaming && (session.streamingText || session.streamingThinking)
 
@@ -1586,7 +1586,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
             onScroll={handleScroll}
             scrollEventThrottle={200}
             ListHeaderComponent={showStreaming ? (
-              <StreamingText text={session.streamingText} thinking={session.streamingThinking} />
+              <StreamingText text={session.streamingText} thinking={session.streamingThinking} cwd={terminalCwd} />
             ) : null}
           />
         )}

@@ -27,6 +27,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
+import { SessionSortControl } from '@/components/session/SessionSortControl'
+import { useSessionOrder } from '@/hooks/use-session-order'
+import type { SessionSort } from '@/utils/session-recency'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { isSdkAgentSession } from '@/types'
 import type { AgentPresetId, TerminalInstance } from '@/types'
@@ -51,6 +54,7 @@ export function TerminalListScreen({ navigation }: Props) {
     requestCloseSession,
   } = useWorkspaceStore()
   const [scope, setScope] = useState<Scope>('all')
+  const [sort, setSort] = useState<SessionSort>('recent')
   const [showAddModal, setShowAddModal] = useState(false)
   const { availableSessionTypes, loadingTypes, loadSupportedSessionTypes } =
     useSupportedSessionTypes(t('terminalList.alerts.loadTypesFailedTitle'))
@@ -66,7 +70,9 @@ export function TerminalListScreen({ navigation }: Props) {
     [scope, terminals, activeWorkspaceId],
   )
 
+  const orderedTerminals = useSessionOrder(visibleTerminals, sort)
   const sections = useMemo(() => {
+    if (sort !== 'original') return [{ workspaceId: '', title: '', data: orderedTerminals }]
     if (scope !== 'all') {
       return [{ workspaceId: activeWorkspaceId ?? '', title: '', data: visibleTerminals }]
     }
@@ -89,7 +95,7 @@ export function TerminalListScreen({ navigation }: Props) {
         if (b.workspaceId === activeWorkspaceId) return 1
         return a.title.localeCompare(b.title)
       })
-  }, [scope, terminals, workspaces, activeWorkspaceId, visibleTerminals])
+  }, [scope, terminals, workspaces, activeWorkspaceId, visibleTerminals, sort, orderedTerminals])
 
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
@@ -118,8 +124,8 @@ export function TerminalListScreen({ navigation }: Props) {
   // Refresh terminals on focus so sessions started elsewhere show up without
   // relying on cached state. Previews need no staleness window — an opening
   // prompt doesn't change, so the store only fetches ids it has never seen.
-  // Activity isn't fetched at all: it rides the stream events App.tsx already
-  // subscribes to, so a session that starts working updates the row live.
+  // Activity is synchronised globally by App.tsx through events and metadata,
+  // independent of whether any individual conversation has been opened.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
@@ -250,6 +256,7 @@ export function TerminalListScreen({ navigation }: Props) {
           </TouchableOpacity>
         ))}
       </View>
+      <SessionSortControl value={sort} onChange={setSort} />
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -261,6 +268,7 @@ export function TerminalListScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <SessionRow
             terminal={item}
+            contextLabel={scope === 'all' && sort !== 'original' ? workspaces.find(workspace => workspace.id === item.workspaceId)?.name || item.workspaceId : undefined}
             closing={closingId === item.id}
             onPress={handlePress}
             onRequestClose={closeSession}

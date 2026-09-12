@@ -23,6 +23,8 @@ import { useClaudeStore } from '@/stores/claude-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { ActivityBadge, ACTIVITY_COLOR } from './ActivityBadge'
 import { useActivityClock } from '@/hooks/use-activity-clock'
+import { useRecentsStore } from '@/stores/recents-store'
+import { formatChatTimestamp } from '@/utils/chat-timestamp'
 
 interface Props {
   terminal: TerminalInstance
@@ -53,6 +55,10 @@ export function SessionRow({
   const turnStartedAt = useClaudeStore(s => s.sessions[terminal.id]?.turnStartedAt ?? null)
   const lastCompletedAt = useClaudeStore(s => s.sessions[terminal.id]?.lastCompletedAt ?? null)
   const now = useActivityClock()
+  const lastDataAt = useClaudeStore(s => s.sessions[terminal.id]?.lastDataAt)
+  const lastOpenedAt = useRecentsStore(s => s.sessions[terminal.id]?.lastOpenedAt)
+  const dataTime = lastDataAt ? formatChatTimestamp(lastDataAt, new Date(now)) : null
+  const openedTime = lastOpenedAt ? formatChatTimestamp(lastOpenedAt, new Date(now)) : null
   const preview = useSessionPreviewStore(s => s.previews[terminal.id])
 
   // A plain shell has no agent turn to report, so its process really is the
@@ -83,6 +89,8 @@ export function SessionRow({
             {terminal.alias || terminal.title}
           </Text>
           <Text style={styles.cwd} numberOfLines={1}>{terminal.cwd}</Text>
+          {isSdkAgentSession(terminal) && <Text style={styles.recency}>{t('session.recency.lastData')}{' · '}{dataTime?.short || t(lastDataAt === null ? 'session.recency.noData' : 'session.recency.unavailable')}</Text>}
+          {openedTime && <Text style={styles.recency}>{t('session.recency.lastOpened')}{' · '}{openedTime.short}</Text>}
           {preview ? (
             <Text style={styles.preview} numberOfLines={2}>{preview}</Text>
           ) : null}
@@ -146,6 +154,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     lineHeight: fontSize.sm,
   },
+  recency: { color: appColors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',

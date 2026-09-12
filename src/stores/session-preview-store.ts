@@ -18,8 +18,8 @@
  *     seconds.
  *
  * Activity now comes from `useClaudeStore`, which App.tsx subscribes to
- * globally: a working session emits `agent:stream` continuously whether or not
- * you have it open. It was already arriving; nobody was reading it.
+ * globally. session-activity-sync also reconciles lightweight host metadata
+ * for already-running sessions that are quiet between output frames.
  */
 
 import { create } from 'zustand'
