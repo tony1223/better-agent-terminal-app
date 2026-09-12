@@ -251,7 +251,7 @@ AppState.addEventListener('change', (state) => {
   if (state !== 'active') return
   const { client } = useConnectionStore.getState()
   if (client) {
-    dlog('CONN', 'app foregrounded — probing connection')
+    dlog('CONN', 'app foregrounded — checking connection freshness')
     client.resume()
   }
 })

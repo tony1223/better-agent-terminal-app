@@ -577,16 +577,29 @@ export class WebSocketClient {
   // Called when the app returns to the foreground. Background suspension
   // freezes timers and the OS silently kills sockets: a dead socket can
   // still report 'connected' (the close was never delivered), and a
-  // scheduled reconnect may sit on a stale backoff delay. Probe the former
-  // with a ping (a timeout closes the socket, which triggers the normal
-  // reconnect path) and fast-forward the latter to an immediate attempt.
+  // scheduled reconnect may sit on a stale backoff delay. Only probe a fresh
+  // connection; stale or closed sockets must reconnect without waiting for
+  // suspended heartbeat/probe timers or a native close callback.
   resume(): void {
-    if (!this.shouldReconnect) return
+    if (!this.shouldReconnect || this.connectInFlight) return
     if (this._status === 'connected') {
-      void this.checkConnection()
-      return
+      const silentFor = Date.now() - this.lastFrameAt
+      if (this.ws?.isOpen && silentFor < LIVENESS_TIMEOUT_MS) {
+        void this.checkConnection()
+        return
+      }
+      dlog('WS', `resume: reconnecting stale/closed socket (silent ${silentFor}ms)`)
+      const staleSocket = this.ws
+      // Invalidate the old socket's callbacks and profile transports before
+      // closing it: a late close/reply must not affect the replacement.
+      this.generation++
+      this.ws = null
+      this.stopHeartbeat()
+      this.outboundDrainUntil = 0
+      this.failPending(new Error('Connection stale after foreground resume'))
+      staleSocket?.close(4000, 'foreground reconnect')
     }
-    if (!this.sessionEstablished || this.connectInFlight) return
+    if (!this.sessionEstablished) return
     // Backgrounded timers don't fire, so a parked attempt can be minutes stale
     // — and an attempt that failed while we were away left the client sitting
     // in 'error'. Either way the useful move on foreground is to try now.

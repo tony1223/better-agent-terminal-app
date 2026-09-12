@@ -418,6 +418,124 @@ describe('health probe', () => {
 })
 
 describe('foreground resume', () => {
+  it.each([25_000, 5 * 60_000])('reconnects immediately after %i ms without an inbound frame', async (elapsed) => {
+    const { client, socket } = await connectedClient()
+    const statuses: string[] = []
+    client.onStatusChange(status => statuses.push(status))
+    // Changing wall time without running timers models background suspension.
+    jest.setSystemTime(Date.now() + elapsed)
+
+    client.resume()
+
+    expect(socket.closedWith).toEqual({ code: 4000, reason: 'foreground reconnect' })
+    expect(socket.pings).toBe(0)
+    expect(mockSockets).toHaveLength(2)
+    expect(statuses).toEqual(['reconnecting', 'connecting'])
+    expect(client.willRetry).toBe(true)
+    // Repeated active notifications must not start parallel handshakes.
+    client.resume()
+    expect(mockSockets).toHaveLength(2)
+    mockSockets[1].open()
+    expect(JSON.parse(mockSockets[1].sent[0])).toMatchObject({ type: 'auth', token: 'token' })
+    mockSockets[1].authOk()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(client.status).toBe('connected')
+    client.disconnect()
+  })
+
+  it('does not need a native close callback and ignores late callbacks from the old socket', async () => {
+    const { client, socket } = await connectedClient()
+    const close = jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    const scoped = client.scoped('old-context')
+    const request = scoped.invoke('fs:readFile', '/project/readme.md')
+    const rejected = request.catch(error => error)
+    const probe = client.checkConnection()
+    jest.setSystemTime(Date.now() + 60_000)
+
+    client.resume()
+
+    expect(close).toHaveBeenCalledWith(4000, 'foreground reconnect')
+    expect(mockSockets).toHaveLength(2)
+    await expect(rejected).resolves.toEqual(new Error('Connection stale after foreground resume'))
+    await expect(probe).resolves.toBe(false)
+    mockSockets[1].open()
+    mockSockets[1].authOk()
+    await jest.advanceTimersByTimeAsync(0)
+    socket.serverClose()
+    socket.fail('late network error')
+    socket.open()
+    socket.authFail('late auth failure')
+    expect(client.status).toBe('connected')
+    expect(client.willRetry).toBe(true)
+    await expect(scoped.invoke('fs:readFile', '/project/readme.md')).rejects.toThrow('Profile connection changed')
+    // A delayed old pong must not make the new connection look fresh.
+    jest.setSystemTime(Date.now() + 25_000)
+    socket.pong()
+    client.resume()
+    expect(mockSockets).toHaveLength(3)
+    mockSockets[2].open()
+    mockSockets[2].authOk()
+    await jest.advanceTimersByTimeAsync(0)
+    client.disconnect()
+  })
+
+  it('probes a fresh connection instead of disrupting it', async () => {
+    const { client, socket } = await connectedClient()
+    jest.setSystemTime(Date.now() + 24_999)
+    client.resume()
+    expect(mockSockets).toHaveLength(1)
+    expect(socket.closedWith).toBeNull()
+    expect(socket.pings).toBe(1)
+    const ping = JSON.parse(socket.sent.at(-1)!)
+    socket.cb.onMessage?.(JSON.stringify({ type: 'pong', id: ping.id }))
+    await jest.advanceTimersByTimeAsync(0)
+    expect(client.status).toBe('connected')
+    client.disconnect()
+  })
+
+  it('uses the last received frame, not the age of the connection', async () => {
+    const { client, socket } = await connectedClient()
+    jest.setSystemTime(Date.now() + 5 * 60_000)
+    socket.pong()
+    client.resume()
+    expect(mockSockets).toHaveLength(1)
+    expect(socket.pings).toBe(1)
+    expect(socket.closedWith).toBeNull()
+    client.disconnect()
+  })
+
+  it('reconnects a closed socket even when its last frame is fresh', async () => {
+    const { client, socket } = await connectedClient()
+    socket.isOpen = false
+    client.resume()
+    expect(mockSockets).toHaveLength(2)
+    expect(client.status).toBe('connecting')
+    mockSockets[1].open()
+    mockSockets[1].authOk()
+    await jest.advanceTimersByTimeAsync(0)
+    client.disconnect()
+  })
+
+  it('discards stale upload grace and does not resend interrupted requests', async () => {
+    const { client, socket } = await connectedClient()
+    const upload = client.invokeParams('agent:send-message', { prompt: 'look', images: ['x'.repeat(2_000_000)] })
+    const rejected = upload.catch(error => error)
+    jest.setSystemTime(Date.now() + 25_000)
+    client.resume()
+    await expect(rejected).resolves.toEqual(new Error('Connection stale after foreground resume'))
+    expect(socket.closedWith?.code).toBe(4000)
+    expect(mockSockets).toHaveLength(2)
+    const replacement = mockSockets[1]
+    replacement.open()
+    replacement.authOk()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(replacement.sent.map(raw => JSON.parse(raw).type)).toEqual(['auth'])
+    // Grace granted to the old upload must not mask a dead replacement.
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(replacement.closedWith?.code).toBe(4000)
+    client.disconnect()
+  })
+
   it('retries immediately instead of waiting out the backoff', async () => {
     const { client, socket } = await connectedClient()
     socket.serverClose()
