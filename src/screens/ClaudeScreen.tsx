@@ -31,6 +31,7 @@ import { appColors, spacing, fontSize } from '@/theme/colors'
 import { MessageBubble } from '@/components/claude/MessageBubble'
 import { ToolCallCard } from '@/components/claude/ToolCallCard'
 import { StreamingText } from '@/components/claude/StreamingText'
+import { ChatHistoryList } from '@/components/claude/ChatHistoryList'
 import { ChatFilterButton } from '@/components/claude/ChatFilterButton'
 import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
@@ -264,8 +265,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showResumeList, setShowResumeList] = useState(false)
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
   const [resumeLoading, setResumeLoading] = useState(false)
-  const isAtBottomRef = useRef(true)
-  const listRef = useRef<any>(null)
+  const listRef = useRef<FlatList<ListEntry>>(null)
   const sendInFlightRef = useRef(false)
   const loadSeqRef = useRef(0)
   const loadedSessionKeyRef = useRef<string | null>(null)
@@ -1474,7 +1474,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const invertedItems = useMemo(() => [...filteredEntries].reverse(), [filteredEntries])
 
   const handleScrollToBottomPress = useCallback(() => {
-    isAtBottomRef.current = true
     setShowFab(false)
     // In inverted list, "bottom" is offset 0
     listRef.current?.scrollToOffset({ offset: 0, animated: false })
@@ -1484,7 +1483,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
     const { contentOffset } = e.nativeEvent
     // In inverted list, "at bottom" means near offset 0
     const atBottom = contentOffset.y < 80
-    isAtBottomRef.current = atBottom
     setShowFab(!atBottom)
   }, [])
 
@@ -1576,16 +1574,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
             </Text>
           </View>
         ) : (
-          <FlatList
-            ref={listRef}
+          <ChatHistoryList
+            listRef={listRef}
             data={invertedItems}
             renderItem={renderItem}
-            inverted
             contentContainerStyle={styles.listContent}
             keyExtractor={(entry) => entry.kind === 'placeholder' ? entry.id : entry.data.id}
             onScroll={handleScroll}
-            scrollEventThrottle={200}
-            ListHeaderComponent={showStreaming ? (
+            streamingContent={showStreaming ? (
               <StreamingText text={session.streamingText} thinking={session.streamingThinking} cwd={terminalCwd} />
             ) : null}
           />
