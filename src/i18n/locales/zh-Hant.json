@@ -539,6 +539,13 @@
   "terminalToolbar": {
     "showKeyboard": "顯示鍵盤"
   },
+  "messageSelection": {
+    "open": "選取文字",
+    "title": "選取訊息文字",
+    "hint": "長按文字後拖曳選取範圍，可跨行、段落與條列複製。此處保留 Markdown 原文，內容固定為開啟時的訊息。",
+    "copyAll": "複製全文",
+    "copied": "已複製"
+  },
   "chatTimestamp": {
     "title": "訊息時間",
     "hint": "查看完整日期與時間"

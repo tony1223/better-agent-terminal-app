@@ -8,6 +8,7 @@ import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
 import { createPathLinkerRules } from './LinkedText'
 import { hostMarkdown } from '@/utils/host-markdown'
+import { MessageSelectionButton } from './MessageSelection'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 interface Props {
@@ -42,6 +43,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking,
 
   return (
     <View style={styles.container}>
+      <MessageSelectionButton text={text.trim() ? text : thinking || ''} />
       {thinking ? (
         <View style={styles.thinkingBlock}>
           <Text style={styles.thinkingLabel}>{t('streamingText.thinking')}</Text>

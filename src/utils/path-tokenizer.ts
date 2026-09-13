@@ -6,6 +6,10 @@
 const PATH_RE =
   /(?:[A-Za-z]:[\\/]|\/(?:Users|home|tmp|var|opt|etc|usr|mnt|srv|root)\/)[\w\-. \\/]+\.\w{1,10}/g
 
+// URL text can otherwise look like a Windows drive (the s:/ in https://)
+// or contain an absolute Unix path. Protect URLs even in non-Markdown text.
+const URI_RE = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>"'`]+/g
+
 export type TokenType = 'text' | 'path'
 export interface Token {
   type: TokenType
@@ -15,11 +19,15 @@ export interface Token {
 /** Tokenize text into interleaved text/path segments */
 export function tokenizePaths(text: string): Token[] {
   PATH_RE.lastIndex = 0
+  const urls = Array.from(text.matchAll(URI_RE), match => ({ start: match.index!, end: match.index! + match[0].length }))
   const tokens: Token[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
   while ((match = PATH_RE.exec(text)) !== null) {
+    if (urls.some(url => match!.index < url.end && PATH_RE.lastIndex > url.start)) continue
+    // A drive letter must not be the tail of an identifier or URI scheme.
+    if (match.index > 0 && /[\w]/.test(text[match.index - 1])) continue
     if (match.index > lastIndex) {
       tokens.push({ type: 'text', text: text.slice(lastIndex, match.index) })
     }
@@ -34,10 +42,9 @@ export function tokenizePaths(text: string): Token[] {
   return tokens.length > 0 ? tokens : [{ type: 'text', text }]
 }
 
-/** Check if tokenizePaths would find any paths (fast check) */
+/** Use the same URL exclusions as the renderer. */
 export function hasPaths(text: string): boolean {
-  PATH_RE.lastIndex = 0
-  return PATH_RE.test(text)
+  return tokenizePaths(text).some(token => token.type === 'path')
 }
 
 /** Get filename from a path */

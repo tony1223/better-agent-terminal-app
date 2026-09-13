@@ -5,6 +5,7 @@ import { FilePreviewModal } from '../src/components/claude/FilePreviewModal'
 import { RemoteImagePreview } from '../src/components/claude/RemoteImagePreview'
 import { ToolCallCard } from '../src/components/claude/ToolCallCard'
 import { MessageBubble } from '../src/components/claude/MessageBubble'
+import { StreamingText } from '../src/components/claude/StreamingText'
 import type { ClaudeToolCall } from '../src/types'
 
 // Exercise the real parser and render rules, not the global text-only mock.
@@ -131,6 +132,41 @@ test('external Markdown links open externally without reading a host file', asyn
   await pressFirstLink()
   expect(open).toHaveBeenCalledWith('https://example.com/docs')
   expect(mockChannels.fs.readFile).toHaveBeenCalledTimes(1)
+})
+
+test.each([
+  'https://castleridge-ai1.tail0f9e5.ts.net:8452/l5-index.html',
+  'http://127.0.0.1:8452/page.html?q=one&view=two#section',
+  'https://example.com/home/user/report.md',
+])('bare URL opens its complete address, not a file preview: %s', async url => {
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined).mockClear()
+  await render(<MessageBubble message={{ id: 'm', sessionId: 's', role: 'assistant', content: `**${url}**`, timestamp: 1 }} />)
+  expect(renderer.root.findAllByType(Text).filter(node => node.props.accessibilityRole === 'link')).toHaveLength(1)
+  await pressFirstLink()
+  expect(open).toHaveBeenCalledTimes(1)
+  expect(open).toHaveBeenCalledWith(url)
+  expect(mockChannels.fs.readFile).not.toHaveBeenCalled()
+  expect(renderer.root.findAllByType(Modal)).toHaveLength(0)
+})
+
+test('streamed responses and Markdown file previews also link complete bare URLs', async () => {
+  const url = 'https://example.com:8452/view.html?q=1#part'
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined).mockClear()
+  await render(<StreamingText text={url} />)
+  await pressFirstLink()
+  expect(open).toHaveBeenLastCalledWith(url)
+  act(() => renderer.unmount())
+  mockChannels.fs.readFile.mockResolvedValue({ content: url })
+  await render(<FilePreviewModal filePath="/project/root.md" visible onClose={jest.fn()} />)
+  await pressFirstLink()
+  expect(open).toHaveBeenCalledTimes(2)
+  expect(open).toHaveBeenLastCalledWith(url)
+  expect(mockChannels.fs.readFile).toHaveBeenCalledTimes(1)
+})
+
+test('bare filenames and code literals are not guessed to be web links', async () => {
+  await render(<MessageBubble message={{ id: 'm', sessionId: 's', role: 'assistant', content: 'README.md\n\n`https://example.com:8452/a`', timestamp: 1 }} />)
+  expect(renderer.root.findAllByProps({ accessibilityRole: 'link' })).toHaveLength(0)
 })
 
 test('downloads original bytes even when the text preview fails', async () => {

@@ -38,6 +38,7 @@ import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceho
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
+import { MessageSelectionProvider } from '@/components/claude/MessageSelection'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
@@ -1537,6 +1538,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   }
 
   return (
+    <MessageSelectionProvider>
     <View style={styles.container}>
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
@@ -2017,6 +2019,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         </TouchableOpacity>
       </Modal>
     </View>
+    </MessageSelectionProvider>
   )
 }
 

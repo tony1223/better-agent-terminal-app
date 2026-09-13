@@ -539,6 +539,13 @@
   "terminalToolbar": {
     "showKeyboard": "Show keyboard"
   },
+  "messageSelection": {
+    "open": "Select text",
+    "title": "Select message text",
+    "hint": "Long-press and drag the selection handles to copy across lines, paragraphs and lists. Markdown source is preserved. This is a snapshot from when you opened it.",
+    "copyAll": "Copy all",
+    "copied": "Copied"
+  },
   "chatTimestamp": {
     "title": "Message time",
     "hint": "Show full date and time"

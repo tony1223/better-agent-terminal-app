@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { createPathLinkerRules } from './LinkedText'
 import { hostMarkdown } from '@/utils/host-markdown'
 import { ChatTimestamp } from './ChatTimestamp'
+import { MessageSelectionButton } from './MessageSelection'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { useClaudeStore } from '@/stores/claude-store'
 import type { ClaudeMessage } from '@/types'
@@ -39,7 +40,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
   if (message.isCompactSummary) {
     return (
       <View style={styles.compactContainer}>
-        <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
+        <View style={styles.timestampRow}>
+          <MessageSelectionButton text={message.content} />
+          <ChatTimestamp timestamp={message.timestamp} />
+        </View>
         <TouchableOpacity
           onPress={() => setShowSummary(!showSummary)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -59,7 +63,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
   if (message.role === 'system') {
     return (
       <View style={styles.systemContainer}>
-        <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
+        <View style={styles.timestampRow}>
+          <MessageSelectionButton text={message.content} />
+          <ChatTimestamp timestamp={message.timestamp} />
+        </View>
         <Text style={styles.systemText} selectable>{message.content}</Text>
       </View>
     )
@@ -91,7 +98,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
         failed && styles.failedBubble,
       ]}
     >
-      <View style={styles.timestampRow}><ChatTimestamp timestamp={message.timestamp} /></View>
+      <View style={styles.timestampRow}>
+        <MessageSelectionButton text={message.content.trim() ? message.content : message.thinking || ''} />
+        <ChatTimestamp timestamp={message.timestamp} />
+      </View>
       {/* Thinking toggle */}
       {message.thinking && (
         <TouchableOpacity
@@ -151,7 +161,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
 
 const styles = StyleSheet.create({
   timestampRow: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
     marginBottom: spacing.xs,
   },
   container: {
