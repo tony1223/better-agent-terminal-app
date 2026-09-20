@@ -148,7 +148,7 @@ describe('un-acked sends across a transcript merge', () => {
 
 describe('sending into a host session that is gone', () => {
   function mockSend(sendMessage: jest.Mock) {
-    getStateMock.mockReturnValue({ channels: { claude: { sendMessage } } })
+    getStateMock.mockReturnValue({ status: 'connected', channels: { claude: { sendMessage } } })
   }
 
   function pendingMessage() {

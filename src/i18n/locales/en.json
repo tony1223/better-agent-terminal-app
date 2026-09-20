@@ -497,6 +497,9 @@
     "result": "Result:"
   },
   "messageBubble": {
+    "retryOnReconnect": "Will retry once when the connection recovers",
+    "retryExhausted": "Still unable to send. Retry manually or copy the message.",
+    "copyMessage": "Copy message",
     "you": "YOU",
     "thinking": "THINKING",
     "message": "MESSAGE",

@@ -3,7 +3,7 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { Clipboard, View, Text, TouchableOpacity, StyleSheet } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
 import { createPathLinkerRules } from './LinkedText'
@@ -136,6 +136,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
       )}
       {failed && (
         <>
+          {message.reconnectRetry === 'pending' && (
+            <Text style={styles.deliveryText}>{t('messageBubble.retryOnReconnect')}</Text>
+          )}
+          {message.reconnectRetry === 'used' && (
+            <Text style={styles.failedText}>{t('messageBubble.retryExhausted')}</Text>
+          )}
           {message.sendPayload ? (
             <TouchableOpacity
               onPress={() => useClaudeStore.getState().retryUserMessage(message.sessionId, message.id)}
@@ -153,6 +159,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
           {!!message.failureReason && (
             <Text style={styles.failureReasonText} selectable>{message.failureReason}</Text>
           )}
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('messageBubble.copyMessage')}
+            style={styles.copyButton} onPress={() => Clipboard.setString(message.sendPayload?.messageText ?? message.content)}>
+            <Text style={styles.deliveryText}>{t('messageBubble.copyMessage')}</Text>
+          </TouchableOpacity>
         </>
       )}
     </View>
@@ -160,6 +170,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, cwd }:
 })
 
 const styles = StyleSheet.create({
+  copyButton: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-end' },
   timestampRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

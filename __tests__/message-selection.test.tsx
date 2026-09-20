@@ -86,3 +86,13 @@ test('empty text has no selection action', () => {
   render(<MessageSelectionButton text={'  \n'} />)
   expect(renderer.root.findAllByType(TouchableOpacity)).toHaveLength(0)
 })
+
+test('a failed message offers direct copy of its original send text', () => {
+  const copy = jest.spyOn(Clipboard, 'setString').mockImplementation(() => {})
+  render(<MessageBubble message={{ ...message, role: 'user', status: 'failed', reconnectRetry: 'used',
+    failureReason: 'Connection closed', content: 'display text', sendPayload: { messageText: content } }} />)
+  press('messageBubble.copyMessage')
+  expect(copy).toHaveBeenCalledWith(content)
+  expect(renderer.root.findAllByType(Text).some(node => node.props.children === 'messageBubble.retryExhausted')).toBe(true)
+  expect(renderer.root.findAllByType(Text).some(node => node.props.children === 'Connection closed' && node.props.selectable)).toBe(true)
+})

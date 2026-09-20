@@ -16,6 +16,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
 import { subscribeSessionActivity } from '@/stores/session-activity-sync'
+import { subscribeMessageReconnectRetry } from '@/stores/message-reconnect-retry'
 import { useUsageStore } from '@/stores/usage-store'
 import { openConnectionLink } from '@/utils/connection-link'
 import { dlog } from '@/utils/debug-log'
@@ -26,6 +27,8 @@ function App() {
   const channels = useConnectionStore(s => s.channels)
   const unsubRef = useRef<(() => void) | null>(null)
   const lastLinkRef = useRef<string | null>(null)
+
+  useEffect(() => subscribeMessageReconnectRetry(), [])
 
   useEffect(() => {
     // First line of every debug log, so it has to answer the question the log

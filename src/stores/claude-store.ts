@@ -404,16 +404,17 @@ interface ClaudeState {
   handleModeChange: (sessionId: string, mode: string) => void
   handlePromptSuggestion: (sessionId: string, suggestion: string) => void
   handleSessionReset: (sessionId: string) => void
-  setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status'], failureReason?: string) => void
+  setUserMessageStatus: (sessionId: string, id: string, status: ClaudeMessage['status'], failureReason?: string, reconnectRetry?: ClaudeMessage['reconnectRetry']) => void
   // Deliver an already-rendered optimistic user message, tracking its status
   // and rebuilding the host session once if it turns out to have gone missing.
   deliverUserMessage: (
     sessionId: string,
     id: string,
     payload: NonNullable<ClaudeMessage['sendPayload']>,
+    automatic?: boolean,
   ) => Promise<void>
   // Re-deliver a 'failed' optimistic user message using its stored payload.
-  retryUserMessage: (sessionId: string, id: string) => void
+  retryUserMessage: (sessionId: string, id: string, automatic?: boolean) => void
 
   // UI Actions
   clearPermission: () => void
@@ -586,16 +587,17 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   // Flip a still-pending optimistic user message to 'sent' / 'failed'. No-op if
   // the message was already replaced by the host's echoed copy (id not found),
   // so a late invoke timeout cannot resurrect an already-confirmed message.
-  setUserMessageStatus: (sessionId, id, status, failureReason) => {
+  setUserMessageStatus: (sessionId, id, status, failureReason, reconnectRetry) => {
     const { sessions } = get()
     const session = sessions[sessionId]
     if (!session) return
     const idx = session.messages.findIndex(m => m.id === id)
     if (idx < 0) return
     const existing = session.messages[idx]
-    if ('toolName' in existing || existing.status === status) return
+    if ('toolName' in existing) return
     const messages = [...session.messages]
-    messages[idx] = { ...existing, status, failureReason: status === 'failed' ? failureReason : undefined }
+    messages[idx] = { ...existing, status, failureReason: status === 'failed' ? failureReason : undefined,
+      reconnectRetry: existing.reconnectRetry === 'used' ? 'used' : reconnectRetry ?? existing.reconnectRetry }
     const failedBeforeStream = status === 'failed' && !session.isStreaming
     set({ sessions: { ...sessions, [sessionId]: {
       ...session, messages,
@@ -603,11 +605,11 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     } } })
   },
 
-  deliverUserMessage: async (sessionId, id, payload) => {
+  deliverUserMessage: async (sessionId, id, payload, automatic = false) => {
     const scopeKey = get().scopeKey
-    const updateStatus = (status: ClaudeMessage['status'], reason?: string) => {
+    const updateStatus = (status: ClaudeMessage['status'], reason?: string, reconnectRetry?: ClaudeMessage['reconnectRetry']) => {
       if (get().scopeKey === scopeKey) {
-        get().setUserMessageStatus(sessionId, id, status, reason)
+        get().setUserMessageStatus(sessionId, id, status, reason, reconnectRetry)
         return
       }
       const sessions = scopedSessions.get(scopeKey)
@@ -617,12 +619,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...(status === 'failed' && !session.isStreaming
           ? { turnStartedAt: null, runtimeStatusSince: null, meta: clearedRuntimeMeta(session.meta), lastCompletedAt: null } : {}),
         messages: session.messages.map(m => m.id === id && !('toolName' in m)
-          ? { ...m, status, failureReason: reason } : m) } })
+          ? { ...m, status, failureReason: reason,
+            reconnectRetry: m.reconnectRetry === 'used' ? 'used' : reconnectRetry ?? m.reconnectRetry } : m) } })
     }
-    const channels = useConnectionStore.getState().channels
+    const connection = useConnectionStore.getState()
+    const channels = connection.channels
     const { messageText, images } = payload
-    if (!channels) {
-      updateStatus('failed', 'Not connected to the host')
+    if (!channels || connection.status !== 'connected' || connection.client?.isConnected === false
+      || (connection.client?.supportsProfileContext && connection.profileStatus !== 'ready')) {
+      updateStatus('failed', 'Not connected to the host or selected profile', 'pending')
       return
     }
     // Flip to the ghosted state first, so a retry looks like a fresh send:
@@ -636,10 +641,14 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       const reason = e instanceof Error ? e.message : String(e)
       const recover = get().scopeKey === scopeKey && useConnectionStore.getState().channels === channels
         ? sessionRecoveries.get(`${scopeKey}/${sessionId}`) : undefined
-      if (!isMissingSessionCwdError(reason) || !recover) {
+      if (automatic || !isMissingSessionCwdError(reason) || !recover) {
         dlog('!CLAUDE_STORE', `sendMessage failed sid=${sessionId} id=${id} `
           + `promptLen=${messageText.length} images=${images?.length ?? 0}: ${reason}`)
-        updateStatus('failed', reason)
+        // These errors are thrown before transport send. A closed connection
+        // or invoke timeout may instead have lost only the ack: never auto-send
+        // those without host-side idempotency support.
+        const unsent = /^Not connected to (?:remote server|host)\b|^Profile is not ready$/i.test(reason)
+        updateStatus('failed', reason, unsent ? 'pending' : undefined)
         return
       }
       // Once, and only once: rebuild the session, then re-send the same
@@ -659,12 +668,16 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     }
   },
 
-  retryUserMessage: (sessionId, id) => {
+  retryUserMessage: (sessionId, id, automatic = false) => {
     const session = get().sessions[sessionId]
     if (!session) return
     const existing = session.messages.find(m => m.id === id)
     if (!existing || 'toolName' in existing || existing.status !== 'failed' || !existing.sendPayload) return
-    void get().deliverUserMessage(sessionId, id, existing.sendPayload)
+    if (automatic && existing.reconnectRetry !== 'pending') return
+    // Claim synchronously, before any invoke/await, including a manual retry.
+    // A later failure cannot re-arm the reconnect budget.
+    get().setUserMessageStatus(sessionId, id, 'sending', undefined, 'used')
+    void get().deliverUserMessage(sessionId, id, existing.sendPayload, automatic)
   },
 
   handleToolUse: (sessionId, rawTool) => {

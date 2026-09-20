@@ -497,6 +497,9 @@
     "result": "結果："
   },
   "messageBubble": {
+    "retryOnReconnect": "連線恢復後將自動重送一次",
+    "retryExhausted": "仍無法傳送，請手動重試或複製訊息",
+    "copyMessage": "複製訊息",
     "you": "你",
     "thinking": "思考",
     "message": "訊息",
