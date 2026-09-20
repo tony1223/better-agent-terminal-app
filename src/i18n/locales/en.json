@@ -27,7 +27,8 @@
     "claude": "Claude",
     "settings": "Settings",
     "addHost": "Add Host",
-    "scanQR": "Scan QR Code"
+    "scanQR": "Scan QR Code",
+    "worker": "Worker"
   },
   "settings": {
     "connection": "Connection",
@@ -193,6 +194,35 @@
     "layoutLabel": "Layout",
     "layoutMobile": "Mobile",
     "layoutDesktop": "Desktop"
+  },
+  "worker": {
+    "processes": "Processes",
+    "noProcesses": "No processes in this Procfile",
+    "status": {
+      "starting": "Starting",
+      "running": "Running",
+      "stopped": "Stopped",
+      "crashed": "Crashed"
+    },
+    "exitCode": "exit {{code}}",
+    "actions": {
+      "start": "Start",
+      "stop": "Stop",
+      "restart": "Restart",
+      "startAll": "Start all",
+      "stopAll": "Stop all",
+      "reload": "Reload",
+      "clearLog": "Clear log"
+    },
+    "alerts": {
+      "actionFailed": "Worker action failed"
+    },
+    "addSection": "Workers",
+    "addEntry": "Worker: {{name}}",
+    "row": {
+      "summary": "{{running}}/{{total}} running",
+      "crashed": "{{count}} crashed"
+    }
   },
   "worktree": {
     "title": "Worktree Actions",

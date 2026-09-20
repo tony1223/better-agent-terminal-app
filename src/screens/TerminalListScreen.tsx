@@ -32,6 +32,8 @@ import { useSessionOrder } from '@/hooks/use-session-order'
 import type { SessionSort } from '@/utils/session-recency'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { isSdkAgentSession } from '@/types'
+import { isWorkerSession } from '@/utils/worker'
+import { useWorkerRosters } from '@/hooks/use-worker-rosters'
 import type { AgentPresetId, TerminalInstance } from '@/types'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 
@@ -120,6 +122,7 @@ export function TerminalListScreen({ navigation }: Props) {
   useEffect(() => {
     if (connectionStatus === 'connected') loadPreviews()
   }, [connectionStatus, loadPreviews])
+  useWorkerRosters(visibleTerminals, connectionStatus === 'connected')
 
   // Refresh terminals on focus so sessions started elsewhere show up without
   // relying on cached state. Previews need no staleness window — an opening
@@ -146,6 +149,8 @@ export function TerminalListScreen({ navigation }: Props) {
     if (terminal.workspaceId) recents.touchWorkspace(terminal.workspaceId)
     if (isSdkAgentSession(terminal)) {
       navigation.navigate('Claude', { sessionId: terminal.id })
+    } else if (isWorkerSession(terminal)) {
+      navigation.navigate('Worker', { terminalId: terminal.id })
     } else {
       navigation.navigate('Terminal', { terminalId: terminal.id })
     }

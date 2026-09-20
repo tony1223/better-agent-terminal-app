@@ -7,10 +7,12 @@
  *   │    ├─ WorkspaceListScreen
  *   │    ├─ WorkspaceDetailScreen
  *   │    ├─ TerminalScreen   (sessions opened from a workspace push here, so
- *   │    └─ ClaudeScreen      back returns to the workspace, then the list)
+ *   │    ├─ WorkerScreen      back returns to the workspace, then the list)
+ *   │    └─ ClaudeScreen
  *   ├─ TerminalsStack
  *   │    ├─ TerminalListScreen
  *   │    ├─ TerminalScreen
+ *   │    ├─ WorkerScreen
  *   │    └─ ClaudeScreen
  *   └─ SettingsScreen
  * AddHostScreen (modal)
@@ -33,6 +35,7 @@ import { WorkspaceListScreen } from '@/screens/WorkspaceListScreen'
 import { WorkspaceDetailScreen } from '@/screens/WorkspaceDetailScreen'
 import { TerminalListScreen } from '@/screens/TerminalListScreen'
 import { TerminalScreen } from '@/screens/TerminalScreen'
+import { WorkerScreen } from '@/screens/WorkerScreen'
 import { ClaudeScreen } from '@/screens/ClaudeScreen'
 import { SettingsScreen } from '@/screens/SettingsScreen'
 import { ScanQRScreen } from '@/screens/ScanQRScreen'
@@ -53,6 +56,7 @@ export type RootStackParamList = {
 export type TerminalsStackParamList = {
   TerminalList: undefined
   Terminal: { terminalId: string }
+  Worker: { terminalId: string }
   Claude: { sessionId: string }
 }
 
@@ -108,6 +112,11 @@ function WorkspacesStack() {
         options={{ title: t('nav.terminal'), headerShown: true }}
       />
       <WorkspacesNav.Screen
+        name="Worker"
+        component={WorkerScreen}
+        options={{ title: t('nav.worker'), headerShown: true }}
+      />
+      <WorkspacesNav.Screen
         name="Claude"
         component={ClaudeScreen}
         options={{ title: t('nav.claude') }}
@@ -138,6 +147,11 @@ function TerminalsStack() {
           title: t('nav.terminal'),
           headerShown: true,
         })}
+      />
+      <TerminalsNav.Screen
+        name="Worker"
+        component={WorkerScreen}
+        options={{ title: t('nav.worker'), headerShown: true }}
       />
       <TerminalsNav.Screen
         name="Claude"

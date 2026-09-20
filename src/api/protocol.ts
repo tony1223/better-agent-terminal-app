@@ -73,6 +73,9 @@ export const PROXIED_CHANNELS = new Set([
   'pty:create', 'pty:write', 'pty:read-buffer', 'pty:resize',
   'pty:get-viewport-state', 'pty:set-viewport-mode', 'pty:set-viewport-size',
   'pty:kill', 'pty:restart', 'pty:get-cwd',
+  // Procfile worker panels (host-owned processes and their shared log)
+  'worker:buffer-init', 'worker:buffer-append', 'worker:buffer-read-all', 'worker:buffer-clear',
+  'worker:procfile-load', 'worker:procfile-start', 'worker:procfile-stop',
   // Standalone worktree operations
   'worktree:create', 'worktree:remove', 'worktree:status', 'worktree:merge', 'worktree:rehydrate',
   // Workspace

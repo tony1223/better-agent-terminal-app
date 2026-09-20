@@ -25,6 +25,10 @@ import { ActivityBadge, ACTIVITY_COLOR } from './ActivityBadge'
 import { useActivityClock } from '@/hooks/use-activity-clock'
 import { useRecentsStore } from '@/stores/recents-store'
 import { formatChatTimestamp } from '@/utils/chat-timestamp'
+import { useWorkerStore } from '@/stores/worker-store'
+import { deriveWorkerActivity, isWorkerSession, procfileBasename } from '@/utils/worker'
+
+const WORKER_ICON_COLOR = '#56b6c2'
 
 interface Props {
   terminal: TerminalInstance
@@ -60,13 +64,32 @@ export function SessionRow({
   const dataTime = lastDataAt ? formatChatTimestamp(lastDataAt, new Date(now)) : null
   const openedTime = lastOpenedAt ? formatChatTimestamp(lastOpenedAt, new Date(now)) : null
   const preview = useSessionPreviewStore(s => s.previews[terminal.id])
+  const isWorker = isWorkerSession(terminal)
+  const workerProcesses = useWorkerStore(s => s.panels[terminal.id]?.processes)
 
   // A plain shell has no agent turn to report, so its process really is the
   // whole story; only SDK sessions have live agent activity to consult.
   const live = { isStreaming, turnStartedAt, lastCompletedAt, meta: { runtimeStatus } }
   const activity: SessionActivity = isSdkAgentSession(terminal)
     ? deriveAgentActivity(live, now)
-    : derivePtyActivity(terminal)
+    : isWorker
+      ? deriveWorkerActivity(workerProcesses)
+      : derivePtyActivity(terminal)
+  // A worker's story is its roster, not a pid: how many are up, and whether
+  // any went down on their own.
+  const workerCrashed = workerProcesses?.filter(p => p.status === 'crashed').length ?? 0
+  const workerSummary = isWorker
+    ? [
+        procfileBasename(terminal.procfilePath ?? ''),
+        workerProcesses
+          ? t('worker.row.summary', {
+              total: workerProcesses.length,
+              running: workerProcesses.filter(p => p.status === 'running' || p.status === 'starting').length,
+            })
+          : null,
+        workerCrashed > 0 ? t('worker.row.crashed', { count: workerCrashed }) : null,
+      ].filter(Boolean).join(' · ')
+    : null
   // The host's phase word ("queued", "compacting") beats a generic "Working"
   // when it has one — it's the difference between "busy" and "stuck on me".
   const phase = activity === 'working' && runtimePhaseLabel(live)
@@ -78,8 +101,8 @@ export function SessionRow({
         {phase ? <Text style={styles.phase}>{t(`claude.runtimeStatus.${runtimeStatus === 'starting' ? 'preparing' : runtimeStatus === 'waiting_for_api' ? 'waiting' : runtimeStatus}`)}</Text> : null}
       </View>
       <View style={styles.row}>
-        <Text style={[styles.icon, preset ? { color: preset.color } : null]}>
-          {preset?.icon || '>'}
+        <Text style={[styles.icon, preset ? { color: preset.color } : isWorker ? { color: WORKER_ICON_COLOR } : null]}>
+          {preset?.icon || (isWorker ? '\u2699' : '>')}
         </Text>
         <View style={styles.info}>
           {contextLabel ? (
@@ -89,6 +112,7 @@ export function SessionRow({
             {terminal.alias || terminal.title}
           </Text>
           <Text style={styles.cwd} numberOfLines={1}>{terminal.cwd}</Text>
+          {workerSummary ? <Text style={[styles.recency, workerCrashed > 0 && styles.recencyAlert]} numberOfLines={1}>{workerSummary}</Text> : null}
           {isSdkAgentSession(terminal) && <Text style={styles.recency}>{t('session.recency.lastData')}{' · '}{dataTime?.short || t(lastDataAt === null ? 'session.recency.noData' : 'session.recency.unavailable')}</Text>}
           {openedTime && <Text style={styles.recency}>{t('session.recency.lastOpened')}{' · '}{openedTime.short}</Text>}
           {preview ? (
@@ -155,6 +179,7 @@ const styles = StyleSheet.create({
     lineHeight: fontSize.sm,
   },
   recency: { color: appColors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs },
+  recencyAlert: { color: appColors.error },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',

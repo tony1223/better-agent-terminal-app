@@ -29,6 +29,8 @@ import type { SessionSort } from '@/utils/session-recency'
 import { FilePreviewModal } from '@/components/claude/FilePreviewModal'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { saveBase64File } from '@/utils/file-export'
+import { isProcfileName, isWorkerSession, procfileBasename } from '@/utils/worker'
+import { useWorkerRosters } from '@/hooks/use-worker-rosters'
 import {
   isSdkAgentSession,
   type AgentPresetId,
@@ -161,8 +163,11 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const allTerminals = useWorkspaceStore(s => s.terminals)
   const setActiveTerminal = useWorkspaceStore(s => s.setActiveTerminal)
   const requestAddSession = useWorkspaceStore(s => s.requestAddSession)
+  const requestAddWorker = useWorkspaceStore(s => s.requestAddWorker)
   const requestCloseSession = useWorkspaceStore(s => s.requestCloseSession)
+  const folderPath = useWorkspaceStore(s => s.workspaces.find(w => w.id === workspaceId)?.folderPath)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [procfiles, setProcfiles] = useState<string[]>([])
   const { availableSessionTypes, loadingTypes, loadSupportedSessionTypes } =
     useSupportedSessionTypes(t('workspaceDetail.alerts.loadSessionTypesFailed'))
   const [creatingType, setCreatingType] = useState<string | null>(null)
@@ -174,6 +179,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   )
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
   const orderedTerminals = useSessionOrder(terminals, sort)
+  useWorkerRosters(terminals, connectionStatus === 'connected')
 
   // Same session previews the Terminals tab shows, from the same store — which
   // screen you arrived from shouldn't change how much you're told. This pane
@@ -193,7 +199,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     const recents = useRecentsStore.getState()
     recents.touchSession(terminal.id)
     recents.touchWorkspace(workspaceId)
-    const screen = isSdkAgentSession(terminal) ? 'Claude' : 'Terminal'
+    const screen = isSdkAgentSession(terminal) ? 'Claude' : isWorkerSession(terminal) ? 'Worker' : 'Terminal'
     const params = screen === 'Claude' ? { sessionId: terminal.id } : { terminalId: terminal.id }
     // Push within this (Workspaces) stack so back returns to the workspace,
     // then to the list — instead of stranding the user on the Terminals tab.
@@ -207,6 +213,49 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
     setCreatingType(presetId)
     try {
       const terminal = await requestAddSession(workspaceId, agentPreset)
+      if (createRequestRef.current !== requestId) {
+        try {
+          await requestCloseSession(terminal.id)
+        } catch (cancelError) {
+          Alert.alert(t('workspaceDetail.alerts.cancelSessionFailed'), String(cancelError))
+        }
+        return
+      }
+      setShowAddModal(false)
+      openSession(terminal)
+    } catch (e) {
+      if (createRequestRef.current === requestId) {
+        Alert.alert(t('workspaceDetail.alerts.addSessionFailed'), String(e))
+      }
+    } finally {
+      if (createRequestRef.current === requestId) {
+        setCreatingType(null)
+      }
+    }
+  }
+
+  // The desktop's rule for what a workspace can run: Procfiles at the top of
+  // its folder, by name. No dedicated channel, a plain readdir filtered here.
+  const loadProcfiles = async () => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels || !folderPath) return
+    try {
+      const entries = await channels.fs.readdir(folderPath) as FsEntry[]
+      setProcfiles(entries
+        .filter(entry => !entry.isDirectory && isProcfileName(entry.name))
+        .map(entry => entry.path)
+        .sort((a, b) => a.localeCompare(b)))
+    } catch {
+      setProcfiles([])
+    }
+  }
+
+  const addWorker = async (procfilePath: string) => {
+    const requestId = createRequestRef.current + 1
+    createRequestRef.current = requestId
+    setCreatingType(procfilePath)
+    try {
+      const terminal = await requestAddWorker(workspaceId, procfilePath)
       if (createRequestRef.current !== requestId) {
         try {
           await requestCloseSession(terminal.id)
@@ -278,6 +327,7 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
             if (!availableSessionTypes) {
               loadSupportedSessionTypes().catch(() => undefined)
             }
+            loadProcfiles().catch(() => undefined)
           }}
         >
           <Text style={styles.smallButtonText}>{t('workspaceDetail.button.add')}</Text>
@@ -320,6 +370,28 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
               keyExtractor={item => item.id}
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noSessionTypesTitle')} body={t('workspaceDetail.empty.noSessionTypesBody')} />}
+              ListFooterComponent={procfiles.length > 0 ? (
+                <View>
+                  <Text style={styles.workerSectionLabel}>{t('worker.addSection')}</Text>
+                  {procfiles.map(procfilePath => (
+                    <TouchableOpacity
+                      key={procfilePath}
+                      style={styles.card}
+                      disabled={!!creatingType}
+                      onPress={() => addWorker(procfilePath)}
+                    >
+                      <View style={styles.row}>
+                        <Text style={[styles.leadingIcon, styles.workerIcon]}>{'\u2699'}</Text>
+                        <View style={styles.flex}>
+                          <Text style={styles.cardTitle}>{t('worker.addEntry', { name: procfileBasename(procfilePath) })}</Text>
+                          <Text style={styles.cardSubtitle} numberOfLines={1}>{procfilePath}</Text>
+                        </View>
+                        {creatingType === procfilePath && <ActivityIndicator size="small" color={appColors.accent} />}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
               renderItem={({ item }) => {
                 const isCreating = creatingType === item.id
                 return (
@@ -985,6 +1057,24 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  workerSectionLabel: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  workerIcon: {
+    color: '#56b6c2',
+  },
+  cardSubtitle: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    fontFamily: 'monospace',
+    marginTop: 2,
   },
   modalRoot: {
     flex: 1,

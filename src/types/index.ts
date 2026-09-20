@@ -166,6 +166,20 @@ export interface TerminalInstance {
   branchName?: string
   worktreeBranch?: string
   worktreeMergedKind?: 'ancestor' | 'patch-equivalent' | 'ahead' | 'diverged' | 'unknown'
+  /**
+   * Set on a Procfile worker panel, and the only thing that marks one: the
+   * desktop keeps `type: 'terminal'` and no agentPreset on these. The host never
+   * spawns a PTY under this record's own id — each Procfile entry runs as
+   * `${id}__w__${name}` — so opening one as a plain terminal attaches to
+   * nothing. See utils/worker.
+   */
+  procfilePath?: string
+}
+
+/** One `name: command` line of a Procfile, as the host parses it. */
+export interface WorkerProcfileEntry {
+  name: string
+  command: string
 }
 
 // ============================================

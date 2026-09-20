@@ -27,7 +27,8 @@
     "claude": "Claude",
     "settings": "設定",
     "addHost": "新增主機",
-    "scanQR": "掃描 QR Code"
+    "scanQR": "掃描 QR Code",
+    "worker": "工作程序"
   },
   "settings": {
     "connection": "連線",
@@ -193,6 +194,35 @@
     "layoutLabel": "顯示模式",
     "layoutMobile": "行動版",
     "layoutDesktop": "桌面版"
+  },
+  "worker": {
+    "processes": "處理程序",
+    "noProcesses": "這個 Procfile 沒有任何處理程序",
+    "status": {
+      "starting": "啟動中",
+      "running": "執行中",
+      "stopped": "已停止",
+      "crashed": "已崩潰"
+    },
+    "exitCode": "結束碼 {{code}}",
+    "actions": {
+      "start": "啟動",
+      "stop": "停止",
+      "restart": "重啟",
+      "startAll": "全部啟動",
+      "stopAll": "全部停止",
+      "reload": "重新載入",
+      "clearLog": "清除記錄"
+    },
+    "alerts": {
+      "actionFailed": "工作程序操作失敗"
+    },
+    "addSection": "工作程序",
+    "addEntry": "Worker: {{name}}",
+    "row": {
+      "summary": "{{running}}/{{total}} 執行中",
+      "crashed": "{{count}} 個已崩潰"
+    }
   },
   "worktree": {
     "title": "Worktree 操作",

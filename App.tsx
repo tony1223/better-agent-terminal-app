@@ -15,6 +15,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
+import { subscribeWorkerEvents } from '@/stores/worker-store'
 import { subscribeSessionActivity } from '@/stores/session-activity-sync'
 import { subscribeMessageReconnectRetry } from '@/stores/message-reconnect-retry'
 import { useUsageStore } from '@/stores/usage-store'
@@ -65,7 +66,9 @@ function App() {
       const unsubscribeProfileChanged = channels.profile.onChanged((payload) => {
         useWorkspaceStore.getState().handleProfileChanged(payload)
       })
+      const unsubscribeWorker = subscribeWorkerEvents(channels.pty)
       unsubRef.current = () => {
+        unsubscribeWorker()
         unsubscribeClaude()
         unsubscribeActivity()
         unsubscribeWorkspaceReload()

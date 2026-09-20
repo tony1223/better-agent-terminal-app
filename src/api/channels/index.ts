@@ -16,6 +16,7 @@ import { createWorktreeChannel, type WorktreeChannel } from './worktree'
 import { createOpenAIChannel, type OpenAIChannel } from './openai'
 import { createAgentChannel, type AgentChannel } from './agent'
 import { createAppChannel, type AppChannel } from './app'
+import { createWorkerChannel, type WorkerChannel } from './worker'
 
 export interface Channels {
   pty: PtyChannel
@@ -31,6 +32,7 @@ export interface Channels {
   openai: OpenAIChannel
   agent: AgentChannel
   app: AppChannel
+  worker: WorkerChannel
 }
 
 export function createChannels(ws: WebSocketClient, root: WebSocketClient = ws): Channels {
@@ -48,6 +50,7 @@ export function createChannels(ws: WebSocketClient, root: WebSocketClient = ws):
     openai: createOpenAIChannel(ws),
     agent: createAgentChannel(ws),
     app: createAppChannel(root),
+    worker: createWorkerChannel(ws),
   }
 }
 
@@ -55,5 +58,5 @@ export {
   type PtyChannel, type ClaudeChannel, type WorkspaceChannel,
   type SettingsChannel, type GitChannel, type FsChannel,
   type SnippetsChannel, type ProfileChannel, type GithubChannel, type WorktreeChannel,
-  type OpenAIChannel, type AgentChannel, type AppChannel,
+  type OpenAIChannel, type AgentChannel, type AppChannel, type WorkerChannel,
 }

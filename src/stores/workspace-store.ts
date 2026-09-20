@@ -13,6 +13,7 @@ import type {
 } from '@/types'
 import { getAgentPreset, isSdkAgentSession } from '@/types'
 import { useConnectionStore } from './connection-store'
+import { isWorkerSession, procfileBasename } from '@/utils/worker'
 
 type ProfileSummary = { profiles: ProfileEntry[]; activeProfileIds: string[] }
 let profileLoadGeneration = 0
@@ -61,6 +62,8 @@ interface WorkspaceState {
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
   requestAddSession: (workspaceId: string, agentPreset?: AgentPresetId) => Promise<TerminalInstance>
+  /** A Procfile worker panel: a terminal record whose only mark is `procfilePath`. */
+  requestAddWorker: (workspaceId: string, procfilePath: string) => Promise<TerminalInstance>
   requestCloseSession: (terminalId: string, options?: { cleanWorktree?: boolean }) => Promise<void>
 
   // Computed helpers
@@ -426,6 +429,48 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return terminal
   },
 
+  requestAddWorker: async (workspaceId, procfilePath) => {
+    const channels = useConnectionStore.getState().channels
+    if (!channels) throw new Error('Not connected to remote server')
+    const activeProfileId = viewedProfileId(get())
+    const stillViewing = () => useConnectionStore.getState().channels === channels && viewedProfileId(get()) === activeProfileId
+
+    const { workspaces, terminals, activeWorkspaceId, activeTerminalId } = get()
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    // The shape the desktop writes for its own worker panels, so the record
+    // opens as one there too. No PTY is created: nothing runs under this id.
+    const terminal: TerminalInstance = {
+      ...createTerminalForWorkspace(workspace),
+      title: `Worker: ${procfileBasename(procfilePath)}`,
+      procfilePath,
+    }
+    const nextState: AppState = {
+      workspaces,
+      terminals: [...terminals, terminal],
+      activeWorkspaceId: workspaceId,
+      activeTerminalId: terminal.id,
+      focusedTerminalId: terminal.id,
+    }
+    const previousState: AppState = {
+      workspaces,
+      terminals,
+      activeWorkspaceId,
+      activeTerminalId,
+      focusedTerminalId: activeTerminalId,
+    }
+    get().applyState(nextState)
+    try {
+      const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
+      if (!saved) throw new Error('Host rejected workspace save')
+    } catch (e) {
+      if (stillViewing()) get().applyState(previousState)
+      throw e
+    }
+    return terminal
+  },
+
   requestCloseSession: async (terminalId, options) => {
     const channels = useConnectionStore.getState().channels
     if (!channels) throw new Error('Not connected to remote server')
@@ -437,6 +482,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     if (isSdkAgentSession(terminal)) {
       await ignoreMissingRuntime(() => channels.claude.stopSession(terminalId))
+    } else if (isWorkerSession(terminal)) {
+      // Nothing runs under the panel's own id, and its processes are the
+      // host's: a remote client closing its view must not take them down (the
+      // desktop's WorkerPanel skips teardown for remote clients too). Stopping
+      // them is an explicit action on the panel.
     } else {
       await ignoreMissingRuntime(() => channels.pty.kill(terminalId))
     }

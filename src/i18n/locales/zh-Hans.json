@@ -27,7 +27,8 @@
     "claude": "Claude",
     "settings": "设置",
     "addHost": "添加主机",
-    "scanQR": "扫描二维码"
+    "scanQR": "扫描二维码",
+    "worker": "工作进程"
   },
   "settings": {
     "connection": "连接",
@@ -193,6 +194,35 @@
     "layoutLabel": "显示模式",
     "layoutMobile": "移动版",
     "layoutDesktop": "桌面版"
+  },
+  "worker": {
+    "processes": "进程",
+    "noProcesses": "这个 Procfile 没有任何进程",
+    "status": {
+      "starting": "启动中",
+      "running": "运行中",
+      "stopped": "已停止",
+      "crashed": "已崩溃"
+    },
+    "exitCode": "退出码 {{code}}",
+    "actions": {
+      "start": "启动",
+      "stop": "停止",
+      "restart": "重启",
+      "startAll": "全部启动",
+      "stopAll": "全部停止",
+      "reload": "重新加载",
+      "clearLog": "清除日志"
+    },
+    "alerts": {
+      "actionFailed": "工作进程操作失败"
+    },
+    "addSection": "工作进程",
+    "addEntry": "Worker: {{name}}",
+    "row": {
+      "summary": "{{running}}/{{total}} 运行中",
+      "crashed": "{{count}} 个已崩溃"
+    }
   },
   "worktree": {
     "title": "Worktree 操作",
