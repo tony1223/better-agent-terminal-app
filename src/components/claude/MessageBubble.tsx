@@ -11,6 +11,7 @@ import { hostMarkdown } from '@/utils/host-markdown'
 import { ChatTimestamp } from './ChatTimestamp'
 import { MessageSelectionButton } from './MessageSelection'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { darkMarkdownBase } from '@/theme/markdown'
 import { useClaudeStore } from '@/stores/claude-store'
 import type { ClaudeMessage } from '@/types'
 
@@ -287,6 +288,7 @@ const styles = StyleSheet.create({
 })
 
 const markdownStyles = StyleSheet.create({
+  ...darkMarkdownBase,
   body: {
     color: appColors.text,
     fontSize: fontSize.md,
@@ -301,6 +303,7 @@ const markdownStyles = StyleSheet.create({
     borderRadius: 4,
   },
   fence: {
+    ...darkMarkdownBase.fence,
     backgroundColor: appColors.background,
     borderRadius: 8,
     padding: spacing.md,

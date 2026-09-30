@@ -9,6 +9,7 @@ import { getFileName } from '@/utils/path-tokenizer'
 import { saveBase64File } from '@/utils/file-export'
 import { hostMarkdown } from '@/utils/host-markdown'
 import { appColors, fontSize, spacing } from '@/theme/colors'
+import { darkMarkdownBase } from '@/theme/markdown'
 import { createPathLinkerRules } from './LinkedText'
 import { PreviewNavigation } from './PreviewNavigation'
 import { ZoomableImage } from './ZoomableImage'
@@ -114,9 +115,10 @@ const styles = StyleSheet.create({
 })
 
 const markdownStyles = StyleSheet.create({
+  ...darkMarkdownBase,
   body: { color: appColors.text, fontSize: fontSize.md },
   link: { color: appColors.accent },
   code_inline: { color: appColors.text, backgroundColor: appColors.surface },
-  fence: { color: appColors.text, backgroundColor: appColors.surface },
-  code_block: { color: appColors.text, backgroundColor: appColors.surface },
+  fence: { ...darkMarkdownBase.fence, backgroundColor: appColors.surface },
+  code_block: { ...darkMarkdownBase.code_block, backgroundColor: appColors.surface },
 })

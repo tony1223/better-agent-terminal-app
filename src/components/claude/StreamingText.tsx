@@ -10,6 +10,7 @@ import { createPathLinkerRules } from './LinkedText'
 import { hostMarkdown } from '@/utils/host-markdown'
 import { MessageSelectionButton } from './MessageSelection'
 import { appColors, spacing, fontSize } from '@/theme/colors'
+import { darkMarkdownBase } from '@/theme/markdown'
 
 interface Props {
   text: string
@@ -114,6 +115,7 @@ const styles = StyleSheet.create({
 })
 
 const markdownStyles = StyleSheet.create({
+  ...darkMarkdownBase,
   body: {
     color: appColors.text,
     fontSize: fontSize.md,
@@ -126,6 +128,7 @@ const markdownStyles = StyleSheet.create({
     fontWeight: '700',
   },
   fence: {
+    ...darkMarkdownBase.fence,
     backgroundColor: appColors.background,
     borderRadius: 8,
     padding: spacing.md,
