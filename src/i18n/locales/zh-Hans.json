@@ -187,6 +187,7 @@
     }
   },
   "terminal": {
+    "commandPlaceholder": "输入命令，Enter 发送",
     "sessions": "会话",
     "claude": "Claude",
     "workspaceFallback": "工作区",
@@ -304,6 +305,34 @@
       "closeFailedTitle": "无法关闭会话"
     }
   },
+  "workspaceBrowser": {
+    "pinned": "进行中的工作",
+    "all": "全部",
+    "allProfiles": "所有 Profile",
+    "search": "搜索工作区或 Profile",
+    "pinnedHint": "固定常用工作区；空闲也保留。",
+    "catalogHint": "列出已加载或打开过的工作区；其他请打开 Profile。",
+    "done": "完成",
+    "reorder": "排序",
+    "clearFilter": "清除筛选",
+    "opening": "正在打开工作区…",
+    "offline": "离线 · 状态未知",
+    "statusUnknown": "状态待更新",
+    "moveUp": "将 {{name}} 上移",
+    "moveDown": "将 {{name}} 下移",
+    "pin": "固定 {{name}}",
+    "unpin": "取消固定 {{name}}",
+    "noPins": "尚未固定工作区",
+    "chooseWork": "到全部列表选择并加星号",
+    "noMatch": "没有匹配的工作区或 Profile。",
+    "openProfile": "打开此 Profile",
+    "profiles": "Profile 筛选",
+    "profileHint": "点名称只筛选；「打开此 Profile」才切换并加载。",
+    "searchProfiles": "搜索 Profile",
+    "remote": "Remote",
+    "local": "本机",
+    "switchWorkspace": "切换工作区"
+  },
   "workspaceList": {
     "browseTitle": "浏览工作区",
     "sessions": "{{count}} 个会话",
@@ -419,6 +448,8 @@
     }
   },
   "claude": {
+    "interruptKey": "用 {{key}} 中断当前工作",
+    "interruptFailed": "无法中断会话",
     "defaultTitle": "Claude",
     "defaultWorkspace": "工作区",
     "errors": {

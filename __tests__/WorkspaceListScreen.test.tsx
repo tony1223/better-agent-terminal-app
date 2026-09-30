@@ -1,12 +1,13 @@
 import React from 'react'
 import ReactTestRenderer, { act } from 'react-test-renderer'
-import { Text, TouchableOpacity } from 'react-native'
+import { Text, TextInput, TouchableOpacity } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { WorkspaceListScreen } from '../src/screens/WorkspaceListScreen'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
 import { useWorkspaceShortcutsStore } from '../src/stores/workspace-shortcuts-store'
 import { useWorkspaceNavigationStore } from '../src/stores/workspace-navigation-store'
+import { useWorkspaceBrowserStore } from '../src/stores/workspace-browser-store'
 
 const mockSetOptions = jest.fn()
 const mockNavigate = jest.fn()
@@ -37,6 +38,7 @@ beforeEach(() => {
   mockNavigate.mockClear()
   ;(useFocusEffect as jest.Mock).mockClear()
   useWorkspaceShortcutsStore.setState({ servers: {} })
+  useWorkspaceBrowserStore.setState({ servers: {} })
   useWorkspaceNavigationStore.setState({ pending: null, error: null })
 })
 
@@ -44,7 +46,7 @@ jest.mock('../src/stores/workspace-store', () => ({
   useWorkspaceStore: jest.fn(),
 }))
 
-test('selecting a profile changes only the mobile view', async () => {
+test('filtering never switches profiles; only explicit opening changes the mobile view', async () => {
   const activate = jest.fn()
   const deactivate = jest.fn()
   const loadProfileWorkspace = jest.fn().mockResolvedValue(undefined)
@@ -53,11 +55,10 @@ test('selecting a profile changes only the mobile view', async () => {
   const connectionStoreMock = useConnectionStore as unknown as jest.Mock
   const workspaceStoreMock = useWorkspaceStore as unknown as jest.Mock
 
-  connectionStoreMock.mockImplementation(selector => selector({
-    channels,
-    disconnect,
-  }))
-  workspaceStoreMock.mockReturnValue({
+  const connection = { channels, disconnect, host: 'host', port: 1, client: {} }
+  Object.assign(useConnectionStore, { getState: () => connection })
+  connectionStoreMock.mockImplementation(selector => selector(connection))
+  const state = {
     workspaces: [],
     terminals: [],
     activeWorkspaceId: null,
@@ -84,7 +85,9 @@ test('selecting a profile changes only the mobile view', async () => {
     ],
     activeProfileIds: ['default'],
     activeLocalProfileId: 'default',
-  })
+  }
+  Object.assign(useWorkspaceStore, { getState: () => state })
+  workspaceStoreMock.mockReturnValue(state)
 
   let renderer: ReactTestRenderer.ReactTestRenderer
   act(() => {
@@ -105,6 +108,15 @@ test('selecting a profile changes only the mobile view', async () => {
   await act(async () => {
     await lineageRow!.props.onPress()
   })
+
+  expect(loadProfileWorkspace).not.toHaveBeenCalled()
+  expect(useWorkspaceBrowserStore.getState().servers['host:1'].profileId).toBe('lineage')
+  expect(state.activeLocalProfileId).toBe('default')
+  act(() => { headerRight().props.onPress() })
+  act(() => renderer!.root.findAllByType(TextInput).find(node => node.props.placeholder === 'workspaceBrowser.searchProfiles')!.props.onChangeText('lin'))
+  expect(renderer!.root.findAllByType(TouchableOpacity).some(row => row.props.testID === 'profile-filter-default')).toBe(false)
+  const openRow = renderer!.root.findAllByType(TouchableOpacity).find(row => row.props.testID === 'profile-open-lineage')!
+  await act(async () => { await openRow.props.onPress() })
 
   expect(loadProfileWorkspace).toHaveBeenCalledTimes(1)
   expect(loadProfileWorkspace).toHaveBeenCalledWith('lineage')
@@ -255,8 +267,34 @@ test('the list shows another profile running before its shortcut is opened', asy
   const shortcut = renderer.root.findAllByType(TouchableOpacity)
     .find(row => row.props.testID === 'workspace-shortcut-second-w')!
   expect(shortcut.findAllByType(Text).some(text =>
-    Array.isArray(text.props.children) && text.props.children.join('') === 'session.activity.working 1')).toBe(true)
+    Array.isArray(text.props.children) && text.props.children.join('').includes('session.activity.working 1'))).toBe(true)
   expect(mockNavigate).not.toHaveBeenCalled()
   expect(state.loadProfileWorkspace).not.toHaveBeenCalled()
+  read.mockRejectedValue(new Error('Remote unavailable'))
+  await act(async () => { await jest.advanceTimersByTimeAsync(45_000) })
+  expect(shortcut.findAllByType(Text).some(text => text.props.children === 'workspaceBrowser.statusUnknown')).toBe(true)
   act(() => { blur(); renderer.unmount() })
+})
+
+test('explicit opening of an empty profile completes at the overview without picking a workspace', async () => {
+  const connection = { host: 'host', port: 1, channels: {}, client: {}, disconnect: jest.fn() }
+  const state: any = { workspaces: [], terminals: [], activeLocalProfileId: 'first', activeProfileIds: ['first'],
+    profiles: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }], loadStatus: 'empty', loadError: null,
+    switchWorkspace: jest.fn(), load: jest.fn().mockResolvedValue(undefined),
+    loadProfileWorkspace: jest.fn(async () => { state.activeLocalProfileId = 'second' }) }
+  Object.assign(useConnectionStore, { getState: () => connection })
+  Object.assign(useWorkspaceStore, { getState: () => state })
+  ;(useConnectionStore as unknown as jest.Mock).mockImplementation(selector => selector(connection))
+  ;(useWorkspaceStore as unknown as jest.Mock).mockImplementation(() => state)
+  let renderer!: ReactTestRenderer.ReactTestRenderer
+  await act(async () => { renderer = ReactTestRenderer.create(<WorkspaceListScreen />) })
+  act(() => mockSetOptions.mock.calls.at(-1)![0].headerRight().props.onPress())
+  await act(async () => {
+    await renderer.root.findAllByType(TouchableOpacity).find(row => row.props.testID === 'profile-open-second')!.props.onPress()
+  })
+  expect(state.loadProfileWorkspace).toHaveBeenCalledWith('second')
+  expect(useWorkspaceNavigationStore.getState().pending).toBeNull()
+  expect(mockNavigate).not.toHaveBeenCalled()
+  expect(state.switchWorkspace).not.toHaveBeenCalled()
+  act(() => renderer.unmount())
 })

@@ -12,7 +12,9 @@ import type {
   AgentPresetId,
 } from '@/types'
 import { getAgentPreset, isSdkAgentSession } from '@/types'
-import { useConnectionStore } from './connection-store'
+import { useConnectionStore, workspaceShortcutServerKey } from './connection-store'
+import { useWorkspaceBrowserStore } from './workspace-browser-store'
+import { useAgentPreferencesStore, agentPreferenceScope } from './agent-preferences-store'
 import { isWorkerSession, procfileBasename } from '@/utils/worker'
 
 type ProfileSummary = { profiles: ProfileEntry[]; activeProfileIds: string[] }
@@ -293,6 +295,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   applyState: (state: AppState, options) => {
     const workspaces = state.workspaces || []
+    const connection = useConnectionStore.getState()
+    const serverKey = workspaceShortcutServerKey(connection)
+    const profileId = get().activeLocalProfileId
+    if (serverKey && profileId) {
+      const profileName = get().profiles.find(profile => profile.id === profileId)?.name
+        ?? connection.selectedProfileName ?? profileId
+      useWorkspaceBrowserStore.getState().remember(serverKey, profileId, profileName, workspaces)
+    }
     const terminals = (state.terminals || []).map(t => ({
       ...t,
       scrollbackBuffer: Array.isArray(t.scrollbackBuffer) ? t.scrollbackBuffer.slice(-500) : [],
@@ -554,14 +564,16 @@ function generateSessionId(): string {
 }
 
 function normalizeAgentParams(agentPreset?: AgentPresetId): TerminalInstance['agentParams'] {
+  const scope = agentPreferenceScope(useConnectionStore.getState(), useWorkspaceStore.getState().activeLocalProfileId)
+  const effort = useAgentPreferencesStore.getState().defaultEffort(scope, agentPreset) ?? 'high'
   if (agentPreset === 'codex-agent' || agentPreset === 'codex-agent-worktree') {
     return {
       sandboxMode: 'workspace-write',
       approvalPolicy: 'on-request',
-      effortLevel: 'high',
+      effortLevel: effort,
     }
   }
-  return undefined
+  return agentPreset?.startsWith('claude-code') || agentPreset === 'openai-agent' ? { effortLevel: effort } : undefined
 }
 
 function isWorktreePreset(agentPreset?: AgentPresetId): boolean {

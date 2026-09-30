@@ -187,6 +187,7 @@
     }
   },
   "terminal": {
+    "commandPlaceholder": "Type a command, Enter to send",
     "sessions": "Sessions",
     "claude": "Claude",
     "workspaceFallback": "Workspace",
@@ -304,6 +305,34 @@
       "closeFailedTitle": "Unable to close session"
     }
   },
+  "workspaceBrowser": {
+    "pinned": "Ongoing work",
+    "all": "All",
+    "allProfiles": "All profiles",
+    "search": "Search workspaces or profiles",
+    "pinnedHint": "Pin your work here, even when idle.",
+    "catalogHint": "Loaded or previously opened workspaces. Open a profile to load others.",
+    "done": "Done",
+    "reorder": "Reorder",
+    "clearFilter": "Clear filter",
+    "opening": "Opening workspace…",
+    "offline": "Offline · status unknown",
+    "statusUnknown": "Status pending",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "pin": "Pin {{name}}",
+    "unpin": "Unpin {{name}}",
+    "noPins": "No pinned workspaces yet",
+    "chooseWork": "Choose workspaces in All and star them",
+    "noMatch": "No matching workspaces or profiles.",
+    "openProfile": "Open profile",
+    "profiles": "Profile filter",
+    "profileHint": "Tap a name to filter only. Open profile switches and loads it.",
+    "searchProfiles": "Search profiles",
+    "remote": "Remote",
+    "local": "Local",
+    "switchWorkspace": "Switch workspace"
+  },
   "workspaceList": {
     "browseTitle": "Browse workspaces",
     "sessions": "Sessions: {{count}}",
@@ -419,6 +448,8 @@
     }
   },
   "claude": {
+    "interruptKey": "Interrupt the current turn with {{key}}",
+    "interruptFailed": "Unable to interrupt session",
     "defaultTitle": "Claude",
     "defaultWorkspace": "Workspace",
     "errors": {

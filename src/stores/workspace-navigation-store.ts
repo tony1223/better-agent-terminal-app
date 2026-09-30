@@ -1,14 +1,13 @@
 import { create } from 'zustand'
 import { useConnectionStore, workspaceShortcutServerKey } from './connection-store'
 import { useWorkspaceStore } from './workspace-store'
-import type { WorkspaceShortcut } from './workspace-shortcuts-store'
 
 interface WorkspaceDestination {
   id: number
   client: ReturnType<typeof useConnectionStore.getState>['client']
   serverKey: string
   profileId: string
-  workspaceId: string
+  workspaceId: string | null
   ready: boolean
   viewKey: string | null
 }
@@ -16,7 +15,7 @@ interface WorkspaceDestination {
 interface WorkspaceNavigationState {
   pending: WorkspaceDestination | null
   error: string | null
-  open: (shortcut: WorkspaceShortcut) => Promise<void>
+  open: (destination: { profileId: string; workspaceId: string | null }) => Promise<void>
   finish: (id: number, error?: string) => void
 }
 

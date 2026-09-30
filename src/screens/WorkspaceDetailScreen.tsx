@@ -23,6 +23,7 @@ import { useRecentsStore } from '@/stores/recents-store'
 import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
 import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { SessionRow } from '@/components/session/SessionRow'
+import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionSortControl } from '@/components/session/SessionSortControl'
 import { useSessionOrder } from '@/hooks/use-session-order'
 import type { SessionSort } from '@/utils/session-recency'
@@ -131,10 +132,7 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.contextHeader}>
-        <Text style={styles.contextName} numberOfLines={1}>{workspace.alias || workspace.name}</Text>
-        <Text style={styles.contextPath} numberOfLines={1}>{workspace.folderPath}</Text>
-      </View>
+      <SessionContextBar workspaceId={workspace.id} />
       <View style={styles.tabs}>
         {TABS.map(tab => (
           <TouchableOpacity
@@ -449,7 +447,11 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
     }
   }, [channels, currentPath])
 
-  useEffect(() => { if (active) load(); return () => { loadGeneration.current++ } }, [load, active])
+  useEffect(() => {
+    const generation = loadGeneration
+    if (active) void load()
+    return () => { generation.current++ }
+  }, [load, active])
 
   const openEntry = (entry: FsEntry) => {
     if (!channels) return
@@ -566,7 +568,11 @@ export function GitPane({ cwd, active = true }: { cwd: string; active?: boolean 
     }
   }, [channels, cwd])
 
-  useEffect(() => { if (active) load(); return () => { loadGeneration.current++ } }, [load, active])
+  useEffect(() => {
+    const generation = loadGeneration
+    if (active) void load()
+    return () => { generation.current++ }
+  }, [load, active])
 
   const openDiff = async (file: GitFileEntry) => {
     if (!channels) return

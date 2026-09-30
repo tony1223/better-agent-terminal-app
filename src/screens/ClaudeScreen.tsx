@@ -18,6 +18,7 @@ import {
   Modal,
   Image,
   Alert,
+  AppState,
 } from 'react-native'
 import type { KeyboardEvent } from 'react-native'
 import { launchImageLibrary } from 'react-native-image-picker'
@@ -27,6 +28,9 @@ import { useClaudeStore, registerSessionRecovery, EMPTY_SESSION, type SessionSta
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore, type UsageWindow } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useAgentPreferencesStore, agentPreferenceScope, resolveEffort } from '@/stores/agent-preferences-store'
+import { useSessionDraft } from '@/stores/session-drafts-store'
+import { refreshSessionReplay, usesLegacySessionEvents, sessionReplayHasTranscriptGap } from '@/stores/session-replay-sync'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { MessageBubble } from '@/components/claude/MessageBubble'
 import { ToolCallCard } from '@/components/claude/ToolCallCard'
@@ -238,10 +242,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
   })
   const loadStatus = useWorkspaceStore(s => s.loadStatus)
 
-  const [inputText, setInputText] = useState('')
+  const profileId = useWorkspaceStore(s => s.activeLocalProfileId)
+  const preferenceScope = useConnectionStore(s => agentPreferenceScope(s, profileId))
+  const { inputText, setInputText, attachedImages, setAttachedImages } = useSessionDraft(preferenceScope, sessionId)
   const [loading, setLoading] = useState(true)
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
-  const [effortLevel, setEffortLevel] = useState('high')
+  const [effortLevel, setEffortLevel] = useState(() => resolveEffort(session.meta?.effort, session.meta?.effortLevel,
+    useAgentPreferencesStore.getState().sessionEffort(preferenceScope, sessionId), terminal?.agentParams?.effortLevel,
+    useAgentPreferencesStore.getState().defaultEffort(preferenceScope, terminal?.agentPreset)))
   const [codexSandboxMode, setCodexSandboxMode] = useState('workspace-write')
   const [codexApprovalPolicy, setCodexApprovalPolicy] = useState('on-request')
   const [showFab, setShowFab] = useState(false)
@@ -251,13 +259,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showApprovalPicker, setShowApprovalPicker] = useState(false)
   const [showCodexAccountPicker, setShowCodexAccountPicker] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
+  const [creatingSession, setCreatingSession] = useState(false)
+  const newSessionInFlight = useRef(false)
   const [codexAccounts, setCodexAccounts] = useState<CodexAccountEntry[]>([])
   const [codexAccountsLoading, setCodexAccountsLoading] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
   const [supportedEffortOptions, setSupportedEffortOptions] = useState<string[]>([])
   const [supportedSandboxOptions, setSupportedSandboxOptions] = useState<string[]>([])
   const [supportedApprovalOptions, setSupportedApprovalOptions] = useState<string[]>([])
-  const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([])
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null)
   const [historyLoadingInBackground, setHistoryLoadingInBackground] = useState(false)
   // Set when a session's history could not be loaded so the empty view can
@@ -428,19 +437,28 @@ export function ClaudeScreen({ route, navigation }: Props) {
     const { autoCompactWindow } = setModelArgsForClaudeSelection(model ?? '')
     return {
       agentPreset,
+      effort: effortLevel,
       ...(isClaudeCodeAgent ? { permissionMode } : {}),
       ...(autoCompactWindow !== undefined ? { autoCompactWindow } : {}),
       codexSandboxMode: resumeSandboxMode,
       codexApprovalPolicy: resumeApprovalPolicy,
       ...worktreeOptions,
     }
-  }, [agentPreset, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
+  }, [agentPreset, effortLevel, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
 
   const refreshSessionState = useCallback(async (): Promise<SessionStateMerge | null> => {
     if (!channels || !terminalCwd) return null
+    const scope = useClaudeStore.getState().scopeKey
+    const owned = () => useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope
     try {
+      const synced = await refreshSessionReplay(channels.claude, sessionId)
+      if (!owned()) return null
+      if (synced) return 'stitched'
+      if (!usesLegacySessionEvents(channels.claude, sessionId)) {
+        return sessionReplayHasTranscriptGap(channels.claude, sessionId) ? 'kept-local' : null
+      }
       const state = await channels.claude.getSessionState(sessionId)
-      if (!state) return null
+      if (!state || !owned()) return null
       const verdict = useClaudeStore.getState().handleSessionState(sessionId, state)
       if (state.meta) {
         useClaudeStore.getState().handleStatus(sessionId, state.meta)
@@ -571,6 +589,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
     dlog('!CLAUDE_SCREEN', `host window shares no id with the local transcript after ${why}; pulling the full transcript`)
     await recoverTranscript(why)
   }, [refreshSessionState, recoverTranscript])
+
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => {
+      if (state === 'active' && isFocusedRef.current && useConnectionStore.getState().channels === channels) {
+        void resyncAfterReconnect('return to foreground')
+      }
+    })
+    return () => listener.remove()
+  }, [channels, resyncAfterReconnect])
 
   // Every reconnect is a window we were not listening through, so treat it as a
   // hole until proven otherwise. The mount effect owns the first load.
@@ -715,10 +742,19 @@ export function ClaudeScreen({ route, navigation }: Props) {
       ): Promise<{ exists: boolean; liveCount: number; isStreaming: boolean }> => {
         const archivedFallback = options?.archivedFallback !== false
         try {
+          const synced = await refreshSessionReplay(channels.claude, sessionId)
+          if (cancelled || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
+          if (synced || !usesLegacySessionEvents(channels.claude, sessionId)) {
+            const state = useClaudeStore.getState().sessions[sessionId]
+            if (!state || state.runtimeExists === false) return { exists: false, liveCount: 0, isStreaming: false }
+            if (!state.messages.length && archivedFallback) await backfillArchivedHistory()
+            return { exists: true, liveCount: state.messages.length, isStreaming: state.isStreaming }
+          }
           const state = await timedLoadStep(
             `getSessionState sessionId=${sessionId}`,
             () => channels.claude.getSessionState(sessionId),
           )
+          if (cancelled || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
           if (!state) {
             diag.gss = 'null'
             dlog('CLAUDE_SCREEN', `getSessionState returned null sessionId=${sessionId}`)
@@ -948,6 +984,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   // Sync permission mode from meta
   useEffect(() => {
+    setEffortLevel(resolveEffort(session.meta?.effort, session.meta?.effortLevel,
+      useAgentPreferencesStore.getState().sessionEffort(preferenceScope, sessionId), terminal?.agentParams?.effortLevel,
+      useAgentPreferencesStore.getState().defaultEffort(preferenceScope, terminal?.agentPreset)))
+  }, [session.meta?.effortLevel, session.meta?.effort, preferenceScope, sessionId, terminal?.agentParams?.effortLevel, terminal?.agentPreset])
+
+  useEffect(() => {
     if (session.meta?.permissionMode) {
       setPermissionMode(session.meta.permissionMode)
     }
@@ -1123,7 +1165,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       .finally(() => {
         sendInFlightRef.current = false
       })
-  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent, isCodexAgent])
+  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent, isCodexAgent, setInputText, setAttachedImages])
 
   const openResumeList = useCallback(async () => {
     if (!channels || !terminal?.cwd) return
@@ -1172,6 +1214,24 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [channels, sessionId])
 
+  const handleForceInterrupt = useCallback(async () => {
+    if (!channels) return
+    try { await channels.claude.abortSession(sessionId) }
+    catch (error) { Alert.alert(t('claude.interruptFailed'), String(error)) }
+  }, [channels, sessionId, t])
+
+  const handleNewSession = useCallback(async () => {
+    if (!terminal?.workspaceId || newSessionInFlight.current || !channels) return
+    newSessionInFlight.current = true
+    setCreatingSession(true)
+    try {
+      const created = await useWorkspaceStore.getState().requestAddSession(terminal.workspaceId, terminal.agentPreset)
+      if (useConnectionStore.getState().channels !== channels) return
+      navigation.push('Claude', { sessionId: created.id })
+    } catch (error) { Alert.alert(t('workspaceDetail.alerts.addSessionFailed'), String(error)) }
+    finally { newSessionInFlight.current = false; setCreatingSession(false) }
+  }, [terminal, channels, navigation, t])
+
   const handlePermissionCycle = useCallback(async () => {
     if (!channels) return
     const idx = PERMISSION_MODES.indexOf(permissionMode as typeof PERMISSION_MODES[number])
@@ -1188,12 +1248,17 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (!channels) return
     setShowEffortPicker(false)
     try {
-      await channels.claude.setEffort(sessionId, effort)
+      const result = await channels.claude.setEffort(sessionId, effort)
+      if (result === false) throw new Error(t('claude.errors.switchEffortFailed'))
+      if (useConnectionStore.getState().channels !== channels) return
+      useAgentPreferencesStore.getState().remember(preferenceScope, sessionId, agentPreset, effort)
       setEffortLevel(effort)
+      const meta = useClaudeStore.getState().sessions[sessionId]?.meta
+      if (meta) useClaudeStore.getState().handleStatus(sessionId, { ...meta, effort })
     } catch (e) {
       Alert.alert(t('claude.errors.switchEffortFailed'), String(e))
     }
-  }, [channels, sessionId, t])
+  }, [channels, sessionId, preferenceScope, agentPreset, t])
 
   const handleCodexSandboxSelect = useCallback(async (mode: string) => {
     if (!channels) return
@@ -1401,11 +1466,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
       dlog('!CLAUDE_IMAGE', `launchImageLibrary threw: ${e}`)
       Alert.alert(t('claude.errors.rebuildRequiredTitle'), t('claude.errors.rebuildRequiredMessage'))
     }
-  }, [attachedImages.length, t])
+  }, [attachedImages.length, setAttachedImages, t])
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages(prev => prev.filter((_, i) => i !== index))
-  }, [])
+  }, [setAttachedImages])
 
   const kindCounts = useMemo(() => {
     const counts: Record<ChatItemKind, number> = { you: 0, message: 0, tool: 0, thinking: 0 }
@@ -1543,6 +1608,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
+        right={<TouchableOpacity testID="chat-new-session" accessibilityRole="button" disabled={creatingSession || connectionStatus !== 'connected'} onPress={handleNewSession}>
+          <Text style={{ color: agentColor, padding: spacing.sm }}>{creatingSession ? '…' : t('workspaceDetail.button.add')}</Text>
+        </TouchableOpacity>}
       />
       <SessionWorkspaceTabs sessionId={sessionId} cwd={terminalCwd}>
       <ChatFilterStrip sessionId={sessionId} counts={kindCounts} />
@@ -1649,6 +1717,14 @@ export function ClaudeScreen({ route, navigation }: Props) {
             ))}
           </ScrollView>
         )}
+
+        <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md }}>
+          {['Ctrl+C', 'Esc'].map(key => <TouchableOpacity key={key} testID={`chat-interrupt-${key}`} accessibilityRole="button"
+            accessibilityLabel={t('claude.interruptKey', { key })} disabled={connectionStatus !== 'connected'} onPress={handleForceInterrupt}
+            style={{ minHeight: 44, minWidth: 60, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ color: appColors.error }}>{key}</Text>
+          </TouchableOpacity>)}
+        </View>
 
         {/* Input row */}
         <View style={styles.inputBar}>
