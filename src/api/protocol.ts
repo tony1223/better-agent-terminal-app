@@ -30,6 +30,7 @@ export interface RemoteFrame {
   token?: string
   contextId?: string
   capabilities?: Record<string, unknown>
+  serverVersion?: string
 }
 
 export const REMOTE_PROTOCOL_V2 = 'bat-remote/v2'
@@ -56,7 +57,7 @@ export const PROXIED_CHANNELS = new Set([
   'agent:get-supported-codex-sandbox-modes',
   'agent:get-supported-codex-approval-policies',
   'agent:get-supported-commands', 'agent:get-supported-agents',
-  'agent:get-session-state', 'agent:get-session-meta', 'agent:get-account-info',
+  'agent:get-session-state', 'agent:sync-session', 'agent:get-session-meta', 'agent:get-account-info',
   'agent:get-context-usage', 'agent:get-worktree-status',
   'agent:cleanup-worktree', 'agent:resolve-permission',
   'agent:resolve-ask-user', 'agent:archive-messages',
@@ -79,7 +80,7 @@ export const PROXIED_CHANNELS = new Set([
   // Standalone worktree operations
   'worktree:create', 'worktree:remove', 'worktree:status', 'worktree:merge', 'worktree:rehydrate',
   // Workspace
-  'workspace:save', 'workspace:load',
+  'workspace:save', 'workspace:load', 'workspace:summary',
   // Settings
   'settings:save', 'settings:load', 'settings:get-shell-path',
   // GitHub

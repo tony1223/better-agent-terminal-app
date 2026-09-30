@@ -18,6 +18,18 @@ import type {
 
 type ClaudeHistoryItem = ClaudeMessage | ClaudeToolCall
 
+export interface SyncCursor { epoch: string; seq: number }
+export interface RecordedAgentEvent { seq: number; at?: number; channel: string; params: Record<string, unknown> }
+export interface SessionSyncReply {
+  mode: 'snapshot' | 'delta'
+  sessionId: string
+  cursor: SyncCursor
+  events?: RecordedAgentEvent[]
+  state?: SessionStateSnapshot | null
+  hasMore?: boolean
+}
+export interface SessionSyncEvent { sessionId: string; epoch: string; events: RecordedAgentEvent[] }
+
 export interface CodexAccountEntry {
   /** Account entry id; pass this to codexAccountSwitch (named codexHome on the wire). */
   id: string
@@ -259,6 +271,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
 
     getSessionState: (sessionId: string) =>
       ws.invokeParams<SessionStateSnapshot | null>('agent:get-session-state', { sessionId }, [sessionId]),
+    syncSession: (sessionId: string, cursor?: SyncCursor) =>
+      ws.invokeParams<SessionSyncReply>('agent:sync-session', { sessionId, cursor }, [sessionId, cursor]),
+    onSyncEvent: (cb: (event: SessionSyncEvent) => void) =>
+      ws.on('agent:sync-event', cb as (...args: unknown[]) => void),
 
     getSupportedCommands: (sessionId: string) =>
       ws.invokeParams<unknown[]>('agent:get-supported-commands', { sessionId }, [sessionId]),

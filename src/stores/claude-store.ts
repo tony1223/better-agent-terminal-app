@@ -14,13 +14,16 @@ import type {
   ClaudeStreamData,
   ClaudeResult,
 } from '@/types'
-import type { ClaudeChannel } from '@/api/channels/claude'
+import type { ClaudeChannel, SyncCursor } from '@/api/channels/claude'
+import { subscribeSessionReplay, usesLegacySessionEvents } from './session-replay-sync'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore } from '@/stores/usage-store'
 import { dlog } from '@/utils/debug-log'
 import { isCompactSummaryMessage } from '@/utils/compact-summary'
 
 interface SessionState {
+  syncCursor?: SyncCursor
+  runtimeExists?: boolean
   messages: (ClaudeMessage | ClaudeToolCall)[]
   isStreaming: boolean
   streamingText: string
@@ -209,6 +212,7 @@ function commitStreamedText(
   sessionId: string,
   session: SessionState,
   echoedContent?: string,
+  timestamp = Date.now(),
 ): (ClaudeMessage | ClaudeToolCall)[] {
   const text = session.streamingText
   if (!text.trim()) return session.messages
@@ -233,7 +237,7 @@ function commitStreamedText(
     // Scrubbed, so this bubble reads the same as the host's own echo of it.
     content: scrubbed,
     thinking: session.streamingThinking || undefined,
-    timestamp: Date.now(),
+    timestamp,
   }]
 }
 
@@ -381,11 +385,12 @@ interface ClaudeState {
   handleMessage: (sessionId: string, msg: ClaudeMessage) => void
   handleToolUse: (sessionId: string, tool: ClaudeToolCall) => void
   handleToolResult: (sessionId: string, result: { id: string; status: string; result?: string; description?: string }) => void
-  handleStream: (sessionId: string, data: ClaudeStreamData) => void
-  handleResult: (sessionId: string, result: ClaudeResult) => void
-  handleTurnEnd: (sessionId: string) => void
+  handleStream: (sessionId: string, data: ClaudeStreamData, observedAt?: number) => void
+  handleResult: (sessionId: string, result: ClaudeResult, observedAt?: number) => void
+  handleTurnEnd: (sessionId: string, observedAt?: number) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
+  setSyncCursor: (sessionId: string, cursor: SyncCursor, runtimeExists?: boolean) => void
   handleRuntimeMissing: (sessionId: string) => void
   /**
    * Reconciles the host's live window with what is already on screen and reports
@@ -482,6 +487,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       pendingPermission: null, pendingAskUser: null, promptSuggestions: [] })
   },
   sessions: {},
+  setSyncCursor: (sessionId, cursor, runtimeExists) => set(state => ({ sessions: { ...state.sessions,
+    [sessionId]: { ...(state.sessions[sessionId] ?? createEmptySession()), syncCursor: cursor,
+      ...(runtimeExists !== undefined ? { runtimeExists } : {}) } } })),
   activeSessionId: null,
   pendingPermission: null,
   pendingAskUser: null,
@@ -731,7 +739,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     })
   },
 
-  handleStream: (sessionId, rawData) => {
+  handleStream: (sessionId, rawData, observedAt = Date.now()) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     const data = normalizeStreamData(rawData)
@@ -761,14 +769,14 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             : session.streamingThinking,
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
-          turnStartedAt: session.turnStartedAt ?? Date.now(),
+          turnStartedAt: session.turnStartedAt ?? observedAt,
           lastCompletedAt: null,
         },
       },
     })
   },
 
-  handleResult: (sessionId, result) => {
+  handleResult: (sessionId, result, observedAt = Date.now()) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     dlog('CLAUDE_STORE', `handleResult sid=${sessionId} streamingText.len=${session.streamingText.length} msgs=${session.messages.length}`)
@@ -776,7 +784,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // If there's streaming/result text that wasn't captured as a message, preserve it.
     // Some desktop Claude events carry a null message id/content and rely on result.result
     // as the final display text.
-    let messages = commitStreamedText(sessionId, session)
+    let messages = commitStreamedText(sessionId, session, undefined, observedAt)
     const resultText = stringifyForDisplay(result?.result).trim()
     if (resultText && result?.subtype === 'success' && !hasAssistantTextSinceLastUser(messages, resultText)) {
       messages = [...messages, {
@@ -784,7 +792,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         sessionId,
         role: 'assistant',
         content: resultText,
-        timestamp: Date.now(),
+        timestamp: observedAt,
       }]
       dlog('CLAUDE_STORE', `preserved result text as message (${resultText.length} chars)`)
     }
@@ -801,13 +809,13 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           meta: clearedRuntimeMeta(session.meta),
           runtimeStatusSince: null,
           turnStartedAt: null,
-          lastCompletedAt: result?.subtype === 'success' ? Date.now() : null,
+          lastCompletedAt: result?.subtype === 'success' ? observedAt : null,
         },
       },
     })
   },
 
-  handleTurnEnd: (sessionId) => {
+  handleTurnEnd: (sessionId, observedAt = Date.now()) => {
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     set({
@@ -815,7 +823,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: commitStreamedText(sessionId, session),
+          messages: commitStreamedText(sessionId, session, undefined, observedAt),
           isStreaming: false,
           streamingText: '',
           streamingThinking: '',
@@ -823,7 +831,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           runtimeStatusSince: null,
           turnStartedAt: null,
           lastCompletedAt: session.turnStartedAt != null || session.isStreaming
-            ? Date.now() : session.lastCompletedAt,
+            ? observedAt : session.lastCompletedAt,
         },
       },
     })
@@ -1048,6 +1056,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             session.messages,
             stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
           ),
+          runtimeExists: true,
           isStreaming: snapshot.isStreaming ?? session.isStreaming,
           streamingText: snapshot.streamingText ?? session.streamingText,
           streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
@@ -1164,23 +1173,35 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
  */
 export function subscribeClaudeEvents(claude: ClaudeChannel): () => void {
   const unsubs: Array<() => void> = []
+  if (useConnectionStore.getState().client?.supportsMobileSync) {
+    unsubs.push(subscribeSessionReplay(claude))
+  }
 
-  unsubs.push(claude.onMessage((sid, msg) => useClaudeStore.getState().handleMessage(sid, msg)))
-  unsubs.push(claude.onToolUse((sid, tool) => useClaudeStore.getState().handleToolUse(sid, tool)))
-  unsubs.push(claude.onToolResult((sid, result) => useClaudeStore.getState().handleToolResult(sid, result)))
-  unsubs.push(claude.onStream((sid, data) => useClaudeStore.getState().handleStream(sid, data)))
-  unsubs.push(claude.onResult((sid, result) => useClaudeStore.getState().handleResult(sid, result)))
-  unsubs.push(claude.onTurnEnd((sid) => useClaudeStore.getState().handleTurnEnd(sid)))
-  unsubs.push(claude.onError((sid, error) => useClaudeStore.getState().handleError(sid, error)))
-  unsubs.push(claude.onStatus((sid, meta) => useClaudeStore.getState().handleStatus(sid, meta)))
-  unsubs.push(claude.onPermissionRequest((sid, data) => useClaudeStore.getState().handlePermissionRequest(sid, data)))
-  unsubs.push(claude.onPermissionResolved((sid, toolUseId) => useClaudeStore.getState().handlePermissionResolved(sid, toolUseId)))
-  unsubs.push(claude.onAskUser((sid, data) => useClaudeStore.getState().handleAskUser(sid, data)))
-  unsubs.push(claude.onAskUserResolved((sid, toolUseId) => useClaudeStore.getState().handleAskUserResolved(sid, toolUseId)))
+  // Legacy listeners are dormant while sequenced replay owns the session.
+  // If a moving snapshot or second-hop RPC fails, they preserve live updates
+  // until a fresh snapshot can establish a safe checkpoint.
+  const guarded = <Args extends unknown[]>(handler: (sid: string, ...args: Args) => void) =>
+    (sid: string, ...args: Args) => { if (usesLegacySessionEvents(claude, sid)) handler(sid, ...args) }
+
+  unsubs.push(claude.onMessage(guarded((sid, msg) => useClaudeStore.getState().handleMessage(sid, msg))))
+  unsubs.push(claude.onToolUse(guarded((sid, tool) => useClaudeStore.getState().handleToolUse(sid, tool))))
+  unsubs.push(claude.onToolResult(guarded((sid, result) => useClaudeStore.getState().handleToolResult(sid, result))))
+  unsubs.push(claude.onStream(guarded((sid, data) => useClaudeStore.getState().handleStream(sid, data))))
+  unsubs.push(claude.onResult(guarded((sid, result) => useClaudeStore.getState().handleResult(sid, result))))
+  unsubs.push(claude.onTurnEnd(guarded((sid) => useClaudeStore.getState().handleTurnEnd(sid))))
+  unsubs.push(claude.onError(guarded((sid, error) => useClaudeStore.getState().handleError(sid, error))))
+  unsubs.push(claude.onStatus(guarded((sid, meta) => useClaudeStore.getState().handleStatus(sid, meta))))
+  unsubs.push(claude.onPermissionRequest(guarded((sid, data) => useClaudeStore.getState().handlePermissionRequest(sid, data))))
+  unsubs.push(claude.onPermissionResolved(guarded((sid, toolUseId) => useClaudeStore.getState().handlePermissionResolved(sid, toolUseId))))
+  unsubs.push(claude.onAskUser(guarded((sid, data) => useClaudeStore.getState().handleAskUser(sid, data))))
+  unsubs.push(claude.onAskUserResolved(guarded((sid, toolUseId) => useClaudeStore.getState().handleAskUserResolved(sid, toolUseId))))
+  // Full transcripts may exceed the replay retention/frame budget, and the
+  // runtime snapshot only contains a tail. History replacement is idempotent;
+  // always keep this established delivery path even for sequenced clients.
   unsubs.push(claude.onHistory((sid, items) => useClaudeStore.getState().handleHistory(sid, items)))
-  unsubs.push(claude.onModeChange((sid, mode) => useClaudeStore.getState().handleModeChange(sid, mode)))
-  unsubs.push(claude.onPromptSuggestion((sid, sug) => useClaudeStore.getState().handlePromptSuggestion(sid, sug)))
-  unsubs.push(claude.onSessionReset((sid) => useClaudeStore.getState().handleSessionReset(sid)))
+  unsubs.push(claude.onModeChange(guarded((sid, mode) => useClaudeStore.getState().handleModeChange(sid, mode))))
+  unsubs.push(claude.onPromptSuggestion(guarded((sid, sug) => useClaudeStore.getState().handlePromptSuggestion(sid, sug))))
+  unsubs.push(claude.onSessionReset(guarded((sid) => useClaudeStore.getState().handleSessionReset(sid))))
   unsubs.push(claude.onUsage((snapshot) => useUsageStore.getState().applyHostSnapshot(snapshot)))
 
   return () => {

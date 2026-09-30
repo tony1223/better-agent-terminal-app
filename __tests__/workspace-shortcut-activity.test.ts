@@ -3,6 +3,8 @@ import { subscribeWorkspaceShortcutActivity, workspaceActivityKey } from '../src
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
 import { useClaudeStore } from '../src/stores/claude-store'
+import { useWorkspaceBrowserStore } from '../src/stores/workspace-browser-store'
+import { workspaceShortcutServerKey } from '../src/stores/connection-store'
 
 const target = (profileId: string, workspaceId = 'w') => ({ profileId, workspaceId })
 const terminal = (id: string, workspaceId = 'w', agentPreset = 'codex-agent') => ({ id, workspaceId, agentPreset })
@@ -66,6 +68,39 @@ test('unopened profiles with identical session IDs have independent running coun
   expect(useClaudeStore.getState().sessions).toEqual({})
   expect(invoke.mock.calls.map(([channel]) => channel)).toEqual(['profile:open', 'profile:close', 'profile:open', 'profile:close'])
   expect(read.mock.calls.every(([, channel]) => ['workspace:load', 'agent:get-session-meta'].includes(channel))).toBe(true)
+})
+
+test('new-version summary uses one root RPC without opening mobile profile contexts', async () => {
+  useConnectionStore.setState({ host: 'test-host', port: 9876 })
+  client.supportsMobileSync = true
+  invoke.mockResolvedValue({ profiles: [{ profileId: 'a', profileName: 'A', status: 'ready', workspaces: [{ workspaceId: 'w', name: 'repo', folderPath: '/repo', total: 2, working: 1, statusKnown: true, lastDataAt: 100 }] }] })
+  subscription = subscribeWorkspaceShortcutActivity([target('a')], onSummary)
+  await flush()
+  expect(invoke.mock.calls).toEqual([['workspace:summary', { targets: [target('a')] }]])
+  expect(client.scoped).not.toHaveBeenCalled()
+  expect(onSummary).toHaveBeenCalledWith(workspaceActivityKey(target('a')), { total: 2, working: 1, lastDataAt: 100 })
+  const server = workspaceShortcutServerKey(useConnectionStore.getState())!
+  expect(useWorkspaceBrowserStore.getState().servers[server].catalog.a).toEqual(expect.arrayContaining([expect.objectContaining({ profileId: 'a', workspaceId: 'w' })]))
+})
+
+test('unknown status never becomes a fake idle badge', async () => {
+  client.supportsMobileSync = true
+  invoke.mockResolvedValue({ profiles: [{ profileId: 'a', profileName: 'A', status: 'ready', workspaces: [{ workspaceId: 'w', name: 'repo', folderPath: '/repo', total: 2, working: 0, statusKnown: false }] }] })
+  subscription = subscribeWorkspaceShortcutActivity([target('a')], onSummary)
+  await flush()
+  expect(onSummary).not.toHaveBeenCalled()
+})
+
+test('unavailable new summary retains the old query path without an upstream version probe', async () => {
+  client.supportsMobileSync = true
+  invoke.mockImplementation(async (channel, params) => {
+    if (channel === 'workspace:summary') throw new Error('unavailable')
+    return channel === 'profile:open' ? { contextId: `ctx-${params.profileId}`, profileId: params.profileId, status: 'ready' } : { ok: true }
+  })
+  subscription = subscribeWorkspaceShortcutActivity([target('a')], onSummary)
+  await flush()
+  expect(invoke.mock.calls.map(([channel]) => channel)).toEqual(['workspace:summary', 'profile:open', 'profile:close'])
+  expect(onSummary).toHaveBeenCalledWith(workspaceActivityKey(target('a')), { total: 1, working: 1 })
 })
 
 test('groups shortcuts in one profile and reads only their agent metadata', async () => {

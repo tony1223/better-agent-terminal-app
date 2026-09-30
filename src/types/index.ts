@@ -291,6 +291,8 @@ export function isToolCall(item: ClaudeMessage | ClaudeToolCall): item is Claude
 // ============================================
 
 export interface SessionMeta {
+  effortLevel?: string | null
+  effort?: string | null
   /** Host-owned turn activity (Codex includes this even between output frames). */
   isStreaming?: boolean
   /** Host epoch milliseconds of the last output; null means none recorded. */
@@ -319,6 +321,8 @@ export interface SessionMeta {
 }
 
 export interface SessionStateSnapshot {
+  pendingPermission?: PermissionRequest | null
+  pendingAskUser?: AskUserRequest | null
   sessionId?: string
   messages?: (ClaudeMessage | ClaudeToolCall)[]
   isStreaming?: boolean

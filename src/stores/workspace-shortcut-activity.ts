@@ -3,6 +3,8 @@ import { createChannels } from '@/api/channels'
 import { isSdkAgentSession, type TerminalInstance } from '@/types'
 import { isActiveRuntimeStatus } from '@/utils/session-status'
 import { useConnectionStore, type ProfileContext } from './connection-store'
+import { workspaceShortcutServerKey } from './connection-store'
+import { useWorkspaceBrowserStore } from './workspace-browser-store'
 
 export interface WorkspaceActivityTarget {
   profileId: string
@@ -12,6 +14,7 @@ export interface WorkspaceActivityTarget {
 export interface WorkspaceActivitySummary {
   total: number
   working: number
+  lastDataAt?: number | null
 }
 
 export const workspaceActivityKey = (target: WorkspaceActivityTarget) =>
@@ -42,6 +45,30 @@ export function subscribeWorkspaceShortcutActivity(
   }
 
   async function sweep() {
+    if (client?.supportsMobileSync) {
+      try {
+        const reply = await client.invokeParams<{ profiles: Array<{ profileId: string; profileName: string; status: string;
+          workspaces: Array<{ workspaceId: string; name: string; folderPath: string; total: number; working: number; statusKnown: boolean; lastDataAt: number | null }> }> }>('workspace:summary', { targets })
+        if (!isCurrent()) return
+        if (!Array.isArray(reply?.profiles)) throw new Error('Invalid workspace summary')
+        const serverKey = workspaceShortcutServerKey(useConnectionStore.getState())
+        for (const profile of reply.profiles) {
+          if (profile.status !== 'ready' || !Array.isArray(profile.workspaces)) continue
+          if (serverKey && typeof profile.profileId === 'string' && typeof profile.profileName === 'string') {
+            const valid = profile.workspaces.every(row => typeof row.workspaceId === 'string' && typeof row.name === 'string' && typeof row.folderPath === 'string')
+            if (valid) useWorkspaceBrowserStore.getState().remember(serverKey, profile.profileId, profile.profileName,
+              profile.workspaces.map(row => ({ id: row.workspaceId, name: row.name, folderPath: row.folderPath, createdAt: 0 })))
+          }
+          for (const row of profile.workspaces) {
+            if (!groups.get(profile.profileId)?.has(row.workspaceId) || !row.statusKnown ||
+              !Number.isInteger(row.total) || !Number.isInteger(row.working) || row.total < 0 || row.working < 0 || row.working > row.total) continue
+            onSummary(workspaceActivityKey({ profileId: profile.profileId, workspaceId: row.workspaceId }),
+              { total: row.total, working: row.working, lastDataAt: row.lastDataAt })
+          }
+        }
+        return
+      } catch { /* Preserve old query path on unavailable summary; never replace it with fake idle. */ }
+    }
     if (!client?.supportsProfileContext) return
     for (const [profileId, workspaceIds] of groups) {
       if (!isCurrent()) return
@@ -91,7 +118,7 @@ export function subscribeWorkspaceShortcutActivity(
   }
 
   function refresh(): Promise<void> {
-    if (!isCurrent() || !client?.supportsProfileContext || groups.size === 0) return Promise.resolve()
+    if (!isCurrent() || (!client?.supportsMobileSync && (!client?.supportsProfileContext || groups.size === 0))) return Promise.resolve()
     if (inFlight) { refreshAgain = true; return inFlight }
     if (timer) clearTimeout(timer)
     inFlight = sweep().finally(() => {

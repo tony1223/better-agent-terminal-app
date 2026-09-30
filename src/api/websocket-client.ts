@@ -17,6 +17,7 @@ import {
 } from './protocol'
 import { TLSWebSocket } from '@/native/tls-websocket'
 import { dlog } from '@/utils/debug-log'
+import { supportsMobileSync } from '@/utils/host-version'
 
 export type ConnectionStatus =
   | 'disconnected'
@@ -120,7 +121,7 @@ function isRemoteMethodNotFound(error: Error): boolean {
   return /method not found/i.test(error.message)
 }
 
-function eventParamsToArgs(channel: string, params: unknown): unknown[] {
+export function eventParamsToArgs(channel: string, params: unknown): unknown[] {
   if (Array.isArray(params)) return params
   const record = asRecord(params)
   if (!record) return params === undefined ? [] : [params]
@@ -199,6 +200,9 @@ export class WebSocketClient {
   private _error: string | null = null
   private protocol: RemoteProtocol = REMOTE_PROTOCOL_LEGACY_V1
   private capabilities: Record<string, unknown> = {}
+  serverVersion: string | null = null
+
+  get supportsMobileSync(): boolean { return supportsMobileSync(this.serverVersion) }
 
   get supportsProfileContext(): boolean {
     return this.protocol === REMOTE_PROTOCOL_V2 && this.capabilities.profileContext === 1
@@ -446,6 +450,7 @@ export class WebSocketClient {
                 dlog('WS', `auth success, connected! protocol=${this.protocol} compression=${this.compression}`)
                 this.sessionEstablished = true
                 this.capabilities = frame.capabilities ?? {}
+                this.serverVersion = typeof frame.serverVersion === 'string' ? frame.serverVersion : null
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -481,7 +486,7 @@ export class WebSocketClient {
 
           if (frame.type === 'event' && frame.channel) {
             const channel = canonicalRemoteChannel(frame.channel)
-            if (!PROXIED_EVENTS.has(frame.channel) && !PROXIED_EVENTS.has(channel) && channel !== 'profile:status') return
+            if (!PROXIED_EVENTS.has(frame.channel) && !PROXIED_EVENTS.has(channel) && channel !== 'profile:status' && channel !== 'agent:sync-event') return
             const handlers = this.listeners.get(frame.contextId ? `${frame.contextId}/${channel}` : channel)
             if (handlers) {
               const args = frame.params !== undefined
