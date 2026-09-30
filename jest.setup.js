@@ -1,5 +1,7 @@
 /* global jest */
 
+jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 56 }));
+
 jest.mock('react-native-gesture-handler', () => {
   const React = require('react');
   return {

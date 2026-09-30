@@ -2,8 +2,23 @@
  * TerminalScreen - Full-screen terminal with WebView + xterm.js
  */
 
-import React, { useRef, useEffect, useCallback, useLayoutEffect, useState } from 'react'
-import { View, StyleSheet, TouchableOpacity, Text, TextInput } from 'react-native'
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useState,
+} from 'react'
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Text,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native'
+import { useHeaderHeight } from '@react-navigation/elements'
 import { WebView } from 'react-native-webview'
 import type { WebViewMessageEvent } from 'react-native-webview'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -16,14 +31,17 @@ import { TerminalToolbar } from '@/components/terminal/TerminalToolbar'
 import { terminalHtml } from '@/components/terminal/terminal-html'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
-import { HIDDEN_TAB_BAR_STYLE, MAIN_TAB_BAR_STYLE } from '@/navigation/tabBarStyle'
+import {
+  HIDDEN_TAB_BAR_STYLE,
+  MAIN_TAB_BAR_STYLE,
+} from '@/navigation/tabBarStyle'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import type { TerminalViewportState } from '@/types'
 
 type Props = NativeStackScreenProps<any, 'Terminal'>
 const MOBILE_TERMINAL_COLS = 56
 const MOBILE_TERMINAL_ROWS = 24
-const TERMINAL_REPLAY_TIMEOUT_MS = 1500
+const TERMINAL_REPLAY_TIMEOUT_MS = 8000
 const DEFAULT_VIEWPORT_STATE: TerminalViewportState = {
   mode: 'desktop',
   cols: 100,
@@ -35,7 +53,10 @@ const DEFAULT_VIEWPORT_STATE: TerminalViewportState = {
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Timed out waiting for terminal replay')), timeoutMs)
+    timer = setTimeout(
+      () => reject(new Error('Timed out waiting for terminal replay')),
+      timeoutMs,
+    )
   })
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) clearTimeout(timer)
@@ -47,8 +68,11 @@ export function TerminalScreen({ route, navigation }: Props) {
   const terminalId = route.params?.terminalId as string
   const webViewRef = useRef<WebView>(null)
   const insets = useSafeAreaInsets()
+  const headerHeight = useHeaderHeight()
   const channels = useConnectionStore(s => s.channels)
-  const terminal = useWorkspaceStore(s => s.terminals.find(item => item.id === terminalId))
+  const terminal = useWorkspaceStore(s =>
+    s.terminals.find(item => item.id === terminalId),
+  )
   const loadStatus = useWorkspaceStore(s => s.loadStatus)
   const workspace = useWorkspaceStore(s => {
     const term = s.terminals.find(item => item.id === terminalId)
@@ -61,7 +85,12 @@ export function TerminalScreen({ route, navigation }: Props) {
   const bufferReplayedRef = useRef(false)
   const focusedOnceRef = useRef(false)
   const deferredOutputRef = useRef('')
-  const [viewportState, setViewportState] = useState<TerminalViewportState>(DEFAULT_VIEWPORT_STATE)
+  const renderedBufferRef = useRef(false)
+  const sendingCommandRef = useRef(false)
+  const commandValueRef = useRef('')
+  const [viewportState, setViewportState] = useState<TerminalViewportState>(
+    DEFAULT_VIEWPORT_STATE,
+  )
   const [keyboardFocused, setKeyboardFocused] = useState(false)
   const [keyboardCaptureValue, setKeyboardCaptureValue] = useState('')
   const viewportStateRef = useRef<TerminalViewportState>(DEFAULT_VIEWPORT_STATE)
@@ -79,11 +108,15 @@ export function TerminalScreen({ route, navigation }: Props) {
             onPress={() => navigation.goBack()}
             style={styles.headerButton}
           >
-            <Text style={styles.headerButtonText}>{t('terminal.sessions')}</Text>
+            <Text style={styles.headerButtonText}>
+              {t('terminal.sessions')}
+            </Text>
           </TouchableOpacity>
           {terminal?.agentPreset === 'claude-code' && (
             <TouchableOpacity
-              onPress={() => navigation.navigate('Claude', { sessionId: terminalId })}
+              onPress={() =>
+                navigation.navigate('Claude', { sessionId: terminalId })
+              }
               style={styles.headerButton}
             >
               <Text style={styles.headerButtonText}>
@@ -96,10 +129,14 @@ export function TerminalScreen({ route, navigation }: Props) {
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {workspace?.alias || workspace?.name || t('terminal.workspaceFallback')}
+            {workspace?.alias ||
+              workspace?.name ||
+              t('terminal.workspaceFallback')}
           </Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {terminal?.alias || terminal?.title || t('terminal.terminalFallback')}
+            {terminal?.alias ||
+              terminal?.title ||
+              t('terminal.terminalFallback')}
           </Text>
         </View>
       ),
@@ -128,7 +165,7 @@ export function TerminalScreen({ route, navigation }: Props) {
       // Escape for JSON string embedding
       const escaped = JSON.stringify(data)
       webViewRef.current.injectJavaScript(
-        `window.handleOutput(${escaped}); true;`
+        `window.handleOutput(${escaped}); true;`,
       )
     }
     flushTimerRef.current = null
@@ -137,7 +174,7 @@ export function TerminalScreen({ route, navigation }: Props) {
   const writeToTerminal = useCallback((data: string) => {
     if (!webViewRef.current) return
     webViewRef.current.injectJavaScript(
-      `window.handleOutput(${JSON.stringify(data)}); true;`
+      `window.handleOutput(${JSON.stringify(data)}); true;`,
     )
   }, [])
 
@@ -145,19 +182,32 @@ export function TerminalScreen({ route, navigation }: Props) {
     if (!channels || bufferReplayedRef.current) return
 
     let replay = ''
+    let fetched = false
     try {
-      replay = await withTimeout(channels.pty.readBuffer(terminalId), TERMINAL_REPLAY_TIMEOUT_MS)
+      replay = await withTimeout(
+        channels.pty.readBuffer(terminalId),
+        TERMINAL_REPLAY_TIMEOUT_MS,
+      )
+      fetched = true
     } catch {
-      replay = Array.isArray(terminal?.scrollbackBuffer)
-        ? terminal.scrollbackBuffer.join('')
-        : ''
+      const cached = useWorkspaceStore
+        .getState()
+        .terminals.find(item => item.id === terminalId)?.scrollbackBuffer
+      replay = Array.isArray(cached) ? cached.join('') : ''
     }
 
+    if (useConnectionStore.getState().channels !== channels) return
     const deferred = deferredOutputRef.current
     deferredOutputRef.current = ''
-    if (replay) {
+    if (fetched && renderedBufferRef.current) {
+      webViewRef.current?.injectJavaScript(
+        'window.clearTerminal && window.clearTerminal(); true;',
+      )
+    }
+    if (replay && (fetched || !renderedBufferRef.current)) {
       writeToTerminal(replay)
     }
+    renderedBufferRef.current = true
     bufferReplayedRef.current = true
 
     // If live events arrived while the replay RPC was in flight, only write
@@ -165,12 +215,12 @@ export function TerminalScreen({ route, navigation }: Props) {
     if (deferred && (!replay || !replay.endsWith(deferred))) {
       writeToTerminal(deferred)
     }
-  }, [channels, terminal, terminalId, writeToTerminal])
+  }, [channels, terminalId, writeToTerminal])
 
   // Re-pull the host's PTY buffer when the screen regains focus so the terminal
   // recovers any output it missed while backgrounded (e.g. across a WebSocket
-  // reconnect). The xterm is reset first so the re-fetched scrollback doesn't
-  // stack on top of the existing one — this causes a brief redraw flicker.
+  // reconnect). Keep the existing view until a fresh buffer arrives, then
+  // replace it so reconnect doesn't stack a second copy of the scrollback.
   const refreshTerminalBuffer = useCallback(async () => {
     if (!channels || !webViewRef.current) return
     // Let the initial mount replay finish before re-pulling.
@@ -179,7 +229,6 @@ export function TerminalScreen({ route, navigation }: Props) {
       clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
     }
-    webViewRef.current.injectJavaScript('window.clearTerminal && window.clearTerminal(); true;')
     bufferReplayedRef.current = false
     deferredOutputRef.current = ''
     outputBufferRef.current = ''
@@ -190,38 +239,53 @@ export function TerminalScreen({ route, navigation }: Props) {
     viewportStateRef.current = state
     setViewportState(state)
     webViewRef.current?.injectJavaScript(
-      `window.handleViewportState(${JSON.stringify(state)}); true;`
+      `window.handleViewportState(${JSON.stringify(state)}); true;`,
     )
   }, [])
 
   const ensurePty = useCallback(async () => {
-    if (!channels || !terminal || ptyCreateStartedRef.current) return
+    const target = useWorkspaceStore
+      .getState()
+      .terminals.find(item => item.id === terminalId)
+    if (!channels || !target || ptyCreateStartedRef.current) return
     if (!terminalReadyRef.current) return
     ptyCreateStartedRef.current = true
 
     try {
       await channels.pty.create({
         id: terminalId,
-        cwd: terminal.cwd,
+        cwd: target.cwd,
         type: 'terminal',
-        agentPreset: terminal.agentPreset,
+        agentPreset: target.agentPreset,
       })
     } catch (e) {
+      if (useConnectionStore.getState().channels !== channels) return
       const message = String(e)
       if (!message.includes('already exists')) {
+        ptyCreateStartedRef.current = false
         writeToTerminal(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
         return
       }
     }
 
+    if (useConnectionStore.getState().channels !== channels) return
+
     try {
       const state = await channels.pty.getViewportState(terminalId)
+      if (useConnectionStore.getState().channels !== channels) return
       applyViewportState(state)
     } catch {
+      if (useConnectionStore.getState().channels !== channels) return
       applyViewportState(DEFAULT_VIEWPORT_STATE)
     }
     await replayTerminalBuffer()
-  }, [applyViewportState, channels, replayTerminalBuffer, terminal, terminalId, writeToTerminal])
+  }, [
+    applyViewportState,
+    channels,
+    replayTerminalBuffer,
+    terminalId,
+    writeToTerminal,
+  ])
 
   // Subscribe to PTY output
   useEffect(() => {
@@ -252,7 +316,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     bufferReplayedRef.current = false
     deferredOutputRef.current = ''
     outputBufferRef.current = ''
-  }, [terminalId])
+  }, [terminalId, channels])
 
   useEffect(() => {
     if (!channels) return
@@ -263,34 +327,48 @@ export function TerminalScreen({ route, navigation }: Props) {
   }, [applyViewportState, channels, terminalId])
 
   // Handle messages from WebView
-  const handleMessage = useCallback((event: WebViewMessageEvent) => {
-    if (!channels || !terminal) return
+  const handleMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      if (!channels || !terminal) return
 
-    try {
-      const msg = JSON.parse(event.nativeEvent.data)
-      switch (msg.type) {
-        case 'input':
-          channels.pty.write(terminalId, msg.data)
-            .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
-          break
-        case 'resize':
-          sizeRef.current = { cols: msg.cols, rows: msg.rows }
-          if (viewportStateRef.current.mode === 'mobile') {
-            channels.pty.setViewportSize(terminalId, msg.cols, msg.rows, 'mobile')
-              .then(applyViewportState)
-              .catch(() => {})
-          }
-          break
-        case 'ready':
-          terminalReadyRef.current = true
-          ensurePty()
-          applyViewportState(viewportStateRef.current)
-          break
+      try {
+        const msg = JSON.parse(event.nativeEvent.data)
+        switch (msg.type) {
+          case 'input':
+            channels.pty
+              .write(terminalId, msg.data)
+              .catch(e =>
+                writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`),
+              )
+            break
+          case 'resize':
+            sizeRef.current = { cols: msg.cols, rows: msg.rows }
+            if (viewportStateRef.current.mode === 'mobile') {
+              channels.pty
+                .setViewportSize(terminalId, msg.cols, msg.rows, 'mobile')
+                .then(applyViewportState)
+                .catch(() => {})
+            }
+            break
+          case 'ready':
+            terminalReadyRef.current = true
+            ensurePty()
+            applyViewportState(viewportStateRef.current)
+            break
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, [applyViewportState, channels, terminal, terminalId, ensurePty, writeToTerminal])
+    },
+    [
+      applyViewportState,
+      channels,
+      terminal,
+      terminalId,
+      ensurePty,
+      writeToTerminal,
+    ],
+  )
 
   useEffect(() => {
     ensurePty()
@@ -304,51 +382,76 @@ export function TerminalScreen({ route, navigation }: Props) {
         focusedOnceRef.current = true
         return
       }
-      refreshTerminalBuffer()
-    }, [refreshTerminalBuffer]),
+      if (!ptyCreateStartedRef.current) void ensurePty()
+      else void refreshTerminalBuffer()
+    }, [ensurePty, refreshTerminalBuffer]),
   )
 
   // Send special key from toolbar
-  const handleSpecialKey = useCallback((data: string) => {
-    if (!channels || !terminal) return
-    channels.pty.write(terminalId, data)
-      .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
-    if (keyboardFocused) {
-      setTimeout(() => keyboardInputRef.current?.focus(), 0)
-    }
-  }, [channels, keyboardFocused, terminal, terminalId, writeToTerminal])
+  const handleSpecialKey = useCallback(
+    (data: string) => {
+      if (!channels || !terminal) return
+      if (data === '\r' && sendingCommandRef.current) return
+      const pending = commandValueRef.current
+      const output = data === '\r' && pending ? `${pending}\r` : data
+      if (data === '\r') sendingCommandRef.current = true
+      channels.pty
+        .write(terminalId, output)
+        .then(() => {
+          if (data === '\r' && commandValueRef.current === pending) {
+            commandValueRef.current = ''
+            setKeyboardCaptureValue('')
+          }
+        })
+        .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
+        .finally(() => {
+          if (data === '\r') sendingCommandRef.current = false
+        })
+      if (keyboardFocused) {
+        setTimeout(() => keyboardInputRef.current?.focus(), 0)
+      }
+    },
+    [channels, keyboardFocused, terminal, terminalId, writeToTerminal],
+  )
 
-  const sendKeyboardInput = useCallback((data: string) => {
-    if (!channels || !terminal || !data) return
-    channels.pty.write(terminalId, data)
-      .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
-  }, [channels, terminal, terminalId, writeToTerminal])
+  const sendKeyboardInput = useCallback(
+    (data: string) => {
+      if (!channels || !terminal || !data) return
+      channels.pty
+        .write(terminalId, data)
+        .catch(e => writeToTerminal(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`))
+    },
+    [channels, terminal, terminalId, writeToTerminal],
+  )
 
   const handleKeyboardText = useCallback((text: string) => {
-    if (!text) {
-      setKeyboardCaptureValue('')
-      return
-    }
-    sendKeyboardInput(text.replace(/\n/g, '\r'))
-    setKeyboardCaptureValue('')
-  }, [sendKeyboardInput])
+    // Keep native composition intact (including Chinese IME / paste). Send
+    // the complete command on Enter rather than clearing every keystroke.
+    commandValueRef.current = text
+    setKeyboardCaptureValue(text)
+  }, [])
 
-  const handleKeyboardKeyPress = useCallback((event: { nativeEvent: { key: string } }) => {
-    if (event.nativeEvent.key === 'Backspace') {
-      sendKeyboardInput('\x7f')
-    }
-  }, [sendKeyboardInput])
+  const handleKeyboardKeyPress = useCallback(
+    (event: { nativeEvent: { key: string } }) => {
+      if (event.nativeEvent.key === 'Backspace' && !keyboardCaptureValue) {
+        sendKeyboardInput('\x7f')
+      }
+    },
+    [sendKeyboardInput, keyboardCaptureValue],
+  )
 
   const focusKeyboard = useCallback(() => {
     keyboardInputRef.current?.focus()
-    webViewRef.current?.injectJavaScript('window.focusTerminal && window.focusTerminal(); true;')
+    // Focusing xterm here steals focus from the native keyboard proxy.
   }, [])
 
   const handleViewportToggle = useCallback(async () => {
     if (!channels || !terminal) return
     try {
       if (viewportStateRef.current.mode === 'mobile') {
-        const next = await channels.pty.setViewportMode(terminalId, 'desktop', { source: 'mobile' })
+        const next = await channels.pty.setViewportMode(terminalId, 'desktop', {
+          source: 'mobile',
+        })
         applyViewportState(next)
         return
       }
@@ -366,77 +469,133 @@ export function TerminalScreen({ route, navigation }: Props) {
   const isMobileLayout = viewportState.mode === 'mobile'
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={headerHeight}
+    >
       <SessionContextBar
         workspaceId={terminal?.workspaceId}
         detail={terminal?.cwd}
       />
-      <SessionWorkspaceTabs sessionId={terminalId} cwd={terminal?.cwd || workspace?.folderPath}>
-      <View style={styles.viewportBar}>
-        <Text style={styles.viewportLabel}>{t('terminal.layoutLabel')}</Text>
-        <View style={styles.segmented}>
+      <SessionWorkspaceTabs
+        sessionId={terminalId}
+        cwd={terminal?.cwd || workspace?.folderPath}
+      >
+        <View style={styles.viewportBar}>
+          <Text style={styles.viewportLabel}>{t('terminal.layoutLabel')}</Text>
+          <View style={styles.segmented}>
+            <TouchableOpacity
+              style={[styles.segment, !isMobileLayout && styles.segmentActive]}
+              onPress={() => {
+                if (isMobileLayout) handleViewportToggle()
+              }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  !isMobileLayout && styles.segmentTextActive,
+                ]}
+              >
+                {t('terminal.layoutDesktop')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segment, isMobileLayout && styles.segmentActive]}
+              onPress={() => {
+                if (!isMobileLayout) handleViewportToggle()
+              }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  isMobileLayout && styles.segmentTextActive,
+                ]}
+              >
+                {t('terminal.layoutMobile')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <WebView
+          ref={webViewRef}
+          source={{ html: terminalHtml }}
+          style={styles.webview}
+          onMessage={handleMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          originWhitelist={['*']}
+          scrollEnabled={false}
+          bounces={false}
+          keyboardDisplayRequiresUserAction={false}
+          hideKeyboardAccessoryView={false}
+          autoManageStatusBarEnabled={false}
+        />
+        <View style={styles.commandBar}>
+          <TextInput
+            ref={keyboardInputRef}
+            value={keyboardCaptureValue}
+            onChangeText={handleKeyboardText}
+            onKeyPress={handleKeyboardKeyPress}
+            onFocus={() => setKeyboardFocused(true)}
+            onBlur={() => setKeyboardFocused(false)}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t('terminal.commandPlaceholder')}
+            placeholderTextColor={appColors.textMuted}
+            accessibilityLabel={t('terminal.commandPlaceholder')}
+            onSubmitEditing={() => {
+              handleSpecialKey('\r')
+              keyboardInputRef.current?.focus()
+            }}
+            blurOnSubmit={false}
+            style={styles.commandInput}
+          />
           <TouchableOpacity
-            style={[styles.segment, !isMobileLayout && styles.segmentActive]}
-            onPress={() => { if (isMobileLayout) handleViewportToggle() }}
-            activeOpacity={0.8}
+            testID="terminal-send-command"
+            style={styles.commandSend}
+            onPress={() => handleSpecialKey('\r')}
           >
-            <Text style={[styles.segmentText, !isMobileLayout && styles.segmentTextActive]}>
-              {t('terminal.layoutDesktop')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.segment, isMobileLayout && styles.segmentActive]}
-            onPress={() => { if (!isMobileLayout) handleViewportToggle() }}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.segmentText, isMobileLayout && styles.segmentTextActive]}>
-              {t('terminal.layoutMobile')}
-            </Text>
+            <Text style={{ color: appColors.accent }}>↵</Text>
           </TouchableOpacity>
         </View>
-      </View>
-      <WebView
-        ref={webViewRef}
-        source={{ html: terminalHtml }}
-        style={styles.webview}
-        onMessage={handleMessage}
-        javaScriptEnabled
-        domStorageEnabled
-        originWhitelist={['*']}
-        scrollEnabled={false}
-        bounces={false}
-        keyboardDisplayRequiresUserAction={false}
-        hideKeyboardAccessoryView={false}
-        autoManageStatusBarEnabled={false}
-      />
-      <TextInput
-        ref={keyboardInputRef}
-        value={keyboardCaptureValue}
-        onChangeText={handleKeyboardText}
-        onKeyPress={handleKeyboardKeyPress}
-        onFocus={() => setKeyboardFocused(true)}
-        onBlur={() => setKeyboardFocused(false)}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="off"
-        spellCheck={false}
-        multiline
-        caretHidden
-        style={styles.keyboardCapture}
-      />
-      <View style={[styles.toolbarFrame, { paddingBottom: insets.bottom }]}>
-        <TerminalToolbar
-          onKey={handleSpecialKey}
-          onKeyboardPress={focusKeyboard}
-          keyboardActive={keyboardFocused}
-        />
-      </View>
+        <View style={[styles.toolbarFrame, { paddingBottom: insets.bottom }]}>
+          <TerminalToolbar
+            onKey={handleSpecialKey}
+            onKeyboardPress={focusKeyboard}
+            keyboardActive={keyboardFocused}
+          />
+        </View>
       </SessionWorkspaceTabs>
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 
 const styles = StyleSheet.create({
+  commandBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: appColors.surface,
+    borderTopWidth: 1,
+    borderColor: appColors.border,
+  },
+  commandInput: {
+    flex: 1,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    color: appColors.text,
+    fontSize: fontSize.md,
+  },
+  commandSend: {
+    minWidth: 48,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#1f1d1a',
@@ -447,14 +606,6 @@ const styles = StyleSheet.create({
   },
   toolbarFrame: {
     backgroundColor: appColors.surface,
-  },
-  keyboardCapture: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-    left: -10,
-    bottom: 0,
   },
   viewportBar: {
     flexDirection: 'row',
