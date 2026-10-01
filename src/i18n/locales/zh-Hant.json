@@ -448,8 +448,6 @@
     }
   },
   "claude": {
-    "interruptKey": "以 {{key}} 中斷目前工作",
-    "interruptFailed": "無法中斷工作階段",
     "defaultTitle": "Claude",
     "defaultWorkspace": "工作區",
     "errors": {

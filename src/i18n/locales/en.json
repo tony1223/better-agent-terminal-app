@@ -448,8 +448,6 @@
     }
   },
   "claude": {
-    "interruptKey": "Interrupt the current turn with {{key}}",
-    "interruptFailed": "Unable to interrupt session",
     "defaultTitle": "Claude",
     "defaultWorkspace": "Workspace",
     "errors": {

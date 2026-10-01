@@ -1214,12 +1214,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [channels, sessionId])
 
-  const handleForceInterrupt = useCallback(async () => {
-    if (!channels) return
-    try { await channels.claude.abortSession(sessionId) }
-    catch (error) { Alert.alert(t('claude.interruptFailed'), String(error)) }
-  }, [channels, sessionId, t])
-
   const handleNewSession = useCallback(async () => {
     if (!terminal?.workspaceId || newSessionInFlight.current || !channels) return
     newSessionInFlight.current = true
@@ -1717,14 +1711,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
             ))}
           </ScrollView>
         )}
-
-        <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md }}>
-          {['Ctrl+C', 'Esc'].map(key => <TouchableOpacity key={key} testID={`chat-interrupt-${key}`} accessibilityRole="button"
-            accessibilityLabel={t('claude.interruptKey', { key })} disabled={connectionStatus !== 'connected'} onPress={handleForceInterrupt}
-            style={{ minHeight: 44, minWidth: 60, justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ color: appColors.error }}>{key}</Text>
-          </TouchableOpacity>)}
-        </View>
 
         {/* Input row */}
         <View style={styles.inputBar}>

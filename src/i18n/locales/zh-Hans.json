@@ -448,8 +448,6 @@
     }
   },
   "claude": {
-    "interruptKey": "用 {{key}} 中断当前工作",
-    "interruptFailed": "无法中断会话",
     "defaultTitle": "Claude",
     "defaultWorkspace": "工作区",
     "errors": {
