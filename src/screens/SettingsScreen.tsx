@@ -2,7 +2,7 @@
  * SettingsScreen - Connection info, profile, hosts, appearance, debug
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -29,11 +29,12 @@ import {
 import { appVersionLabel } from '@/native/app-info'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import {
-  getDebugLogText,
   clearDebugLogs,
   isDebugMode,
   setDebugMode,
 } from '@/utils/debug-log'
+import { getDiagnosticLogText, uploadDiagnosticReport } from '@/utils/diagnostic-report'
+import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets()
@@ -49,6 +50,26 @@ export function SettingsScreen() {
 
   const [debugEnabled, setDebugEnabled] = useState(isDebugMode)
   const [showLogViewer, setShowLogViewer] = useState(false)
+  const [uploadingLogs, setUploadingLogs] = useState(false)
+  const [uploadedLog, setUploadedLog] = useState<{ host: string; path: string } | null>(null)
+  const uploadInFlight = useRef(false)
+
+  const handleUploadLogs = async () => {
+    if (uploadInFlight.current) return
+    uploadInFlight.current = true
+    setUploadingLogs(true)
+    setUploadedLog(null)
+    const destination = `${host}:${port}`
+    try {
+      const path = await uploadDiagnosticReport()
+      setUploadedLog({ host: destination, path })
+    } catch (error) {
+      Alert.alert(t('settings.uploadLogsFailed'), String(error))
+    } finally {
+      uploadInFlight.current = false
+      setUploadingLogs(false)
+    }
+  }
 
   const handleDisconnect = () => {
     Alert.alert(
@@ -149,16 +170,40 @@ export function SettingsScreen() {
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
-              const logs = getDebugLogText()
+              const logs = getDiagnosticLogText()
               Share.share({ message: logs, title: t('settings.shareLogsTitle') })
             }}
           >
             <Text style={[styles.actionText, { color: appColors.info }]}>{t('settings.shareLogs')}</Text>
           </TouchableOpacity>
+          <Text style={styles.switchHint}>{t('settings.uploadLogsHint')}</Text>
+          <TouchableOpacity
+            style={styles.actionRow}
+            disabled={uploadingLogs || status !== 'connected'}
+            onPress={handleUploadLogs}
+          >
+            {uploadingLogs && <ActivityIndicator color={appColors.accent} />}
+            <Text style={[styles.actionText, { color: status === 'connected' ? appColors.accent : appColors.textSecondary }]}>
+              {uploadingLogs ? t('settings.uploadingLogs') : t('settings.uploadLogs')}
+            </Text>
+          </TouchableOpacity>
+          {status !== 'connected' && <Text style={styles.switchHint}>{t('settings.notConnected')}</Text>}
+          {uploadedLog && (
+            <View>
+              <Text style={styles.switchHint}>{t('settings.uploadLogsDone', { host: uploadedLog.host })}</Text>
+              <Text selectable style={styles.logViewerText}>{uploadedLog.path}</Text>
+              <TouchableOpacity style={styles.actionRow} onPress={() => Share.share({
+                message: `${uploadedLog.host}\n${uploadedLog.path}`, title: t('settings.shareLogsTitle'),
+              })}>
+                <Text style={[styles.actionText, { color: appColors.info }]}>{t('settings.shareLogPath')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
               clearDebugLogs()
+              clearRecoveryDiagnostics()
               Alert.alert(t('settings.clearedTitle'), t('settings.clearedMessage'))
             }}
           >
@@ -185,7 +230,7 @@ export function SettingsScreen() {
           </View>
           <ScrollView style={styles.logViewerBody}>
             <Text style={styles.logViewerText} selectable>
-              {getDebugLogText()}
+              {getDiagnosticLogText()}
             </Text>
           </ScrollView>
         </View>

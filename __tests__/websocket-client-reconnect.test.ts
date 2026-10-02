@@ -117,6 +117,53 @@ afterEach(() => {
 })
 
 describe('recovering from a drop', () => {
+  it('retries a native failure immediately even when no close event follows', async () => {
+    const { client, socket } = await connectedClient()
+    jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    const pending = client.invokeParams('agent:get-session-state', { sessionId: 's1' }).catch(e => e)
+    socket.fail('Connection reset')
+    expect(client.status).toBe('reconnecting')
+    await expect(pending).resolves.toEqual(new Error('Socket error'))
+    await jest.advanceTimersByTimeAsync(1000)
+    expect(mockSockets).toHaveLength(2)
+    const replacement = mockSockets[1]
+    replacement.open()
+    replacement.authOk()
+    await Promise.resolve()
+    // A late callback from the invalidated native socket cannot tear down it.
+    socket.cb.onClose?.(1006, 'late close')
+    socket.fail('late error')
+    expect(client.status).toBe('connected')
+    expect(replacement.closedWith).toBeNull()
+    client.disconnect()
+  })
+
+  it('starts retry at the heartbeat verdict without waiting for native onClose', async () => {
+    const { client, socket } = await connectedClient()
+    jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(socket.close).toHaveBeenCalledWith(4000, 'heartbeat timeout')
+    expect(client.status).toBe('reconnecting')
+    await jest.advanceTimersByTimeAsync(1000)
+    expect(mockSockets).toHaveLength(2)
+    client.disconnect()
+  })
+
+  it('starts retry after two missed probes without waiting for native onClose', async () => {
+    const { client, socket } = await connectedClient()
+    jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const probe = client.checkConnection(1000)
+      await jest.advanceTimersByTimeAsync(1000)
+      await expect(probe).resolves.toBe(false)
+    }
+    expect(client.status).toBe('reconnecting')
+    expect(socket.close).toHaveBeenCalledWith(4000, 'health check timeout')
+    await jest.advanceTimersByTimeAsync(1000)
+    expect(mockSockets).toHaveLength(2)
+    client.disconnect()
+  })
+
   it('routes requests and events through immutable profile contexts', async () => {
     const { client, socket } = await connectedClient()
     const a = client.scoped('context-a')

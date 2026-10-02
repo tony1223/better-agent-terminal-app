@@ -9,6 +9,7 @@ import { eventParamsToArgs } from '@/api/websocket-client'
 import { useClaudeStore } from './claude-store'
 import { useConnectionStore } from './connection-store'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent, recoverySpan } from '@/utils/recovery-diagnostics'
 
 const refreshers = new Map<
   ClaudeChannel,
@@ -178,8 +179,12 @@ export function subscribeSessionReplay(channel: ClaudeChannel): () => void {
     if (!current()) return Promise.resolve(false)
     if ((retryAfter.get(id) ?? 0) > Date.now()) return Promise.resolve(false)
     const previous = flights.get(id)
-    if (previous) return previous
+    if (previous) {
+      recoveryEvent('session.sync.join', { sessionId: id })
+      return previous
+    }
     const started = generation
+    const endSync = recoverySpan('session.sync', { sessionId: id, foreground })
     const task = (async () => {
       try {
         // Bounded pages and memory; when overwhelmed retain the view and use
@@ -187,7 +192,10 @@ export function subscribeSessionReplay(channel: ClaudeChannel): () => void {
         for (let page = 0; page < 64; page++) {
           const previousCursor = fallbacks.has(id) ? undefined : cursorFor(id)
           const reply = await channel.syncSession(id, previousCursor)
-          if (!current() || generation !== started) return false
+          if (!current() || generation !== started) {
+            endSync('superseded')
+            return false
+          }
           if (
             reply?.sessionId !== id ||
             typeof reply.cursor?.epoch !== 'string' ||
@@ -236,6 +244,8 @@ export function subscribeSessionReplay(channel: ClaudeChannel): () => void {
             if (reply.hasMore && sequence === previousCursor.seq)
               throw new Error('Replay did not advance')
           } else throw new Error('Invalid sync mode')
+          recoveryEvent('session.sync.page-applied', { sessionId: id, page, mode: reply.mode,
+            events: reply.events?.length ?? 0, hasMore: reply.hasMore })
           if (reply.hasMore) continue
           // Live frames received during the pull are replayed only after its
           // checkpoint, in sequence, so text deltas never appear twice.
@@ -255,10 +265,12 @@ export function subscribeSessionReplay(channel: ClaudeChannel): () => void {
           if (pullAgain) continue
           fallbacks.delete(id)
           retryAfter.delete(id)
+          endSync(needsTranscript.has(id) ? 'needs-transcript' : 'applied', { pages: page + 1 })
           return !needsTranscript.has(id)
         }
         throw new Error('Replay exceeds recovery budget')
       } catch (error) {
+        endSync('error')
         if (current()) {
           dlog(
             '!SESSION_SYNC',

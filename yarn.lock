@@ -2894,6 +2894,7 @@ __metadata:
     "@types/react": ^19.2.0
     "@types/react-test-renderer": ^19.1.0
     babel-plugin-module-resolver: ^5.0.3
+    base64-js: ^1.5.1
     eslint: ^8.19.0
     i18next: ^26.3.0
     jest: ^29.6.3

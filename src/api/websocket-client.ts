@@ -17,6 +17,7 @@ import {
 } from './protocol'
 import { TLSWebSocket } from '@/native/tls-websocket'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent, recoverySpan } from '@/utils/recovery-diagnostics'
 import { supportsMobileSync } from '@/utils/host-version'
 
 export type ConnectionStatus =
@@ -379,6 +380,7 @@ export class WebSocketClient {
   private doConnect(): Promise<boolean> {
     return new Promise((resolve) => {
       const gen = this.generation
+      const endConnect = recoverySpan('socket.connect', { generation: gen, attempt: this.reconnectAttempt, tls: this.useTLS })
       this.setStatus('connecting')
 
       const scheme = this.useTLS ? 'wss' : 'ws'
@@ -393,6 +395,7 @@ export class WebSocketClient {
       const authTimeout = setTimeout(() => {
         if (!authResolved && gen === this.generation) {
           authResolved = true
+          endConnect('auth-timeout')
           dlog('!WS', `auth timeout waiting for server response`, { host: this.host, port: this.port, tls: this.useTLS })
           this.setFailedStatus('Authentication timeout')
           ws.close()
@@ -403,6 +406,7 @@ export class WebSocketClient {
       ws.connect(url, this.fingerprint, {
         onOpen: () => {
           if (gen !== this.generation) return
+          recoveryEvent('socket.open', { generation: gen })
           dlog('WS', 'socket opened, sending auth...')
           this.setStatus('authenticating')
           const authFrame: RemoteFrame = {
@@ -433,6 +437,7 @@ export class WebSocketClient {
             if (!authResolved) {
               authResolved = true
               if (frame.error) {
+                endConnect('auth-rejected')
                 dlog('!WS', `auth failed: ${frame.error}`)
                 // A rejected token stays rejected: retrying would hammer the
                 // host and keep the user staring at a spinner instead of the
@@ -451,6 +456,7 @@ export class WebSocketClient {
                 this.sessionEstablished = true
                 this.capabilities = frame.capabilities ?? {}
                 this.serverVersion = typeof frame.serverVersion === 'string' ? frame.serverVersion : null
+                endConnect('connected', { hostVersion: this.serverVersion, replay: this.supportsMobileSync })
                 this.setStatus('connected')
                 this.reconnectAttempt = 0
                 this.startHeartbeat()
@@ -505,6 +511,8 @@ export class WebSocketClient {
 
         onClose: (code: number, reason: string) => {
           if (gen !== this.generation) return
+          endConnect('closed', { code })
+          recoveryEvent('socket.closed', { generation: gen, code, status: this._status })
           const closeTag = authResolved && this._status === 'connected' ? 'WS' : '!WS'
           dlog(closeTag, `socket closed: code=${code} reason=${reason}`, { status: this._status, authResolved })
           clearTimeout(authTimeout)
@@ -533,6 +541,8 @@ export class WebSocketClient {
 
         onError: (message: string) => {
           if (gen !== this.generation) return
+          endConnect('error')
+          recoveryEvent('socket.error', { generation: gen, status: this._status })
           dlog('!WS', `socket error: ${message}`)
 
           if (message.includes('TLS fingerprint mismatch')) {
@@ -551,6 +561,10 @@ export class WebSocketClient {
             authResolved = true
             this.setFailedStatus(message || 'Connection failed')
             resolve(false)
+          } else if (this._status === 'connected') {
+            // Native onFailure need not be followed by onClose. A known broken
+            // socket must not wait another heartbeat/liveness window to retry.
+            this.handleSilentDrop('Socket error')
           }
         },
       })
@@ -586,6 +600,8 @@ export class WebSocketClient {
   // connection; stale or closed sockets must reconnect without waiting for
   // suspended heartbeat/probe timers or a native close callback.
   resume(): void {
+    recoveryEvent('socket.resume', { status: this._status, connecting: this.connectInFlight,
+      silentMs: Date.now() - this.lastFrameAt, socketOpen: this.ws?.isOpen ?? false })
     if (!this.shouldReconnect || this.connectInFlight) return
     if (this._status === 'connected') {
       const silentFor = Date.now() - this.lastFrameAt
@@ -635,6 +651,7 @@ export class WebSocketClient {
     const base = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt - 1), RECONNECT_MAX_MS)
     const jitter = base * (0.75 + Math.random() * 0.5)
     const delay = Math.round(jitter)
+    recoveryEvent('socket.retry-scheduled', { generation: gen, attempt: this.reconnectAttempt, delayMs: delay })
 
     dlog('WS', `reconnect #${this.reconnectAttempt} in ${delay}ms`)
 
@@ -682,8 +699,7 @@ export class WebSocketClient {
     const draining = Date.now() < this.outboundDrainUntil
     if (silentFor > LIVENESS_TIMEOUT_MS && !draining) {
       dlog('!WS', `heartbeat: no frame for ${silentFor}ms, closing`)
-      // onClose runs the usual reconnect path.
-      this.ws.close(4000, 'heartbeat timeout')
+      this.handleSilentDrop('heartbeat timeout')
       return
     }
     if (silentFor > LIVENESS_TIMEOUT_MS) {
@@ -697,9 +713,16 @@ export class WebSocketClient {
   }
 
   private handleSilentDrop(reason: string) {
+    const staleSocket = this.ws
+    // close() removes native event listeners immediately. Own the transition
+    // here, invalidate late callbacks, and never wait for a native onClose.
+    this.generation++
+    this.ws = null
+    this.outboundDrainUntil = 0
     this.stopHeartbeat()
     this.failPending(new Error(reason))
-    this.ws = null
+    staleSocket?.close(4000, reason)
+    recoveryEvent('socket.drop', { generation: this.generation, reason })
     if (this.willRetry) {
       this.setStatus('reconnecting')
       this.scheduleReconnect(this.generation)
@@ -735,6 +758,7 @@ export class WebSocketClient {
 
     const id = this.nextId()
     const frame: RemoteFrame = { type: 'ping', id }
+    const endProbe = recoverySpan('socket.probe', { id, timeoutMs })
     dlog('WS', `health check ping id=${id}`)
 
     return new Promise((resolve) => {
@@ -744,6 +768,7 @@ export class WebSocketClient {
         // queued behind it and never reached the host. Nothing was asked, so
         // the silence says nothing — don't count it against the link.
         if (Date.now() < this.outboundDrainUntil) {
+          endProbe('upload-draining')
           dlog('WS', `health check timeout id=${id} while draining a large frame, not counted`)
           resolve(false)
           return
@@ -754,19 +779,22 @@ export class WebSocketClient {
           + `(${this.probeFailures}/${PROBE_FAILURES_BEFORE_CLOSE})`
           + `${verdict ? ', closing' : ', giving it one more round'}`)
         if (verdict && this.ws && this._status === 'connected') {
-          this.ws.close(4000, 'health check timeout')
+          this.handleSilentDrop('health check timeout')
         }
+        endProbe('timeout', { failures: this.probeFailures })
         resolve(false)
       }, timeoutMs)
 
       this.pendingPings.set(id, {
         resolve: () => {
+          endProbe('pong')
           dlog('WS', `health check pong id=${id}`)
           // A link that answers has earned back its full allowance.
           this.probeFailures = 0
           resolve(true)
         },
         reject: (error: Error) => {
+          endProbe('disconnected')
           dlog('!WS', `health check failed id=${id}: ${error.message}`)
           resolve(false)
         },
@@ -794,11 +822,13 @@ export class WebSocketClient {
       ? canonicalRemoteChannel(channel)
       : legacyRemoteChannel(channel)
     const frame: RemoteFrame = { type: 'invoke', id: this.nextId(), channel: frameChannel, args, ...(contextId ? { contextId } : {}) }
+    const endInvoke = recoverySpan('rpc', { id: frame.id, channel: frameChannel, contextId })
     dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} args=${args.length}`)
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(frame.id)
+        endInvoke('timeout')
         dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id}`)
         this.probeAfterFailure()
         reject(new Error(`Remote invoke timeout: ${channel}`))
@@ -806,10 +836,12 @@ export class WebSocketClient {
 
       this.pending.set(frame.id, {
         resolve: (result: unknown) => {
+          endInvoke('ok')
           dlog('WS_INVOKE', `result ${frame.channel} id=${frame.id} ${summarizeRemoteValue(result)}`)
           resolve(result as T)
         },
         reject: (error: Error) => {
+          endInvoke('error')
           dlog('!WS_INVOKE', `error ${frame.channel} id=${frame.id}: ${error.message}`)
           reject(error)
         },
@@ -857,6 +889,7 @@ export class WebSocketClient {
       ? canonicalRemoteChannel(channel)
       : legacyRemoteChannel(channel)
     const sendFrame = (frame: RemoteFrame, allowAgentFallback: boolean): Promise<T> => {
+      const endInvoke = recoverySpan('rpc', { id: frame.id, channel: frame.channel, contextId: opts?.contextId })
       dlog('WS_INVOKE', `send ${frame.channel} id=${frame.id} protocol=${this.protocol} params=${summarizeRemoteValue(params)}`)
 
       return new Promise((resolve, reject) => {
@@ -870,6 +903,7 @@ export class WebSocketClient {
 
         const timer = setTimeout(() => {
           this.pending.delete(frame.id)
+          endInvoke('timeout')
           dlog('!WS_INVOKE', `timeout ${frame.channel} id=${frame.id} after ${deadline}ms`)
           this.probeAfterFailure()
           reject(new Error(`Remote invoke timeout: ${channel}`))
@@ -877,10 +911,12 @@ export class WebSocketClient {
 
         this.pending.set(frame.id, {
           resolve: (result: unknown) => {
+            endInvoke('ok')
             dlog('WS_INVOKE', `result ${frame.channel} id=${frame.id} ${summarizeRemoteValue(result)}`)
             resolve(result as T)
           },
           reject: (error: Error) => {
+            endInvoke('error')
             dlog('!WS_INVOKE', `error ${frame.channel} id=${frame.id}: ${error.message}`)
             if (allowAgentFallback && frame.channel?.startsWith('agent:') && isRemoteMethodNotFound(error)) {
               const fallbackChannel = legacyRemoteChannel(frame.channel)

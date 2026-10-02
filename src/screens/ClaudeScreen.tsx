@@ -45,6 +45,7 @@ import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import { MessageSelectionProvider } from '@/components/claude/MessageSelection'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent, recoverySpan } from '@/utils/recovery-diagnostics'
 import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import {
   baseModelId,
@@ -273,6 +274,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // explain *why* (connection dropped vs. the host no longer has the rollout)
   // instead of the misleading "no messages yet".
   const [loadError, setLoadError] = useState<null | 'connection' | 'missing'>(null)
+  useEffect(() => {
+    recoveryEvent('chat.view', { sessionId, loading, historyLoadingInBackground, loadError })
+  }, [sessionId, loading, historyLoadingInBackground, loadError])
   const [showResumeList, setShowResumeList] = useState(false)
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
   const [resumeLoading, setResumeLoading] = useState(false)
@@ -584,11 +588,19 @@ export function ClaudeScreen({ route, navigation }: Props) {
    * would re-truncate the transcript the repair just restored.
    */
   const resyncAfterReconnect = useCallback(async (why: string) => {
-    const verdict = await refreshSessionState()
-    if (verdict !== 'kept-local') return
-    dlog('!CLAUDE_SCREEN', `host window shares no id with the local transcript after ${why}; pulling the full transcript`)
-    await recoverTranscript(why)
-  }, [refreshSessionState, recoverTranscript])
+    const endRecovery = recoverySpan('chat.recover', { sessionId, reason: why })
+    try {
+      const verdict = await refreshSessionState()
+      if (verdict === 'kept-local') {
+        dlog('!CLAUDE_SCREEN', `host window shares no id with the local transcript after ${why}; pulling the full transcript`)
+        await recoverTranscript(why)
+      }
+      endRecovery('completed', { verdict })
+    } catch (error) {
+      endRecovery('error')
+      throw error
+    }
+  }, [refreshSessionState, recoverTranscript, sessionId])
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
@@ -687,12 +699,15 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
     const timedLoadStep = async <T,>(label: string, run: () => Promise<T>): Promise<T> => {
       const startedAt = Date.now()
+      const endLoad = recoverySpan('chat.load', { step: label, sessionId })
       dlog('CLAUDE_TIMING', `${label} started`)
       try {
         const result = await run()
+        endLoad('completed')
         dlog('CLAUDE_TIMING', `${label} completed in ${Date.now() - startedAt}ms`)
         return result
       } catch (e) {
+        endLoad('error')
         dlog('!CLAUDE_TIMING', `${label} failed after ${Date.now() - startedAt}ms: ${e}`)
         throw e
       }

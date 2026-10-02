@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { WebSocketClient, type ChannelTransport, type ConnectionStatus, type RemoteClientContext } from '@/api/websocket-client'
 import { createChannels, type Channels } from '@/api/channels'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent, recoverySpan } from '@/utils/recovery-diagnostics'
 import { getRemoteClientIdentity } from '@/utils/client-identity'
 import { activateProfileScope } from './profile-scope'
 
@@ -82,6 +83,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     if (!client.supportsProfileContext) return channels
     if (!force && profileContext?.profileId === profileId && get().profileStatus === 'ready') return channels
     const version = ++selectionVersion
+    const endProfile = recoverySpan('profile.select', { profileId, force })
     profileStatusUnsubscribe?.()
     profileStatusUnsubscribe = null
     set({ selectedProfileId: profileId, profileContext: null, profileStatus: 'loading', channels: createChannels(unavailableTransport, client) })
@@ -120,8 +122,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         if (payload?.status === 'unavailable') set({ profileStatus: 'unavailable' })
       })
       set({ profileContext: context, profileViewKey: context.bindingKey, selectedProfileName: context.name, profileStatus: 'ready', channels: nextChannels })
+      endProfile('ready')
       return nextChannels
     } catch (error) {
+      endProfile('error')
       if (version === selectionVersion && get().client === client) set({ profileStatus: 'unavailable' })
       throw error
     }
@@ -131,7 +135,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     selectionVersion++
     profileStatusUnsubscribe?.()
     const tls = useTLS ?? !!fingerprint
-    dlog('!CONN', `store.connect(${host}, ${port}, token=${token.slice(0, 8)}..., tls=${tls}, fp=${fingerprint ? fingerprint.slice(0, 12) + '...' : 'none'})`)
+    dlog('!CONN', `store.connect(${host}, ${port}, tls=${tls}, pinned=${!!fingerprint})`)
     const { client: existing } = get()
     if (existing) {
       dlog('CONN', 'disconnecting existing client')
@@ -142,6 +146,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     client.onStatusChange((status) => {
       if (get().client !== client) return
+      recoveryEvent('connection.status', { status })
       dlog(status === 'error' ? '!CONN' : 'CONN', `status changed: ${status}, error: ${client.error}`)
       // A reconnect reuses this client, and only the initial connect below
       // builds the channels — so a session that comes back after the first
@@ -247,7 +252,14 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 // when the app comes back to the foreground the connection may be dead while
 // the status still says 'connected' — or a reconnect attempt may be parked on
 // a stale backoff timer. Kick the client immediately on every foreground.
+let lastAppState = AppState.currentState
+let backgroundAt: number | null = null
 AppState.addEventListener('change', (state) => {
+  if (state !== 'active' && lastAppState === 'active') backgroundAt = Date.now()
+  recoveryEvent('app.state', { state, previous: lastAppState,
+    awayMs: state === 'active' && backgroundAt !== null ? Date.now() - backgroundAt : undefined })
+  lastAppState = state
+  if (state === 'active') backgroundAt = null
   if (state !== 'active') return
   const { client } = useConnectionStore.getState()
   if (client) {
