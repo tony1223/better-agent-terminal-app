@@ -276,6 +276,56 @@ test('the list shows another profile running before its shortcut is opened', asy
   act(() => { blur(); renderer.unmount() })
 })
 
+test('workspace and profile searches can be cleared; pins can be reordered directly in All', async () => {
+  const connection = { host: 'host', port: 1, client: {}, channels: {}, status: 'disconnected', disconnect: jest.fn() }
+  const state = {
+    workspaces: [
+      { id: 'a', name: 'Alpha', folderPath: '/a' },
+      { id: 'b', name: 'Beta', folderPath: '/b' },
+    ],
+    profiles: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }],
+    terminals: [], activeLocalProfileId: 'first', activeProfileIds: ['first'], loadStatus: 'ok',
+    load: jest.fn(), switchWorkspace: jest.fn(), loadProfileWorkspace: jest.fn(),
+  }
+  Object.assign(useConnectionStore, { getState: () => connection })
+  Object.assign(useWorkspaceStore, { getState: () => state })
+  ;(useConnectionStore as unknown as jest.Mock).mockImplementation(selector => selector(connection))
+  ;(useWorkspaceStore as unknown as jest.Mock).mockImplementation(() => state)
+  let renderer!: ReactTestRenderer.ReactTestRenderer
+  await act(async () => { renderer = ReactTestRenderer.create(<WorkspaceListScreen />) })
+  const button = (id: string) => renderer.root.findAllByType(TouchableOpacity).find(row => row.props.testID === id)!
+  const input = (id: string) => renderer.root.findAllByType(TextInput).find(row => row.props.testID === id)!
+  const order = () => renderer.root.findAllByType(TouchableOpacity)
+    .map(row => row.props.testID).filter((id: string) => id?.startsWith('workspace-shortcut-'))
+
+  act(() => input('workspace-search').props.onChangeText('Beta'))
+  expect(order()).toEqual(['workspace-shortcut-first-b'])
+  act(() => button('workspace-search-clear').props.onPress())
+  expect(input('workspace-search').props.value).toBe('')
+  expect(button('workspace-search-clear')).toBeUndefined()
+  expect(order()).toEqual(['workspace-shortcut-first-a', 'workspace-shortcut-first-b'])
+
+  act(() => button('workspace-pin-first-b').props.onPress())
+  expect(order()).toEqual(['workspace-shortcut-first-b', 'workspace-shortcut-first-a'])
+  act(() => button('workspace-pin-first-a').props.onPress())
+  act(() => button('workspace-reorder').props.onPress())
+  expect(button('workspace-move-up-first-b').props.disabled).toBe(true)
+  act(() => button('workspace-move-up-first-a').props.onPress())
+  expect(order()).toEqual(['workspace-shortcut-first-a', 'workspace-shortcut-first-b'])
+  act(() => button('workspace-reorder').props.onPress())
+  act(() => button('workspace-mode-pinned').props.onPress())
+  expect(order()).toEqual(['workspace-shortcut-first-a', 'workspace-shortcut-first-b'])
+
+  act(() => button('workspace-profile-filter').props.onPress())
+  act(() => input('profile-search').props.onChangeText('Second'))
+  expect(button('profile-filter-first')).toBeUndefined()
+  act(() => button('profile-search-clear').props.onPress())
+  expect(button('profile-filter-first')).toBeDefined()
+  expect(state.loadProfileWorkspace).not.toHaveBeenCalled()
+  expect(mockNavigate).not.toHaveBeenCalled()
+  act(() => renderer.unmount())
+})
+
 test('explicit opening of an empty profile completes at the overview without picking a workspace', async () => {
   const connection = { host: 'host', port: 1, channels: {}, client: {}, disconnect: jest.fn() }
   const state: any = { workspaces: [], terminals: [], activeLocalProfileId: 'first', activeProfileIds: ['first'],

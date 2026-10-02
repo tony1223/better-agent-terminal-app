@@ -120,7 +120,12 @@ interface BrowserState {
     changes: Partial<Pick<BrowserPreferences, 'mode' | 'profileId' | 'query'>>,
   ) => void
   togglePin: (server: string, entry: WorkspaceEntry) => void
-  movePin: (server: string, entry: WorkspaceEntry, direction: -1 | 1) => void
+  movePin: (
+    server: string,
+    entry: WorkspaceEntry,
+    direction: -1 | 1,
+    visibleKeys?: string[],
+  ) => void
 }
 
 export const useWorkspaceBrowserStore = create<BrowserState>(set => {
@@ -202,12 +207,17 @@ export const useWorkspaceBrowserStore = create<BrowserState>(set => {
             : [...previous.pins, key],
         }
       }),
-    movePin: (server, entry, direction) =>
+    movePin: (server, entry, direction, visibleKeys) =>
       update(server, previous => {
         const pins = [...previous.pins]
+        const visible = visibleKeys
+          ? pins.filter(key => visibleKeys.includes(key))
+          : pins
+        const visibleIndex = visible.indexOf(workspaceEntryKey(entry))
+        const neighbor = visible[visibleIndex + direction]
+        if (visibleIndex < 0 || !neighbor) return previous
         const index = pins.indexOf(workspaceEntryKey(entry))
-        const target = index + direction
-        if (index < 0 || target < 0 || target >= pins.length) return previous
+        const target = pins.indexOf(neighbor)
         ;[pins[index], pins[target]] = [pins[target], pins[index]]
         return { ...previous, pins }
       }),
@@ -273,13 +283,19 @@ export function filterBrowserEntries(
           .toLocaleLowerCase()
           .includes(needle)),
   )
+  const pinned = preferences.pins.flatMap(key =>
+    filtered.filter(entry => workspaceEntryKey(entry) === key),
+  )
   return preferences.mode === 'pinned'
-    ? preferences.pins.flatMap(key =>
-        filtered.filter(entry => workspaceEntryKey(entry) === key),
-      )
-    : filtered.sort(
-        (a, b) =>
-          a.profileName.localeCompare(b.profileName) ||
-          a.name.localeCompare(b.name),
-      )
+    ? pinned
+    : [
+        ...pinned,
+        ...filtered
+          .filter(entry => !preferences.pins.includes(workspaceEntryKey(entry)))
+          .sort(
+            (a, b) =>
+              a.profileName.localeCompare(b.profileName) ||
+              a.name.localeCompare(b.name),
+          ),
+      ]
 }

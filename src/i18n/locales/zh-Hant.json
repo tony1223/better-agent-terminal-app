@@ -312,12 +312,15 @@
     }
   },
   "workspaceBrowser": {
-    "pinned": "進行中的工作",
+    "clearSearch": "清除搜尋",
+    "pinLabel": "釘選",
+    "pinnedLabel": "已釘選",
+    "pinned": "常用釘選",
     "all": "全部",
     "allProfiles": "所有 Profile",
     "search": "搜尋工作區或 Profile",
-    "pinnedHint": "固定常用工作區；閒置也保留。",
-    "catalogHint": "列出已載入或開啟過的工作區；其他請開啟 Profile。",
+    "pinnedHint": "釘選常用工作區，點「排序」調整順序；閒置也保留。",
+    "catalogHint": "點 ☆ 釘選常用工作區，釘選項目置頂；其他工作區請開啟 Profile。",
     "done": "完成",
     "reorder": "排序",
     "clearFilter": "清除篩選",

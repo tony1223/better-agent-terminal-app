@@ -105,6 +105,28 @@ test('search matches profile names and workspace names; profile filter is indepe
   expect(preferences.profileId).toBeNull()
 })
 
+test('All keeps pins first in manual order and filtered moves skip hidden pins', () => {
+  const store = useWorkspaceBrowserStore.getState()
+  store.remember('server', 'bat', 'BAT', [workspace, { ...workspace, id: 'second', name: 'Second' }, { ...workspace, id: 'other', name: 'Aardvark' }])
+  store.remember('server', 'ap01', 'AP01', [workspace])
+  const catalog = useWorkspaceBrowserStore.getState().servers.server.catalog
+  const [first, second, other] = catalog.bat
+  const hidden = catalog.ap01[0]
+  for (const entry of [first, hidden, second]) store.togglePin('server', entry)
+  const visible = [workspaceEntryKey(first), workspaceEntryKey(second)]
+  store.movePin('server', second, -1, visible)
+  let preferences = useWorkspaceBrowserStore.getState().servers.server
+  const entries = browserEntries(preferences, [], profiles, null, [], false)
+  expect(filterBrowserEntries(entries, preferences)).toEqual([second, hidden, first, other])
+  expect(filterBrowserEntries(entries, { ...preferences, profileId: 'bat' })).toEqual([second, first, other])
+  store.movePin('server', second, -1, visible)
+  expect(useWorkspaceBrowserStore.getState().servers.server.pins).toEqual(preferences.pins)
+  store.remember('server', 'bat', 'BAT', [workspace, { ...workspace, id: 'second', name: 'Second' }, { ...workspace, id: 'other', name: 'Aardvark' }])
+  preferences = useWorkspaceBrowserStore.getState().servers.server
+  expect(preferences.pins).toEqual([workspaceEntryKey(second), workspaceEntryKey(hidden), workspaceEntryKey(first)])
+  expect(useWorkspaceBrowserStore.getState().servers['different-host']).toBeUndefined()
+})
+
 test('validated empty snapshots remove deleted workspaces and pins, but in-flight snapshots do not', () => {
   const store = useWorkspaceBrowserStore.getState()
   store.remember('server', 'bat', 'BAT', [workspace])

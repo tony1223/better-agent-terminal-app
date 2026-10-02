@@ -116,6 +116,9 @@ export function WorkspaceBrowser({
     () => filterBrowserEntries(entries, preferences),
     [entries, preferences],
   )
+  const visiblePins = visible
+    .map(workspaceEntryKey)
+    .filter(key => preferences.pins.includes(key))
   // Inspect only displayed work, never connect every unvisited profile just to build the catalog.
   const inViewport = visible.filter(entry =>
     visibleKeys.includes(workspaceEntryKey(entry)),
@@ -203,16 +206,12 @@ export function WorkspaceBrowser({
             </Text>
           </TouchableOpacity>
         </View>
-        <TextInput
-          style={styles.search}
+        <SearchField
+          testID="workspace-search"
           value={preferences.query}
           onChangeText={query => configure({ query })}
-          accessibilityLabel={t('workspaceBrowser.search')}
-          placeholder={t('workspaceBrowser.search')}
-          placeholderTextColor={appColors.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          clearButtonMode="while-editing"
+          label={t('workspaceBrowser.search')}
+          clearLabel={t('workspaceBrowser.clearSearch')}
         />
         <View style={styles.row}>
           <Text style={[styles.hint, styles.flex]}>
@@ -222,10 +221,12 @@ export function WorkspaceBrowser({
                 : 'workspaceBrowser.catalogHint',
             )}
           </Text>
-          {preferences.mode === 'pinned' && preferences.pins.length > 1 && (
+          {(visiblePins.length > 1 || reordering) && (
             <TouchableOpacity
               testID="workspace-reorder"
               style={styles.action}
+              accessibilityRole="button"
+              accessibilityState={{ selected: reordering }}
               onPress={() => setReordering(!reordering)}
             >
               <Text style={styles.accent}>
@@ -325,7 +326,11 @@ export function WorkspaceBrowser({
                   {([-1, 1] as const).map(direction => (
                     <TouchableOpacity
                       key={direction}
+                      testID={`workspace-move-${
+                        direction === -1 ? 'up' : 'down'
+                      }-${item.profileId}-${item.workspaceId}`}
                       style={styles.action}
+                      accessibilityRole="button"
                       accessibilityLabel={t(
                         direction === -1
                           ? 'workspaceBrowser.moveUp'
@@ -333,16 +338,23 @@ export function WorkspaceBrowser({
                         { name: item.name },
                       )}
                       disabled={
-                        preferences.pins.indexOf(key) ===
-                        (direction === -1 ? 0 : preferences.pins.length - 1)
+                        visiblePins.indexOf(key) ===
+                        (direction === -1 ? 0 : visiblePins.length - 1)
                       }
                       onPress={() =>
                         useWorkspaceBrowserStore
                           .getState()
-                          .movePin(serverKey, item, direction)
+                          .movePin(serverKey, item, direction, visiblePins)
                       }
                     >
-                      <Text style={styles.accent}>
+                      <Text
+                        style={
+                          visiblePins.indexOf(key) ===
+                          (direction === -1 ? 0 : visiblePins.length - 1)
+                            ? styles.hint
+                            : styles.accent
+                        }
+                      >
                         {direction === -1 ? '↑' : '↓'}
                       </Text>
                     </TouchableOpacity>
@@ -362,9 +374,18 @@ export function WorkspaceBrowser({
                   useWorkspaceBrowserStore.getState().togglePin(serverKey, item)
                 }
               >
-                <Text style={pinned ? styles.accent : styles.hint}>
+                <Text style={pinned ? styles.accent : styles.text}>
                   {pinned ? '★' : '☆'}
                 </Text>
+                {!reordering && (
+                  <Text style={pinned ? styles.accent : styles.hint}>
+                    {t(
+                      pinned
+                        ? 'workspaceBrowser.pinnedLabel'
+                        : 'workspaceBrowser.pinLabel',
+                    )}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           )
@@ -427,15 +448,12 @@ export function WorkspaceBrowser({
               </TouchableOpacity>
             </View>
             <Text style={styles.hint}>{t('workspaceBrowser.profileHint')}</Text>
-            <TextInput
-              style={styles.search}
+            <SearchField
+              testID="profile-search"
               value={profileQuery}
               onChangeText={setProfileQuery}
-              placeholder={t('workspaceBrowser.searchProfiles')}
-              accessibilityLabel={t('workspaceBrowser.searchProfiles')}
-              placeholderTextColor={appColors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
+              label={t('workspaceBrowser.searchProfiles')}
+              clearLabel={t('workspaceBrowser.clearSearch')}
             />
             <TouchableOpacity
               style={styles.action}
@@ -503,6 +521,47 @@ export function WorkspaceBrowser({
   )
 }
 
+function SearchField({
+  value,
+  onChangeText,
+  label,
+  clearLabel,
+  testID,
+}: {
+  value: string
+  onChangeText: (value: string) => void
+  label: string
+  clearLabel: string
+  testID: string
+}) {
+  return (
+    <View style={styles.searchContainer}>
+      <TextInput
+        testID={testID}
+        style={styles.search}
+        value={value}
+        onChangeText={onChangeText}
+        accessibilityLabel={label}
+        placeholder={label}
+        placeholderTextColor={appColors.textMuted}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      {!!value && (
+        <TouchableOpacity
+          testID={`${testID}-clear`}
+          style={styles.action}
+          accessibilityRole="button"
+          accessibilityLabel={clearLabel}
+          onPress={() => onChangeText('')}
+        >
+          <Text style={styles.text}>✕</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: appColors.background },
   toolbar: {
@@ -535,12 +594,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   search: {
+    flex: 1,
+    minWidth: 0,
     color: appColors.text,
-    backgroundColor: appColors.surface,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     borderRadius: 8,
     fontSize: fontSize.sm,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: appColors.surface,
+    borderRadius: 8,
+    minHeight: 44,
   },
   list: { padding: spacing.sm, paddingBottom: spacing.lg },
   workspace: {
