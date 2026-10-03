@@ -50,7 +50,7 @@ export const PROXIED_CHANNELS = new Set([
   'agent:rewind-to-prompt', 'agent:stop-task', 'agent:rest-session',
   'agent:wake-session', 'agent:is-resting', 'agent:fork-session',
   'agent:list-sessions',
-  'agent:set-model', 'agent:set-effort', 'agent:set-permission-mode',
+  'agent:set-model', 'agent:set-effort', 'agent:set-fast-mode', 'agent:set-permission-mode',
   'agent:set-codex-sandbox-mode', 'agent:set-codex-approval-policy',
   'agent:set-auto-continue', 'agent:get-auto-continue',
   'agent:get-supported-models', 'agent:get-supported-efforts',

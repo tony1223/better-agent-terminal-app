@@ -456,6 +456,28 @@
       "noIssues": "沒有開啟中的 issue。"
     }
   },
+  "fastMode": {
+    "title": "Fast 模式",
+    "enable": "此對話使用 Fast",
+    "off": "關閉",
+    "on": "已啟用",
+    "pending": "下一回合",
+    "requested": "已要求",
+    "cooldown": "冷卻中",
+    "unknown": "未知",
+    "offHint": "此對話目前未啟用 Fast。",
+    "onHint": "主機回報 Fast 正在使用中。",
+    "pendingHint": "已要求下一回合使用 Fast；是否可用取決於帳號與執行環境。",
+    "requestedHint": "已要求使用 Fast，主機尚未確認實際執行狀態。",
+    "cooldownHint": "Fast 正在冷卻，執行環境暫時使用一般速度。",
+    "costHint": "Fast 可能消耗更多額度或產生額外費用。每個對話需個別開啟，且主機也必須允許 Fast。",
+    "hostPolicy": "此主機尚未允許 Fast。若主機提供此功能，請先在主機設定中啟用。",
+    "unsupported": "此模型不支援 Fast 模式。",
+    "busy": "請等待目前回合結束後再切換 Fast。",
+    "unavailable": "目前無法設定 Fast；需要主機支援此功能，且對話已準備就緒。",
+    "offline": "請重新連線至主機，以查看最新狀態或切換 Fast。",
+    "savingOrLoading": "更新中…"
+  },
   "claude": {
     "defaultTitle": "Claude",
     "defaultWorkspace": "工作區",

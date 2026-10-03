@@ -60,6 +60,20 @@ test('file, image and Git previews use the selected remote context, never the en
   expect(client.invoke).not.toHaveBeenCalled()
 })
 
+test('Fast settings use the selected execution host and stale controls cannot send', async () => {
+  const client = mockClient()
+  const targetInvoke = jest.fn().mockResolvedValue({ fastMode: true, supportsFastMode: true, fastModeState: 'pending' })
+  client.scoped.mockReturnValue({ invoke: targetInvoke, invokeParams: targetInvoke, on: jest.fn().mockReturnValue(() => {}) })
+  useConnectionStore.setState({ client: client as any })
+  const channels = await useConnectionStore.getState().selectProfile('remote')
+  await expect(channels.claude.setFastMode('s', true)).resolves.toMatchObject({ fastMode: true })
+  expect(targetInvoke).toHaveBeenCalledWith('agent:set-fast-mode', { sessionId: 's', enabled: true }, ['s', true], undefined)
+  expect(client.invokeParams).not.toHaveBeenCalledWith('agent:set-fast-mode', expect.anything(), expect.anything())
+  await useConnectionStore.getState().selectProfile('other')
+  await expect(channels.claude.setFastMode('s', false)).rejects.toThrow('Profile selection changed')
+  expect(targetInvoke).toHaveBeenCalledTimes(1)
+})
+
 test('a late profile open cannot replace the newer selection', async () => {
   const client = mockClient()
   const late = deferred<any>()

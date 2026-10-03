@@ -40,6 +40,7 @@ import { ChatFilterButton } from '@/components/claude/ChatFilterButton'
 import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
+import { FastModeControl } from '@/components/claude/FastModeControl'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import { MessageSelectionProvider } from '@/components/claude/MessageSelection'
@@ -1809,6 +1810,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
               </Text>
               {contextLimit ? <Text style={styles.chipSubText}>{contextLimit}</Text> : null}
             </TouchableOpacity>
+
+            {(isClaudeCodeAgent || isCodexAgent) && (
+              <FastModeControl sessionId={sessionId} disabled={loading} />
+            )}
 
             <TouchableOpacity style={styles.chip} onPress={() => setShowEffortPicker(true)}>
               <Text style={styles.chipText}>

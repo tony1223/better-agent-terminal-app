@@ -241,6 +241,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
     setEffort: (sessionId: string, effort: string) =>
       ws.invokeParams('agent:set-effort', { sessionId, effort }, [sessionId, effort]),
 
+    setFastMode: (sessionId: string, enabled: boolean) =>
+      ws.invokeParams<SessionMeta>('agent:set-fast-mode', { sessionId, enabled }, [sessionId, enabled]),
+
     setAutoContinue: (sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) =>
       ws.invokeParams('agent:set-auto-continue', { sessionId, opts }, [sessionId, opts]),
 

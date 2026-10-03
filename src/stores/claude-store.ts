@@ -881,7 +881,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     // A new send can be queued on the host while its runtime is starting.
     // Let delivery succeed/fail before reconciling that optimistic turn.
     if (session.messages.some(item => 'role' in item && item.role === 'user' && item.status === 'sending')) return
-    if (!session.isStreaming && session.turnStartedAt == null && !session.meta?.runtimeStatus) return
+    if (!session.isStreaming && session.turnStartedAt == null && !session.meta?.runtimeStatus && session.meta?.fastMode === undefined) return
     set(state => ({ sessions: { ...state.sessions, [sessionId]: {
       ...session,
       messages: commitStreamedText(sessionId, session),
@@ -891,7 +891,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       turnStartedAt: null,
       runtimeStatusSince: null,
       lastCompletedAt: null,
-      meta: session.meta ? clearedRuntimeMeta({ ...session.meta, isStreaming: false }) : null,
+      meta: session.meta ? clearedRuntimeMeta({ ...session.meta, isStreaming: false,
+        fastMode: undefined, supportsFastMode: undefined, fastModeState: undefined, fastModeDisabledReason: undefined }) : null,
     } } }))
   },
 
@@ -908,6 +909,10 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       ? { ...session.meta, ...meta } : meta
     const mergedMeta = activityMeta
       ? {
+          fastMode: session.meta?.fastMode,
+          supportsFastMode: session.meta?.supportsFastMode,
+          fastModeState: session.meta?.fastModeState,
+          fastModeDisabledReason: session.meta?.fastModeDisabledReason,
           ...activityMeta,
           ...(meta.model == null && session.meta?.model ? { model: session.meta.model } : {}),
           ...(meta.permissionMode == null && session.meta?.permissionMode
@@ -1041,6 +1046,10 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const hostPermissionMode = typeof snapshot.permissionMode === 'string' ? snapshot.permissionMode : undefined
     const nextMeta = baseMeta || hostModel || hostPermissionMode
       ? {
+          fastMode: session.meta?.fastMode,
+          supportsFastMode: session.meta?.supportsFastMode,
+          fastModeState: session.meta?.fastModeState,
+          fastModeDisabledReason: session.meta?.fastModeDisabledReason,
           ...(baseMeta ?? EMPTY_META),
           ...(hostModel ? { model: hostModel } : {}),
           ...(hostPermissionMode ? { permissionMode: hostPermissionMode } : {}),

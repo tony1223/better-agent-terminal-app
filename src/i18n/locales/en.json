@@ -456,6 +456,28 @@
       "noIssues": "No open issues."
     }
   },
+  "fastMode": {
+    "title": "Fast mode",
+    "enable": "Use Fast for this conversation",
+    "off": "Off",
+    "on": "On",
+    "pending": "Next turn",
+    "requested": "Requested",
+    "cooldown": "Cooldown",
+    "unknown": "Unknown",
+    "offHint": "Fast is off for this conversation.",
+    "onHint": "The host reports that Fast is active.",
+    "pendingHint": "Fast is requested for the next turn; availability depends on the account and runtime.",
+    "requestedHint": "Fast is requested; the host has not confirmed its runtime state.",
+    "cooldownHint": "Fast is cooling down. The runtime is temporarily using standard speed.",
+    "costHint": "Fast may use more quota or incur additional charges. Enable it separately for each conversation; the host must also allow Fast.",
+    "hostPolicy": "Fast is not allowed on this host. Enable it in the host's settings if available.",
+    "unsupported": "This model does not support Fast mode.",
+    "busy": "Wait for the current turn to finish before changing Fast.",
+    "unavailable": "Fast controls are unavailable. The host must support Fast and the session must be ready.",
+    "offline": "Reconnect to the host to view the latest state or change Fast.",
+    "savingOrLoading": "Updating…"
+  },
   "claude": {
     "defaultTitle": "Claude",
     "defaultWorkspace": "Workspace",

@@ -291,6 +291,11 @@ export function isToolCall(item: ClaudeMessage | ClaudeToolCall): item is Claude
 // ============================================
 
 export interface SessionMeta {
+  /** Host-owned Fast opt-in and runtime state; absent on older hosts. */
+  fastMode?: boolean
+  supportsFastMode?: boolean
+  fastModeState?: 'off' | 'pending' | 'on' | 'cooldown' | string
+  fastModeDisabledReason?: string | null
   effortLevel?: string | null
   effort?: string | null
   /** Host-owned turn activity (Codex includes this even between output frames). */

@@ -456,6 +456,28 @@
       "noIssues": "没有打开的 issue。"
     }
   },
+  "fastMode": {
+    "title": "Fast 模式",
+    "enable": "此对话使用 Fast",
+    "off": "关闭",
+    "on": "已启用",
+    "pending": "下一回合",
+    "requested": "已请求",
+    "cooldown": "冷却中",
+    "unknown": "未知",
+    "offHint": "此对话目前未启用 Fast。",
+    "onHint": "主机报告 Fast 正在使用中。",
+    "pendingHint": "已请求下一回合使用 Fast；是否可用取决于账号与运行环境。",
+    "requestedHint": "已请求使用 Fast，主机尚未确认实际运行状态。",
+    "cooldownHint": "Fast 正在冷却，运行环境暂时使用普通速度。",
+    "costHint": "Fast 可能消耗更多额度或产生额外费用。每个对话需单独开启，且主机也必须允许 Fast。",
+    "hostPolicy": "此主机尚未允许 Fast。若主机提供此功能，请先在主机设置中启用。",
+    "unsupported": "此模型不支持 Fast 模式。",
+    "busy": "请等待当前回合结束后再切换 Fast。",
+    "unavailable": "目前无法设置 Fast；需要主机支持此功能，且对话已准备就绪。",
+    "offline": "请重新连接主机，以查看最新状态或切换 Fast。",
+    "savingOrLoading": "更新中…"
+  },
   "claude": {
     "defaultTitle": "Claude",
     "defaultWorkspace": "工作区",
