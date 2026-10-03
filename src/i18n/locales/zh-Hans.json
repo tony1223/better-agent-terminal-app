@@ -615,8 +615,8 @@
       "tool": "个工具调用",
       "thinking": "个思考块"
     },
-    "hiddenA11y": "显示 {{count}} 个隐藏的{{label}}",
-    "hiddenLabel": "{{count}} {{label}}已隐藏 · 点按以显示"
+    "hiddenA11y": "显示隐藏内容：{{summary}}",
+    "hiddenLabel": "{{summary}}已隐藏 · 点按以显示"
   },
   "chatFilter": {
     "button": "筛选聊天消息",

@@ -615,8 +615,8 @@
       "tool": "tool calls",
       "thinking": "thinking blocks"
     },
-    "hiddenA11y": "Show {{count}} hidden {{label}}",
-    "hiddenLabel": "{{count}} {{label}} hidden · tap to show"
+    "hiddenA11y": "Show hidden content: {{summary}}",
+    "hiddenLabel": "{{summary}} hidden · tap to show"
   },
   "chatFilter": {
     "button": "Filter chat messages",

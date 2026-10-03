@@ -2,7 +2,8 @@ import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
-import { type ChatItemKind } from '@/utils/classify-chat-item'
+import { CHAT_KINDS, type ChatItemKind } from '@/utils/classify-chat-item'
+import type { HiddenKindCounts } from '@/utils/filter-chat-entries'
 
 const KIND_COLOR: Record<ChatItemKind, string> = {
   you: appColors.info,
@@ -12,29 +13,30 @@ const KIND_COLOR: Record<ChatItemKind, string> = {
 }
 
 interface Props {
-  kind: ChatItemKind
-  count: number
+  counts: HiddenKindCounts
   onPress: () => void
 }
 
 export const HiddenBlocksPlaceholder = React.memo(function HiddenBlocksPlaceholder({
-  kind,
-  count,
+  counts,
   onPress,
 }: Props) {
   const { t } = useTranslation()
-  const label = t(`chatItem.kindPlural.${kind}`)
+  const kinds = CHAT_KINDS.filter(kind => (counts[kind] ?? 0) > 0)
+  const summary = kinds.map(kind => `${counts[kind]} ${t(`chatItem.kindPlural.${kind}`)}`).join(' · ')
   return (
     <TouchableOpacity
       onPress={onPress}
       style={styles.container}
       activeOpacity={0.75}
       accessibilityRole="button"
-      accessibilityLabel={t('chatItem.hiddenA11y', { count, label })}
+      accessibilityLabel={t('chatItem.hiddenA11y', { summary })}
     >
-      <View style={[styles.dot, { backgroundColor: KIND_COLOR[kind] }]} />
+      <View style={styles.dots}>
+        {kinds.map(kind => <View key={kind} style={[styles.dot, { backgroundColor: KIND_COLOR[kind] }]} />)}
+      </View>
       <Text style={styles.label}>
-        {t('chatItem.hiddenLabel', { count, label })}
+        {t('chatItem.hiddenLabel', { summary })}
       </Text>
     </TouchableOpacity>
   )
@@ -55,6 +57,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginVertical: spacing.xs,
   },
+  dots: { flexDirection: 'row', gap: 4, flexShrink: 0 },
   dot: {
     width: 8,
     height: 8,

@@ -40,6 +40,7 @@ import { StreamingText } from '@/components/claude/StreamingText'
 import { ChatHistoryList } from '@/components/claude/ChatHistoryList'
 import { ChatFilterButton } from '@/components/claude/ChatFilterButton'
 import { ChatFilterStrip } from '@/components/claude/ChatFilterStrip'
+import { filterChatEntries, type ListEntry } from '@/utils/filter-chat-entries'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { FastModeControl } from '@/components/claude/FastModeControl'
@@ -49,7 +50,7 @@ import { MessageSelectionProvider } from '@/components/claude/MessageSelection'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { dlog } from '@/utils/debug-log'
 import { recoveryEvent, recoverySpan } from '@/utils/recovery-diagnostics'
-import { classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
+import { CHAT_KINDS, classifyChatItem, type ChatItemKind } from '@/utils/classify-chat-item'
 import {
   baseModelId,
   contextLimitForModel,
@@ -147,10 +148,6 @@ interface ModelOption {
   /** Pre-formatted context budget ("300k", "1M"), when one can be determined. */
   contextLimit?: string
 }
-
-type ListEntry =
-  | { kind: 'item'; data: ClaudeMessage | ClaudeToolCall }
-  | { kind: 'placeholder'; itemKind: ChatItemKind; count: number; id: string }
 
 function normalizeModelOptions(raw: unknown): ModelOption[] {
   if (!Array.isArray(raw)) return []
@@ -1524,46 +1521,21 @@ export function ClaudeScreen({ route, navigation }: Props) {
     return counts
   }, [session.messages])
 
-  const filteredEntries = useMemo<ListEntry[]>(() => {
-    const out: ListEntry[] = []
-    let pending: { itemKind: ChatItemKind; count: number; firstId: string } | null = null
-
-    const flush = () => {
-      if (!pending) return
-      out.push({
-        kind: 'placeholder',
-        itemKind: pending.itemKind,
-        count: pending.count,
-        id: `ph-${pending.itemKind}-${pending.firstId}`,
-      })
-      pending = null
-    }
-
-    for (const item of session.messages) {
-      const itemKind = classifyChatItem(item)
-      if (itemKind && !chatFilters[itemKind]) {
-        if (pending !== null && pending.itemKind === itemKind) {
-          pending.count++
-        } else {
-          flush()
-          pending = { itemKind, count: 1, firstId: item.id }
-        }
-      } else {
-        flush()
-        out.push({ kind: 'item', data: item })
-      }
-    }
-    flush()
-    return out
-  }, [chatFilters, session.messages])
+  const filteredEntries = useMemo(
+    () => filterChatEntries(session.messages, chatFilters),
+    [chatFilters, session.messages],
+  )
 
   const renderItem = useCallback(({ item }: { item: ListEntry }) => {
     if (item.kind === 'placeholder') {
       return (
         <HiddenBlocksPlaceholder
-          kind={item.itemKind}
-          count={item.count}
-          onPress={() => setChatFilterKind(sessionId, item.itemKind, true)}
+          counts={item.counts}
+          onPress={() => {
+            for (const kind of CHAT_KINDS) {
+              if (item.counts[kind]) setChatFilterKind(sessionId, kind, true)
+            }
+          }}
         />
       )
     }
