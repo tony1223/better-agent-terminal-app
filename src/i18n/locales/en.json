@@ -626,6 +626,13 @@
     "hiddenLabel": "{{summary}} hidden · tap to show"
   },
   "chatFilter": {
+    "globalTitle": "Default chat visibility",
+    "globalHint": "Applies to all sessions. Use the filter strip in a session to override its visibility settings.",
+    "followingGlobal": "Following global settings",
+    "sessionOverride": "Customized for this session",
+    "followGlobal": "Follow global",
+    "setAsDefault": "Set as global default",
+    "showAll": "Show all by default",
     "button": "Filter chat messages",
     "showInThread": "SHOW IN THREAD",
     "reset": "RESET",

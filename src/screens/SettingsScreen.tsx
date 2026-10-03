@@ -36,6 +36,7 @@ import {
 import { getDiagnosticLogText, uploadDiagnosticReport } from '@/utils/diagnostic-report'
 import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
 import { clearIncidentDiagnostics } from '@/utils/incident-diagnostics'
+import { ChatFilterSettings } from '@/components/claude/ChatFilterSettings'
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets()
@@ -137,6 +138,8 @@ export function SettingsScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        <ChatFilterSettings />
 
         {/* Actions */}
         <Text style={styles.sectionTitle}>{t('settings.actions')}</Text>

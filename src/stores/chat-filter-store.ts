@@ -16,6 +16,8 @@ export const DEFAULT_FILTER: FilterMap = {
 }
 
 interface StoredState {
+  defaultFilter: FilterMap
+  /** Full per-session overrides; sessions without one follow the global default. */
   filters: Record<string, FilterMap>
   open: Record<string, boolean>
 }
@@ -25,6 +27,9 @@ interface ChatFilterState extends StoredState {
   isOpen: (sessionId: string) => boolean
   toggleKind: (sessionId: string, kind: ChatItemKind) => void
   setKind: (sessionId: string, kind: ChatItemKind, on: boolean) => void
+  setDefaultKind: (kind: ChatItemKind, on: boolean) => void
+  resetDefault: () => void
+  setAsDefault: (sessionId: string) => void
   reset: (sessionId: string) => void
   clearSession: (sessionId: string) => void
   setOpen: (sessionId: string, open: boolean) => void
@@ -44,7 +49,7 @@ function normalizeFilter(value: unknown): FilterMap {
 function loadFromStorage(): StoredState {
   try {
     const raw = storage.getString(STORAGE_KEY)
-    if (!raw) return { filters: {}, open: {} }
+    if (!raw) return { defaultFilter: DEFAULT_FILTER, filters: {}, open: {} }
     const parsed = JSON.parse(raw)
     const rawFilters = parsed?.filters && typeof parsed.filters === 'object'
       ? parsed.filters as Record<string, unknown>
@@ -60,14 +65,15 @@ function loadFromStorage(): StoredState {
         typeof value === 'boolean' ? [[sessionId, value]] : [],
       ),
     )
-    return { filters, open }
+    // Older versions only stored session filters. Keep them as overrides.
+    return { defaultFilter: normalizeFilter(parsed?.defaultFilter), filters, open }
   } catch {
-    return { filters: {}, open: {} }
+    return { defaultFilter: DEFAULT_FILTER, filters: {}, open: {} }
   }
 }
 
 function persist(state: StoredState) {
-  storage.set(STORAGE_KEY, JSON.stringify({ filters: state.filters, open: state.open }))
+  storage.set(STORAGE_KEY, JSON.stringify({ defaultFilter: state.defaultFilter, filters: state.filters, open: state.open }))
 }
 
 export function isAnyFilterOff(filters: FilterMap): boolean {
@@ -77,10 +83,9 @@ export function isAnyFilterOff(filters: FilterMap): boolean {
 export const useChatFilterStore = create<ChatFilterState>((set, get) => {
   const initial = loadFromStorage()
   return {
-    filters: initial.filters,
-    open: initial.open,
+    ...initial,
 
-    getFilter: (sessionId) => get().filters[sessionId] ?? DEFAULT_FILTER,
+    getFilter: (sessionId) => get().filters[sessionId] ?? get().defaultFilter,
     isOpen: (sessionId) => get().open[sessionId] ?? false,
 
     toggleKind: (sessionId, kind) => {
@@ -89,17 +94,37 @@ export const useChatFilterStore = create<ChatFilterState>((set, get) => {
     },
 
     setKind: (sessionId, kind, on) => set(state => {
-      const current = state.filters[sessionId] ?? DEFAULT_FILTER
+      const current = state.filters[sessionId] ?? state.defaultFilter
       if (current[kind] === on) return {}
       const filters = { ...state.filters, [sessionId]: { ...current, [kind]: on } }
-      persist({ filters, open: state.open })
+      persist({ ...state, filters })
       return { filters }
+    }),
+
+    setDefaultKind: (kind, on) => set(state => {
+      if (state.defaultFilter[kind] === on) return {}
+      const defaultFilter = { ...state.defaultFilter, [kind]: on }
+      persist({ ...state, defaultFilter })
+      return { defaultFilter }
+    }),
+
+    resetDefault: () => set(state => {
+      persist({ ...state, defaultFilter: DEFAULT_FILTER })
+      return { defaultFilter: DEFAULT_FILTER }
+    }),
+
+    setAsDefault: (sessionId) => set(state => {
+      const defaultFilter = state.filters[sessionId] ?? state.defaultFilter
+      const filters = { ...state.filters }
+      delete filters[sessionId]
+      persist({ ...state, defaultFilter, filters })
+      return { defaultFilter, filters }
     }),
 
     reset: (sessionId) => set(state => {
       const filters = { ...state.filters }
       delete filters[sessionId]
-      persist({ filters, open: state.open })
+      persist({ ...state, filters })
       return { filters }
     }),
 
@@ -108,13 +133,13 @@ export const useChatFilterStore = create<ChatFilterState>((set, get) => {
       const open = { ...state.open }
       delete filters[sessionId]
       delete open[sessionId]
-      persist({ filters, open })
+      persist({ ...state, filters, open })
       return { filters, open }
     }),
 
     setOpen: (sessionId, openValue) => set(state => {
       const open = { ...state.open, [sessionId]: openValue }
-      persist({ filters: state.filters, open })
+      persist({ ...state, open })
       return { open }
     }),
 

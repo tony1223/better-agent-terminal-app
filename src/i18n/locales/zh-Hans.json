@@ -626,6 +626,13 @@
     "hiddenLabel": "{{summary}}已隐藏 · 点按以显示"
   },
   "chatFilter": {
+    "globalTitle": "聊天消息显示默认值",
+    "globalHint": "应用于所有会话。可在各会话的筛选栏单独覆盖显示设置。",
+    "followingGlobal": "当前跟随全局设置",
+    "sessionOverride": "已为此会话单独设置",
+    "followGlobal": "跟随全局",
+    "setAsDefault": "设为全局默认值",
+    "showAll": "全局默认显示全部",
     "button": "筛选聊天消息",
     "showInThread": "在会话串中显示",
     "reset": "重置",

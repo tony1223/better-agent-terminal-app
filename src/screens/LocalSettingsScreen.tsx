@@ -26,6 +26,7 @@ import {
 import { getDiagnosticLogText } from '@/utils/diagnostic-report'
 import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
 import { clearIncidentDiagnostics } from '@/utils/incident-diagnostics'
+import { ChatFilterSettings } from '@/components/claude/ChatFilterSettings'
 
 export function LocalSettingsScreen() {
   const { t } = useTranslation()
@@ -45,6 +46,7 @@ export function LocalSettingsScreen() {
         style={styles.container}
         contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }}
       >
+        <ChatFilterSettings />
         <Text style={styles.sectionTitle}>{t('localSettings.section')}</Text>
         <View style={styles.card}>
           <View style={styles.switchRow}>

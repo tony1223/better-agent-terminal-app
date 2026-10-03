@@ -6,7 +6,7 @@ import {
   View,
 } from 'react-native'
 import { useTranslation } from 'react-i18next'
-import { useChatFilterStore, isAnyFilterOff } from '@/stores/chat-filter-store'
+import { useChatFilterStore } from '@/stores/chat-filter-store'
 import { CHAT_KINDS, type ChatItemKind } from '@/utils/classify-chat-item'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
@@ -28,7 +28,8 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
   const filters = useChatFilterStore(s => s.getFilter(sessionId))
   const toggleKind = useChatFilterStore(s => s.toggleKind)
   const reset = useChatFilterStore(s => s.reset)
-  const anyOff = isAnyFilterOff(filters)
+  const hasOverride = useChatFilterStore(s => !!s.filters[sessionId])
+  const setAsDefault = useChatFilterStore(s => s.setAsDefault)
 
   // No LayoutAnimation on open/close: under the New Architecture (Fabric) it can
   // crash in RCTPerformMountInstructions while mounting/unmounting this strip.
@@ -38,11 +39,17 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerLabel}>{t('chatFilter.showInThread')}</Text>
-        {anyOff && (
-          <TouchableOpacity onPress={() => reset(sessionId)} activeOpacity={0.75}>
-            <Text style={styles.resetLink}>{t('chatFilter.reset')}</Text>
+        {hasOverride && (
+          <TouchableOpacity testID="chat-filter-follow-global" onPress={() => reset(sessionId)} activeOpacity={0.75}>
+            <Text style={styles.resetLink}>{t('chatFilter.followGlobal')}</Text>
           </TouchableOpacity>
         )}
+      </View>
+      <View style={styles.scopeRow}>
+        <Text style={styles.scopeLabel}>{t(hasOverride ? 'chatFilter.sessionOverride' : 'chatFilter.followingGlobal')}</Text>
+        {hasOverride && <TouchableOpacity testID="chat-filter-set-default" onPress={() => setAsDefault(sessionId)} activeOpacity={0.75}>
+          <Text style={styles.resetLink}>{t('chatFilter.setAsDefault')}</Text>
+        </TouchableOpacity>}
       </View>
 
       <View style={styles.chips}>
@@ -52,6 +59,7 @@ export const ChatFilterStrip = React.memo(function ChatFilterStrip({ sessionId, 
           return (
             <TouchableOpacity
               key={kind}
+              testID={`chat-filter-${kind}`}
               onPress={() => toggleKind(sessionId, kind)}
               style={[
                 styles.chip,
@@ -110,6 +118,15 @@ const styles = StyleSheet.create({
     color: appColors.textMuted,
     letterSpacing: 1.2,
   },
+  scopeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  scopeLabel: { fontSize: fontSize.xs, color: appColors.textSecondary },
   resetLink: {
     fontFamily: 'monospace',
     fontSize: fontSize.xs,

@@ -626,6 +626,13 @@
     "hiddenLabel": "{{summary}}已隱藏 · 點按以顯示"
   },
   "chatFilter": {
+    "globalTitle": "聊天訊息顯示預設",
+    "globalHint": "套用至所有工作階段。可在各工作階段的篩選列單獨覆寫顯示設定。",
+    "followingGlobal": "目前跟隨全域設定",
+    "sessionOverride": "已為此工作階段單獨設定",
+    "followGlobal": "跟隨全域",
+    "setAsDefault": "設為全域預設",
+    "showAll": "全域預設顯示全部",
     "button": "篩選聊天訊息",
     "showInThread": "在討論串中顯示",
     "reset": "重設",
