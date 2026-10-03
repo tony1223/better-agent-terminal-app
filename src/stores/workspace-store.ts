@@ -67,6 +67,7 @@ interface WorkspaceState {
   /** A Procfile worker panel: a terminal record whose only mark is `procfilePath`. */
   requestAddWorker: (workspaceId: string, procfilePath: string) => Promise<TerminalInstance>
   requestCloseSession: (terminalId: string, options?: { cleanWorktree?: boolean }) => Promise<void>
+  renameSession: (terminalId: string, name: string) => Promise<void>
 
   // Computed helpers
   getWorkspaceTerminals: (workspaceId: string) => TerminalInstance[]
@@ -527,6 +528,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const saved = await channels.workspace.save(JSON.stringify(nextState), activeProfileId)
     if (!saved) throw new Error('Host rejected workspace save')
     if (useConnectionStore.getState().channels === channels && viewedProfileId(get()) === activeProfileId) await get().load()
+  },
+
+  renameSession: async (terminalId, name) => {
+    const alias = name.trim()
+    if (!alias) throw new Error('Session name cannot be empty')
+    const { channels } = useConnectionStore.getState()
+    if (!channels) throw new Error('Not connected to remote server')
+    const profileId = viewedProfileId(get())
+    const isCurrent = () => useConnectionStore.getState().channels === channels && viewedProfileId(get()) === profileId
+    // Preserve the host's latest sessions and snapshot fields, including data
+    // this mobile client does not know about. Desktop rename also sets alias.
+    const raw = await channels.workspace.load(profileId)
+    if (!isCurrent()) throw new Error('Profile changed while renaming session')
+    if (raw == null) throw new Error('Workspace is unavailable')
+    const snapshot = JSON.parse(raw)
+    if (!Array.isArray(snapshot?.terminals) || !snapshot.terminals.some((item: TerminalInstance) => item.id === terminalId)) {
+      throw new Error('Session no longer exists')
+    }
+    const next = { ...snapshot, terminals: snapshot.terminals.map((item: TerminalInstance) =>
+      item.id === terminalId ? { ...item, alias } : item) }
+    const saved = await channels.workspace.save(JSON.stringify(next), profileId)
+    if (!saved) throw new Error('Host rejected workspace save')
+    if (isCurrent()) set(state => ({ terminals: state.terminals.map(item => item.id === terminalId ? { ...item, alias } : item) }))
   },
 
   getWorkspaceTerminals: (workspaceId: string) => {

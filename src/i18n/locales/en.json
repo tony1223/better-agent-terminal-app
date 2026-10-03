@@ -266,6 +266,13 @@
     }
   },
   "session": {
+    "rename": {
+      "button": "Rename",
+      "title": "Rename session",
+      "name": "Session name",
+      "failed": "Could not save the name. Check the connection and reopen this dialog to retry.",
+      "profileChanged": "Profile changed"
+    },
     "recency": {
       "updatedShort": "Updated",
       "openedShort": "Opened",

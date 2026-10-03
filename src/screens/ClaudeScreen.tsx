@@ -45,6 +45,7 @@ import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceho
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { FastModeControl } from '@/components/claude/FastModeControl'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
+import { SessionHeaderTitle } from '@/components/session/SessionHeaderTitle'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import { MessageSelectionProvider } from '@/components/claude/MessageSelection'
 import { useChatFilterStore } from '@/stores/chat-filter-store'
@@ -237,10 +238,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const setChatFilterKind = useChatFilterStore(s => s.setKind)
   const promptSuggestions = useClaudeStore(s => s.promptSuggestions)
   const terminal = useWorkspaceStore(s => s.terminals.find(item => item.id === sessionId))
-  const workspace = useWorkspaceStore(s => {
-    const term = s.terminals.find(item => item.id === sessionId)
-    return term ? s.workspaces.find(w => w.id === term.workspaceId) : undefined
-  })
   const loadStatus = useWorkspaceStore(s => s.loadStatus)
 
   const profileId = useWorkspaceStore(s => s.activeLocalProfileId)
@@ -353,18 +350,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
         </TouchableOpacity>
       ),
       headerRight: () => <ChatFilterButton sessionId={sessionId} />,
-      headerTitle: () => (
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {workspace?.alias || workspace?.name || t('claude.defaultWorkspace')}
-          </Text>
-          <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {terminal?.alias || terminal?.title || t('claude.defaultTitle')}
-          </Text>
-        </View>
-      ),
+      headerTitle: () => <SessionHeaderTitle sessionId={sessionId} />,
     })
-  }, [navigation, sessionId, terminal?.alias, terminal?.title, workspace?.alias, workspace?.name, t])
+  }, [navigation, sessionId])
 
   useEffect(() => {
     if ((loadStatus === 'ok' || loadStatus === 'empty') && !terminal) {
@@ -2115,9 +2103,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: appColors.background,
   },
-  headerTitleWrap: {
-    minWidth: 0,
-  },
   headerBackButton: {
     width: 40,
     height: 40,
@@ -2128,16 +2113,6 @@ const styles = StyleSheet.create({
     color: appColors.text,
     fontSize: 28,
     lineHeight: 32,
-  },
-  headerTitle: {
-    color: appColors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-  },
-  headerSubtitle: {
-    color: appColors.textSecondary,
-    fontSize: fontSize.xs,
-    fontFamily: 'monospace',
   },
   headerButton: {
     minHeight: 34,

@@ -30,6 +30,7 @@ import { appColors, fontSize, spacing } from '@/theme/colors'
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar'
 import { terminalHtml } from '@/components/terminal/terminal-html'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
+import { SessionHeaderTitle } from '@/components/session/SessionHeaderTitle'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
 import {
   HIDDEN_TAB_BAR_STYLE,
@@ -126,20 +127,7 @@ export function TerminalScreen({ route, navigation }: Props) {
           )}
         </View>
       ),
-      headerTitle: () => (
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {workspace?.alias ||
-              workspace?.name ||
-              t('terminal.workspaceFallback')}
-          </Text>
-          <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {terminal?.alias ||
-              terminal?.title ||
-              t('terminal.terminalFallback')}
-          </Text>
-        </View>
-      ),
+      headerTitle: () => <SessionHeaderTitle sessionId={terminalId} />,
       headerStyle: { backgroundColor: appColors.surface },
       headerTintColor: appColors.text,
     })
@@ -147,7 +135,7 @@ export function TerminalScreen({ route, navigation }: Props) {
     return () => {
       parent?.setOptions({ tabBarStyle: MAIN_TAB_BAR_STYLE })
     }
-  }, [navigation, terminal, terminalId, workspace, t])
+  }, [navigation, terminal?.agentPreset, terminalId, t])
   const outputBufferRef = useRef('')
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -645,19 +633,6 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: appColors.background,
-  },
-  headerTitleWrap: {
-    minWidth: 0,
-  },
-  headerTitle: {
-    color: appColors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-  },
-  headerSubtitle: {
-    color: appColors.textSecondary,
-    fontSize: fontSize.xs,
-    fontFamily: 'monospace',
   },
   headerActions: {
     flexDirection: 'row',

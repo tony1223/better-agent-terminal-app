@@ -266,6 +266,13 @@
     }
   },
   "session": {
+    "rename": {
+      "button": "重新命名",
+      "title": "重新命名工作階段",
+      "name": "工作階段名稱",
+      "failed": "無法儲存名稱，請確認連線後重新開啟視窗再試一次。",
+      "profileChanged": "Profile 已切換"
+    },
     "recency": {
       "updatedShort": "更新",
       "openedShort": "開啟",

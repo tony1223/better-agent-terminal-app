@@ -114,3 +114,57 @@ test('with no pin the save falls back to the host active set', async () => {
 
   expect(save.mock.calls[0][1]).toBe('game')
 })
+
+test('rename saves desktop-compatible alias to the viewed profile and preserves fresh host data', async () => {
+  const { channels, save } = connect()
+  const snapshot = {
+    workspaces: [batWorkspace], terminals: [batTerminal, { ...batTerminal, id: 'new-on-desktop' }],
+    activeTerminalId: 'new-on-desktop', unknownHostField: { keep: true },
+  }
+  channels.workspace.load.mockResolvedValue(JSON.stringify(snapshot))
+  await useWorkspaceStore.getState().renameSession('bat-term', '  Release job  ')
+  expect(channels.workspace.load).toHaveBeenCalledWith('bat')
+  expect(save.mock.calls[0][1]).toBe('bat')
+  expect(JSON.parse(save.mock.calls[0][0])).toEqual({ ...snapshot,
+    terminals: [{ ...batTerminal, alias: 'Release job' }, snapshot.terminals[1]] })
+  expect(useWorkspaceStore.getState().terminals[0].alias).toBe('Release job')
+  expect(useWorkspaceStore.getState().terminals[0].title).toBe('Terminal')
+})
+
+test('a rejected rename leaves the original name intact', async () => {
+  const { save } = connect()
+  save.mockResolvedValue(false)
+  await expect(useWorkspaceStore.getState().renameSession('bat-term', 'New')).rejects.toThrow('rejected')
+  expect(useWorkspaceStore.getState().terminals[0].alias).toBeUndefined()
+})
+
+test('rename aborts before save when the viewed profile changes during load', async () => {
+  const { channels, save } = connect()
+  let finish!: (raw: string) => void
+  channels.workspace.load.mockReturnValue(new Promise(resolve => { finish = resolve }))
+  const operation = useWorkspaceStore.getState().renameSession('bat-term', 'New')
+  useWorkspaceStore.setState({ activeLocalProfileId: 'game' })
+  finish(JSON.stringify({ terminals: [batTerminal] }))
+  await expect(operation).rejects.toThrow('Profile changed')
+  expect(save).not.toHaveBeenCalled()
+})
+
+test('rename refuses blank names and sessions deleted on the host', async () => {
+  const { channels, save } = connect()
+  await expect(useWorkspaceStore.getState().renameSession('bat-term', '   ')).rejects.toThrow('empty')
+  channels.workspace.load.mockResolvedValue(JSON.stringify({ terminals: [] }))
+  await expect(useWorkspaceStore.getState().renameSession('bat-term', 'New')).rejects.toThrow('no longer exists')
+  expect(save).not.toHaveBeenCalled()
+})
+
+test('rename finishing in an old profile does not change the new profile UI', async () => {
+  const { save } = connect()
+  let finish!: (saved: boolean) => void
+  save.mockReturnValue(new Promise(resolve => { finish = resolve }))
+  const operation = useWorkspaceStore.getState().renameSession('bat-term', 'Old profile name')
+  await Promise.resolve()
+  useWorkspaceStore.setState({ activeLocalProfileId: 'game', terminals: [{ ...batTerminal, alias: 'Game name' } as any] })
+  finish(true)
+  await operation
+  expect(useWorkspaceStore.getState().terminals[0].alias).toBe('Game name')
+})

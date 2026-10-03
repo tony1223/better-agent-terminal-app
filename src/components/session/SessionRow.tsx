@@ -11,6 +11,7 @@ import React from 'react'
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { WorktreeControls } from '@/components/session/WorktreeControls'
+import { SessionRenameButton } from './SessionRenameButton'
 import { appColors, fontSize, spacing } from '@/theme/colors'
 import { getAgentPreset, isSdkAgentSession, type TerminalInstance } from '@/types'
 import {
@@ -122,9 +123,12 @@ export function SessionRow({
         {closing ? (
           <ActivityIndicator size="small" color={appColors.accent} style={styles.trailing} />
         ) : (
-          <TouchableOpacity style={styles.closeButton} onPress={() => onRequestClose(terminal)}>
-            <Text style={styles.closeButtonText}>{t('terminalList.button.close')}</Text>
-          </TouchableOpacity>
+          <View>
+            <SessionRenameButton terminal={terminal} />
+            <TouchableOpacity style={styles.closeButton} onPress={() => onRequestClose(terminal)}>
+              <Text style={styles.closeButtonText}>{t('terminalList.button.close')}</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
       {isSdkAgentSession(terminal) && preview ? <Text style={styles.preview} numberOfLines={2}>{preview}</Text> : null}

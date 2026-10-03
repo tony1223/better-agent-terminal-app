@@ -266,6 +266,13 @@
     }
   },
   "session": {
+    "rename": {
+      "button": "重命名",
+      "title": "重命名会话",
+      "name": "会话名称",
+      "failed": "无法保存名称，请确认连接后重新打开窗口再试一次。",
+      "profileChanged": "Profile 已切换"
+    },
     "recency": {
       "updatedShort": "更新",
       "openedShort": "打开",
