@@ -267,6 +267,8 @@
   },
   "session": {
     "recency": {
+      "updatedShort": "更新",
+      "openedShort": "打开",
       "lastData": "Remote 最后数据",
       "lastOpened": "本机最近打开",
       "noData": "暂无数据记录",

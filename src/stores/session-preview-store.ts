@@ -1,164 +1,155 @@
-/**
- * The one-line "what is this session about" shown under each session row.
- *
- * A session's opening prompt is the only part of it that never changes, which
- * makes it the right thing to summarise a row with — and means this can be
- * fetched once per session and kept.
- *
- * This deliberately does *not* carry activity. The first version did, via
- * `agent:get-session-state` per row, and it was wrong on both counts:
- *
- *   - The host's snapshot has no activity in it. `session_state_from_
- *     notification_snapshot` returns active/permissionMode/model/isResting and
- *     no `isStreaming` or `meta`, so every row rendered "ready" forever.
- *   - It cost a full transcript per row to learn one line. Once the session
- *     list went cross-workspace that became "download every conversation on the
- *     host, at once, over a phone's socket" — while ClaudeScreen was competing
- *     for the same connection and giving up on its own history after six
- *     seconds.
- *
- * Activity now comes from `useClaudeStore`, which App.tsx subscribes to
- * globally. session-activity-sync also reconciles lightweight host metadata
- * for already-running sessions that are quiet between output frames.
- */
-
+/** Latest readable message, fetched in bounded tail pages rather than full snapshots. */
 import { create } from 'zustand'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { isCompactSummaryMessage } from '@/utils/compact-summary'
-import type { ClaudeMessage } from '@/types'
+import { useClaudeStore } from '@/stores/claude-store'
+import { latestMessagePreview } from '@/utils/session-preview'
 
 interface SessionPreviewState {
   previews: Record<string, string>
-  /** Fetch previews for any of these ids we don't already have. */
-  load: (sessionIds: string[]) => Promise<void>
-  /** Drop a cached preview, for when a session is reset rather than closed. */
+  timestamps: Record<string, number>
+  fetchedAt: Record<string, number>
+  load: (sessionIds: string[], isVisible?: () => boolean) => Promise<void>
   forget: (sessionId: string) => void
 }
 
-/**
- * Ids with a request out. Several screens can mount focus effects at once — a
- * tab switch pushes a detail screen, which pushes a session — and without this
- * each would ask for the same rows.
- */
-const requestsByChannels = new WeakMap<object, Set<string>>()
-
-/** At most this many archive reads at a time, so the socket stays usable. */
+const requestsByChannels = new WeakMap<object, Map<string, symbol>>()
 const MAX_CONCURRENT_FETCHES = 4
+const PREVIEW_SCAN_DEPTH = 8
+const MAX_SCAN_PAGES = 3
+export const PREVIEW_REFRESH_MS = 15_000
 
-/**
- * How far into the transcript to look for the opening prompt. A session resumed
- * from a compacted one begins with the summary, so the real first prompt can be
- * a turn or two down.
- */
-const PREVIEW_SCAN_DEPTH = 4
-
-const PREVIEW_MAX_CHARS = 160
-
-/** Run `worker` over `items`, at most `limit` at a time. */
-async function pooled<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+async function pooled<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
   let cursor = 0
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (cursor < items.length) {
-        await worker(items[cursor++])
-      }
+      while (cursor < items.length) await worker(items[cursor++])
     }),
   )
 }
 
-function asClaudeMessage(value: unknown): ClaudeMessage | null {
-  return !!value && typeof value === 'object' && 'role' in value ? (value as ClaudeMessage) : null
-}
-
-/**
- * The first thing the user actually typed. A 15k-character compaction summary
- * is technically the first user message and tells you nothing about the
- * session, so it is skipped in favour of what came after it.
- */
-export function firstUserPrompt(messages: unknown[]): string {
-  let fallback = ''
-  for (const raw of messages) {
-    const message = asClaudeMessage(raw)
-    const content = message?.content?.trim()
-    if (!message || !content) continue
-    if (message.role !== 'user') continue
-    if (isCompactSummaryMessage('user', message.content ?? '', message.isCompactSummary)) {
-      // Better than nothing if the whole window turns out to be summary.
-      fallback ||= content
-      continue
-    }
-    return content.slice(0, PREVIEW_MAX_CHARS)
-  }
-  return fallback.slice(0, PREVIEW_MAX_CHARS)
-}
-
-/**
- * Which sessions still exist — asked of the workspace store rather than taken
- * from the caller's list.
- *
- * Callers only know their own slice: the workspace detail pane passes one
- * workspace's sessions, and evicting everything else on its behalf would make
- * two screens fight over the cache and refetch each other's rows forever. It
- * also has to be read at the moment of use, not captured at the start of a
- * load, or a session closed while its read was in flight comes back.
- */
 function livingSessionIds(): Set<string> {
   return new Set(useWorkspaceStore.getState().terminals.map(item => item.id))
 }
 
-export const useSessionPreviewStore = create<SessionPreviewState>((set, get) => ({
-  previews: {},
+export const useSessionPreviewStore = create<SessionPreviewState>(
+  (set, get) => ({
+    previews: {},
+    timestamps: {},
+    fetchedAt: {},
 
-  forget: (sessionId) => set(state => {
-    if (!(sessionId in state.previews)) return {}
-    const rest = { ...state.previews }
-    delete rest[sessionId]
-    return { previews: rest }
-  }),
-
-  load: async (sessionIds) => {
-    const channels = useConnectionStore.getState().channels
-    if (!channels) return
-    const inFlight = requestsByChannels.get(channels) ?? new Set<string>()
-    requestsByChannels.set(channels, inFlight)
-
-    // Forget sessions that no longer exist, so closing one drops its line
-    // rather than leaving the cache to grow for the life of the app.
-    set(state => {
-      const live = livingSessionIds()
-      const kept = Object.keys(state.previews).filter(id => live.has(id))
-      if (kept.length === Object.keys(state.previews).length) return {}
-      return { previews: Object.fromEntries(kept.map(id => [id, state.previews[id]])) }
-    })
-
-    const known = get().previews
-    const wanted = sessionIds.filter(id => !(id in known) && !inFlight.has(id))
-    if (wanted.length === 0) return
-    wanted.forEach(id => inFlight.add(id))
-
-    try {
-      await pooled(wanted, MAX_CONCURRENT_FETCHES, async (id) => {
-        let preview: string
-        try {
-          const archived = await channels.claude.loadArchived(id, 0, PREVIEW_SCAN_DEPTH)
-          preview = firstUserPrompt(archived?.messages ?? [])
-        } catch {
-          // A failed read isn't evidence the session has no prompt; leave it
-          // uncached so the next visit tries again.
-          return
-        }
-        if (!preview || useConnectionStore.getState().channels !== channels) return
-
-        set(state => {
-          // The session may have been closed while this was in flight; adding
-          // it now would resurrect a row the prune already dropped.
-          if (!livingSessionIds().has(id)) return {}
-          return { previews: { ...state.previews, [id]: preview } }
-        })
+    forget: sessionId => {
+      const channels = useConnectionStore.getState().channels
+      if (channels) requestsByChannels.get(channels)?.delete(sessionId)
+      set(state => {
+        const previews = { ...state.previews }
+        const timestamps = { ...state.timestamps }
+        const fetchedAt = { ...state.fetchedAt }
+        delete previews[sessionId]
+        delete timestamps[sessionId]
+        delete fetchedAt[sessionId]
+        return { previews, timestamps, fetchedAt }
       })
-    } finally {
-      wanted.forEach(id => inFlight.delete(id))
-    }
-  },
-}))
+    },
+
+    load: async (sessionIds, isVisible = () => true) => {
+      const connection = useConnectionStore.getState()
+      const { channels } = connection
+      if (
+        !channels ||
+        connection.status !== 'connected' ||
+        (connection.client?.supportsProfileContext &&
+          connection.profileStatus !== 'ready')
+      )
+        return
+      const scope = useClaudeStore.getState().scopeKey
+      const inFlight =
+        requestsByChannels.get(channels) ?? new Map<string, symbol>()
+      requestsByChannels.set(channels, inFlight)
+      const current = () => {
+        const state = useConnectionStore.getState()
+        return (
+          isVisible() &&
+          state.channels === channels &&
+          state.status === 'connected' &&
+          (!state.client?.supportsProfileContext ||
+            state.profileStatus === 'ready') &&
+          useClaudeStore.getState().scopeKey === scope
+        )
+      }
+
+      // Prune against all workspaces, not only the caller's visible slice.
+      set(state => {
+        const live = livingSessionIds()
+        if (
+          [
+            ...Object.keys(state.previews),
+            ...Object.keys(state.fetchedAt),
+          ].every(id => live.has(id))
+        )
+          return {}
+        const keep = <T>(record: Record<string, T>) =>
+          Object.fromEntries(
+            Object.entries(record).filter(([id]) => live.has(id)),
+          )
+        return {
+          previews: keep(state.previews),
+          timestamps: keep(state.timestamps),
+          fetchedAt: keep(state.fetchedAt),
+        }
+      })
+      const wanted = [...new Set(sessionIds)].filter(
+        id =>
+          livingSessionIds().has(id) &&
+          !inFlight.has(id) &&
+          (get().fetchedAt[id] === undefined ||
+            Date.now() - get().fetchedAt[id] >= PREVIEW_REFRESH_MS),
+      )
+      const token = Symbol('preview read')
+      wanted.forEach(id => inFlight.set(id, token))
+      try {
+        await pooled(wanted, MAX_CONCURRENT_FETCHES, async id => {
+          const valid = () =>
+            current() &&
+            livingSessionIds().has(id) &&
+            inFlight.get(id) === token
+          if (!valid()) return
+          try {
+            let preview = null
+            for (let page = 0; page < MAX_SCAN_PAGES; page++) {
+              // Offset zero means the newest page, ordered oldest-to-newest.
+              const archived = await channels.claude.loadArchived(
+                id,
+                page * PREVIEW_SCAN_DEPTH,
+                PREVIEW_SCAN_DEPTH,
+              )
+              if (!valid()) return
+              preview = latestMessagePreview(archived?.messages ?? [])
+              if (preview || !archived?.hasMore) break
+            }
+            set(state => ({
+              // Tool-only windows retain the last readable message, never a tool dump.
+              previews: preview
+                ? { ...state.previews, [id]: preview.text }
+                : state.previews,
+              timestamps: preview
+                ? { ...state.timestamps, [id]: preview.timestamp }
+                : state.timestamps,
+              fetchedAt: { ...state.fetchedAt, [id]: Date.now() },
+            }))
+          } catch {
+            /* Keep the last preview; retry failed reads on the next refresh. */
+          }
+        })
+      } finally {
+        wanted.forEach(id => {
+          if (inFlight.get(id) === token) inFlight.delete(id)
+        })
+      }
+    },
+  }),
+)

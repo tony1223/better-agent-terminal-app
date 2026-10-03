@@ -1,4 +1,13 @@
 /** Host timestamps are epoch milliseconds; display them in the phone's timezone. */
+export function formatSessionTimestamp(timestamp: number, now = new Date()): { short: string; full: string } | null {
+  const formatted = formatChatTimestamp(timestamp, now)
+  if (!formatted) return null
+  const date = new Date(timestamp)
+  const time = formatted.full.slice(-8, -3)
+  const day = formatted.full.slice(date.getFullYear() === now.getFullYear() ? 5 : 0, 10).replace(/-/g, '/')
+  return { full: formatted.full, short: date.toDateString() === now.toDateString() ? time : `${day} ${time}` }
+}
+
 export function formatChatTimestamp(timestamp: number, now = new Date()): { short: string; full: string } | null {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return null
   const date = new Date(timestamp)

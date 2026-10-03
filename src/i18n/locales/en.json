@@ -267,6 +267,8 @@
   },
   "session": {
     "recency": {
+      "updatedShort": "Updated",
+      "openedShort": "Opened",
       "lastData": "Last host output",
       "lastOpened": "Last opened on this phone",
       "noData": "No output recorded",

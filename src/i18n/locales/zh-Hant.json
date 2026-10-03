@@ -267,6 +267,8 @@
   },
   "session": {
     "recency": {
+      "updatedShort": "更新",
+      "openedShort": "開啟",
       "lastData": "Remote 最後資料",
       "lastOpened": "本機最近開啟",
       "noData": "尚無資料紀錄",

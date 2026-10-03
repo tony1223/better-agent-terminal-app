@@ -7,6 +7,6 @@ export function activateProfileScope(key: string) {
   if (useClaudeStore.getState().scopeKey === key) return
   useClaudeStore.getState().switchScope(key)
   useUsageStore.getState().clear()
-  useSessionPreviewStore.setState({ previews: {} })
+  useSessionPreviewStore.setState({ previews: {}, timestamps: {}, fetchedAt: {} })
   switchRecentsScope(key)
 }

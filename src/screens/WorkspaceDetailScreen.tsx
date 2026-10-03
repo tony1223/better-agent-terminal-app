@@ -21,7 +21,7 @@ import { useSupportedSessionTypes } from '@/hooks/use-supported-session-types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
 import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
-import { useSessionPreviewStore } from '@/stores/session-preview-store'
+import { useSessionPreviews } from '@/hooks/use-session-previews'
 import { SessionRow } from '@/components/session/SessionRow'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionSortControl } from '@/components/session/SessionSortControl'
@@ -179,18 +179,8 @@ function SessionsPane({ workspaceId, navigation }: { workspaceId: string; naviga
   const orderedTerminals = useSessionOrder(terminals, sort)
   useWorkerRosters(terminals, connectionStatus === 'connected')
 
-  // Same session previews the Terminals tab shows, from the same store — which
-  // screen you arrived from shouldn't change how much you're told. This pane
-  // remounts on every back-press out of a session; the store only fetches ids it
-  // has never seen, so that costs nothing after the first visit.
   const sdkSessionIds = useMemo(() => terminals.filter(isSdkAgentSession).map(item => item.id), [terminals])
-  const sdkSessionIdsKey = sdkSessionIds.join('\0')
-  useEffect(() => {
-    if (connectionStatus !== 'connected') return
-    useSessionPreviewStore.getState().load(sdkSessionIds).catch(() => undefined)
-    // sdkSessionIdsKey stands in for the array's contents.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionStatus, sdkSessionIdsKey])
+  useSessionPreviews(sdkSessionIds)
 
   const openSession = (terminal: TerminalInstance) => {
     setActiveTerminal(terminal.id)

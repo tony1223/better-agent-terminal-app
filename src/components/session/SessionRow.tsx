@@ -24,7 +24,8 @@ import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { ActivityBadge, ACTIVITY_COLOR } from './ActivityBadge'
 import { useActivityClock } from '@/hooks/use-activity-clock'
 import { useRecentsStore } from '@/stores/recents-store'
-import { formatChatTimestamp } from '@/utils/chat-timestamp'
+import { formatSessionTimestamp } from '@/utils/chat-timestamp'
+import { sessionPreviewText } from '@/utils/session-preview'
 import { useWorkerStore } from '@/stores/worker-store'
 import { deriveWorkerActivity, isWorkerSession, procfileBasename } from '@/utils/worker'
 
@@ -51,9 +52,7 @@ export function SessionRow({
   const { t } = useTranslation()
   const preset = terminal.agentPreset ? getAgentPreset(terminal.agentPreset) : null
 
-  // Primitive selectors rather than one for the whole session: a streaming
-  // turn rewrites `messages` and `streamingText` continuously, and a list has no
-  // business re-rendering on every token. Activity changes at turn edges.
+  // Primitive selectors avoid redrawing rows for unrelated session updates.
   const isStreaming = useClaudeStore(s => s.sessions[terminal.id]?.isStreaming ?? false)
   const runtimeStatus = useClaudeStore(s => s.sessions[terminal.id]?.meta?.runtimeStatus ?? null)
   const turnStartedAt = useClaudeStore(s => s.sessions[terminal.id]?.turnStartedAt ?? null)
@@ -61,9 +60,11 @@ export function SessionRow({
   const now = useActivityClock()
   const lastDataAt = useClaudeStore(s => s.sessions[terminal.id]?.lastDataAt)
   const lastOpenedAt = useRecentsStore(s => s.sessions[terminal.id]?.lastOpenedAt)
-  const dataTime = lastDataAt ? formatChatTimestamp(lastDataAt, new Date(now)) : null
-  const openedTime = lastOpenedAt ? formatChatTimestamp(lastOpenedAt, new Date(now)) : null
-  const preview = useSessionPreviewStore(s => s.previews[terminal.id])
+  const dataTime = lastDataAt ? formatSessionTimestamp(lastDataAt, new Date(now)) : null
+  const openedTime = lastOpenedAt ? formatSessionTimestamp(lastOpenedAt, new Date(now)) : null
+  const archivedPreview = useSessionPreviewStore(s => s.previews[terminal.id])
+  const archivedTimestamp = useSessionPreviewStore(s => s.timestamps[terminal.id])
+  const preview = useClaudeStore(s => sessionPreviewText(s.sessions[terminal.id], archivedPreview, archivedTimestamp))
   const isWorker = isWorkerSession(terminal)
   const workerProcesses = useWorkerStore(s => s.panels[terminal.id]?.processes)
 
@@ -99,6 +100,10 @@ export function SessionRow({
       <View style={styles.statusRow}>
         <ActivityBadge activity={activity} />
         {phase ? <Text style={styles.phase}>{t(`claude.runtimeStatus.${runtimeStatus === 'starting' ? 'preparing' : runtimeStatus === 'waiting_for_api' ? 'waiting' : runtimeStatus}`)}</Text> : null}
+        <View style={styles.times}>
+          {isSdkAgentSession(terminal) && dataTime ? <Text style={styles.time} accessibilityLabel={`${t('session.recency.lastData')} ${dataTime.full}`}>{t('session.recency.updatedShort')} {dataTime.short}</Text> : null}
+          {openedTime ? <Text style={styles.time} accessibilityLabel={`${t('session.recency.lastOpened')} ${openedTime.full}`}>{t('session.recency.openedShort')} {openedTime.short}</Text> : null}
+        </View>
       </View>
       <View style={styles.row}>
         <Text style={[styles.icon, preset ? { color: preset.color } : isWorker ? { color: WORKER_ICON_COLOR } : null]}>
@@ -113,11 +118,6 @@ export function SessionRow({
           </Text>
           <Text style={styles.cwd} numberOfLines={1}>{terminal.cwd}</Text>
           {workerSummary ? <Text style={[styles.recency, workerCrashed > 0 && styles.recencyAlert]} numberOfLines={1}>{workerSummary}</Text> : null}
-          {isSdkAgentSession(terminal) && <Text style={styles.recency}>{t('session.recency.lastData')}{' · '}{dataTime?.short || t(lastDataAt === null ? 'session.recency.noData' : 'session.recency.unavailable')}</Text>}
-          {openedTime && <Text style={styles.recency}>{t('session.recency.lastOpened')}{' · '}{openedTime.short}</Text>}
-          {preview ? (
-            <Text style={styles.preview} numberOfLines={2}>{preview}</Text>
-          ) : null}
         </View>
         {closing ? (
           <ActivityIndicator size="small" color={appColors.accent} style={styles.trailing} />
@@ -127,6 +127,7 @@ export function SessionRow({
           </TouchableOpacity>
         )}
       </View>
+      {isSdkAgentSession(terminal) && preview ? <Text style={styles.preview} numberOfLines={2}>{preview}</Text> : null}
       <WorktreeControls terminal={terminal} closing={closing} onCloseSession={onCloseSession} />
     </TouchableOpacity>
   )
@@ -173,10 +174,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   preview: {
-    fontSize: fontSize.xs,
-    color: appColors.textMuted,
-    marginTop: spacing.xs,
-    lineHeight: fontSize.sm,
+    fontSize: fontSize.sm,
+    color: appColors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: fontSize.sm * 1.5,
   },
   recency: { color: appColors.textSecondary, fontSize: fontSize.sm, marginTop: spacing.xs },
   recencyAlert: { color: appColors.error },
@@ -191,6 +192,8 @@ const styles = StyleSheet.create({
     color: appColors.textSecondary,
     fontSize: fontSize.xs,
   },
+  times: { marginLeft: 'auto', alignItems: 'flex-end', flexShrink: 0 },
+  time: { color: appColors.textMuted, fontSize: fontSize.xs },
   trailing: {
     marginLeft: spacing.sm,
   },

@@ -7,7 +7,7 @@
  * is exactly the "can I quickly get to the other thing" case a phone is worst at.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -25,7 +25,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useSupportedSessionTypes } from '@/hooks/use-supported-session-types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useRecentsStore } from '@/stores/recents-store'
-import { useSessionPreviewStore } from '@/stores/session-preview-store'
+import { useSessionPreviews } from '@/hooks/use-session-previews'
 import { SessionRow } from '@/components/session/SessionRow'
 import { SessionSortControl } from '@/components/session/SessionSortControl'
 import { useSessionOrder } from '@/hooks/use-session-order'
@@ -101,39 +101,21 @@ export function TerminalListScreen({ navigation }: Props) {
 
   const sessionTypeRows = useMemo(() => availableSessionTypes ?? [], [availableSessionTypes])
 
-  // Taken from `sections`, not the raw list, so the active workspace's rows are
-  // fetched first — previews are pulled a few at a time and the top of the list
-  // is the part you can actually see.
-  //
-  // A stable dependency for "the set of SDK sessions changed" — the array
-  // itself is a new ref every render, so the key is what the effect can watch.
   const sdkSessionIds = useMemo(
     () => sections.flatMap(section => section.data.filter(isSdkAgentSession).map(item => item.id)),
     [sections],
   )
-  const sdkSessionIdsKey = sdkSessionIds.join('\0')
-
-  const loadPreviews = useCallback(() => {
-    useSessionPreviewStore.getState().load(sdkSessionIds).catch(() => undefined)
-    // sdkSessionIdsKey stands in for the array's contents.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sdkSessionIdsKey])
-
-  useEffect(() => {
-    if (connectionStatus === 'connected') loadPreviews()
-  }, [connectionStatus, loadPreviews])
+  useSessionPreviews(sdkSessionIds)
   useWorkerRosters(visibleTerminals, connectionStatus === 'connected')
 
   // Refresh terminals on focus so sessions started elsewhere show up without
-  // relying on cached state. Previews need no staleness window — an opening
-  // prompt doesn't change, so the store only fetches ids it has never seen.
+  // relying on cached state.
   // Activity is synchronised globally by App.tsx through events and metadata,
   // independent of whether any individual conversation has been opened.
   useFocusEffect(
     useCallback(() => {
       useWorkspaceStore.getState().load()
-      loadPreviews()
-    }, [loadPreviews]),
+    }, []),
   )
 
   const handlePress = (terminal: TerminalInstance) => {

@@ -6,8 +6,11 @@
  * tests are about *not* fetching.
  */
 
-import { useSessionPreviewStore, firstUserPrompt } from '../src/stores/session-preview-store'
+import { useSessionPreviewStore, PREVIEW_REFRESH_MS } from '../src/stores/session-preview-store'
+import { latestMessagePreview, sessionPreviewText } from '../src/utils/session-preview'
 import { useConnectionStore } from '../src/stores/connection-store'
+
+jest.mock('../src/stores/claude-store', () => ({ useClaudeStore: { getState: () => ({ scopeKey: 'host/profile' }) } }))
 
 jest.mock('../src/stores/connection-store', () => ({
   useConnectionStore: { getState: jest.fn() },
@@ -23,7 +26,7 @@ jest.mock('../src/stores/workspace-store', () => ({
 const getStateMock = (useConnectionStore as unknown as { getState: jest.Mock }).getState
 
 function mockHost(loadArchived: jest.Mock) {
-  getStateMock.mockReturnValue({ channels: { claude: { loadArchived } } })
+  getStateMock.mockReturnValue({ status: 'connected', channels: { claude: { loadArchived } } })
 }
 
 /** The sessions the host currently has open. */
@@ -38,12 +41,12 @@ function archive(...messages: Record<string, unknown>[]) {
 const previews = () => useSessionPreviewStore.getState().previews
 
 beforeEach(() => {
-  useSessionPreviewStore.setState({ previews: {} })
+  useSessionPreviewStore.setState({ previews: {}, timestamps: {}, fetchedAt: {} })
   getStateMock.mockReset()
   setLive('s1', 's2', ...Array.from({ length: 20 }, (_, i) => `s${i}`))
 })
 
-test('keeps the first user prompt as the row preview', async () => {
+test('shows the latest user prompt as the row preview', async () => {
   mockHost(jest.fn().mockResolvedValue(archive(
     { role: 'user', content: '  fix the login bug  ' },
     { role: 'assistant', content: 'on it' },
@@ -51,10 +54,10 @@ test('keeps the first user prompt as the row preview', async () => {
   )))
 
   await useSessionPreviewStore.getState().load(['s1'])
-  expect(previews().s1).toBe('fix the login bug')
+  expect(previews().s1).toBe('also the logout one')
 })
 
-test('reads only the head of the archive, never the transcript', async () => {
+test('reads only a bounded tail page, never the transcript', async () => {
   // The whole point of the rewrite. A limit here is the difference between a
   // few KB and every conversation on the host.
   const loadArchived = jest.fn().mockResolvedValue(archive({ role: 'user', content: 'hi' }))
@@ -67,7 +70,7 @@ test('reads only the head of the archive, never the transcript', async () => {
   expect(limit).toBeLessThanOrEqual(8)
 })
 
-test('skips a compaction summary to find the real opening prompt', async () => {
+test('skips a compaction summary to find the latest real prompt', async () => {
   mockHost(jest.fn().mockResolvedValue(archive(
     { role: 'user', content: 'This session is being continued from a previous conversation…' },
     { role: 'assistant', content: 'ok' },
@@ -78,18 +81,18 @@ test('skips a compaction summary to find the real opening prompt', async () => {
   expect(previews().s1).toBe('the real question')
 })
 
-test('falls back to the summary when the window holds nothing else', async () => {
-  // Better a truncated summary than a blank row.
+test('uses a reply instead of a compaction summary', async () => {
+  // Internal compaction text must not displace a readable reply.
   mockHost(jest.fn().mockResolvedValue(archive(
     { role: 'user', content: 'This session is being continued from a previous conversation…' },
     { role: 'assistant', content: 'ok' },
   )))
 
   await useSessionPreviewStore.getState().load(['s1'])
-  expect(previews().s1).toContain('This session is being continued')
+  expect(previews().s1).toBe('ok')
 })
 
-test('a known preview is never fetched again', async () => {
+test('repeated mounts share a fresh cached preview', async () => {
   const loadArchived = jest.fn().mockResolvedValue(archive({ role: 'user', content: 'once' }))
   mockHost(loadArchived)
 
@@ -210,22 +213,94 @@ test('forget drops a preview so a reset session can be re-read', async () => {
   expect(previews().s1).toBe('after /new')
 })
 
-describe('firstUserPrompt', () => {
+describe('latestMessagePreview', () => {
   test('ignores assistant turns and empty content', () => {
-    expect(firstUserPrompt([
+    expect(latestMessagePreview([
       { role: 'assistant', content: 'unprompted greeting' },
       { role: 'user', content: '   ' },
       { role: 'user', content: 'the actual question' },
-    ])).toBe('the actual question')
+    ])?.text).toBe('the actual question')
   })
 
   test('survives whatever shape the host sends', () => {
-    expect(firstUserPrompt([null, undefined, 'a string', 42, {}])).toBe('')
-    expect(firstUserPrompt([])).toBe('')
+    expect(latestMessagePreview([null, undefined, 'a string', 42, {}])).toBeNull()
+    expect(latestMessagePreview([])).toBeNull()
   })
 
   test('truncates, because a row is one line', () => {
-    expect(firstUserPrompt([{ role: 'user', content: 'x'.repeat(5000) }]).length)
+    expect(latestMessagePreview([{ role: 'user', content: 'x'.repeat(5000) }])!.text.length)
       .toBeLessThanOrEqual(160)
   })
+})
+
+test('refreshes stale previews to the latest assistant reply', async () => {
+  const loadArchived = jest.fn()
+    .mockResolvedValueOnce(archive({ role: 'user', content: 'old prompt', timestamp: 1 }))
+    .mockResolvedValueOnce(archive({ role: 'assistant', content: 'latest reply', timestamp: 2 }))
+  mockHost(loadArchived)
+  await useSessionPreviewStore.getState().load(['s1'])
+  useSessionPreviewStore.setState({ fetchedAt: { s1: Date.now() - PREVIEW_REFRESH_MS } })
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(previews().s1).toBe('latest reply')
+  expect(useSessionPreviewStore.getState().timestamps.s1).toBe(2)
+})
+
+test('skips tool-only tail pages to find the most recent readable text', async () => {
+  const loadArchived = jest.fn()
+    .mockResolvedValueOnce({ messages: [{ toolName: 'Read', content: 'not a preview' }], hasMore: true })
+    .mockResolvedValueOnce(archive({ role: 'user', content: 'working on login' }, { role: 'assistant', content: 'checking auth' }))
+  mockHost(loadArchived)
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(loadArchived.mock.calls.map(call => call.slice(1))).toEqual([[0, 8], [8, 8]])
+  expect(previews().s1).toBe('checking auth')
+})
+
+test('caps tool-only scans and caches empty results to avoid repeated downloads', async () => {
+  const loadArchived = jest.fn().mockResolvedValue({ messages: [{ toolName: 'Bash' }], hasMore: true })
+  mockHost(loadArchived)
+  await useSessionPreviewStore.getState().load(['s1'])
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(loadArchived).toHaveBeenCalledTimes(3)
+  expect(previews().s1).toBeUndefined()
+})
+
+test('does not fetch until the selected profile is ready', async () => {
+  const loadArchived = jest.fn()
+  getStateMock.mockReturnValue({ status: 'connected', client: { supportsProfileContext: true }, profileStatus: 'opening', channels: { claude: { loadArchived } } })
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(loadArchived).not.toHaveBeenCalled()
+})
+
+test.each(['profile switch', 'reset', 'hidden'])('discards pending reads after %s', async reason => {
+  let release!: (value: unknown) => void
+  const loadArchived = jest.fn(() => new Promise(resolve => { release = resolve }))
+  mockHost(loadArchived)
+  let visible = true
+  const pending = useSessionPreviewStore.getState().load(['s1'], () => visible)
+  if (reason === 'profile switch') mockHost(jest.fn())
+  if (reason === 'reset') useSessionPreviewStore.getState().forget('s1')
+  if (reason === 'hidden') visible = false
+  release(archive({ role: 'user', content: 'stale result' }))
+  await pending
+  expect(previews().s1).toBeUndefined()
+})
+
+test('uses live prompts/replies immediately and newer archives over stale local history', () => {
+  const session = { isStreaming: false, streamingText: '', messages: [{ role: 'user', content: 'new prompt', timestamp: 20 }] }
+  expect(sessionPreviewText(session, 'old reply', 10)).toBe('new prompt')
+  expect(sessionPreviewText(session, 'remote reply', 30)).toBe('remote reply')
+  expect(sessionPreviewText({ ...session, isStreaming: true, streamingText: 'now responding' }, 'old reply', 10)).toBe('now responding')
+  expect(sessionPreviewText(undefined, 'archive')).toBe('archive')
+})
+
+test('ignores malformed content, tools, summaries, thinking-only and subagent messages', () => {
+  expect(latestMessagePreview([
+    { role: 'user', content: '  fix\n the   login  ', timestamp: 1 },
+    { role: 'assistant', content: '' },
+    { role: 'system', content: 'internal status' },
+    { role: 'assistant', content: 'subagent result', parentToolUseId: 't1' },
+    { role: 'user', content: 'summary', isCompactSummary: true },
+    { role: 'assistant', content: 42 },
+    { role: 'assistant', content: 'tool dump', toolName: 'Read' },
+  ])).toEqual({ text: 'fix the login', timestamp: 1 })
 })
