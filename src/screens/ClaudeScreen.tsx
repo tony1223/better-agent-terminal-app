@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useClaudeStore, registerSessionRecovery, EMPTY_SESSION, type SessionStateMerge } from '@/stores/claude-store'
 import { useConnectionStore } from '@/stores/connection-store'
+import { isRemoteMethodNotFound } from '@/api/websocket-client'
 import { useUsageStore, type UsageWindow } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAgentPreferencesStore, agentPreferenceScope, resolveEffort } from '@/stores/agent-preferences-store'
@@ -230,7 +231,9 @@ function normalizeSessionSummaries(raw: unknown): SessionSummary[] {
 export function ClaudeScreen({ route, navigation }: Props) {
   const { t } = useTranslation()
   const sessionId = route.params?.sessionId as string
-  const channels = useConnectionStore(s => s.channels)
+  // A live socket is not usable until its selected profile has opened.
+  const channels = useConnectionStore(s => s.status === 'connected' &&
+    (!s.client?.supportsProfileContext || s.profileStatus === 'ready') ? s.channels : null)
   const connectionStatus = useConnectionStore(s => s.status)
   const checkConnection = useConnectionStore(s => s.checkConnection)
   const session = useClaudeStore(s => s.sessions[sessionId] || EMPTY_SESSION)
@@ -289,6 +292,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const focusRefreshedRef = useRef(false)
   const isFocusedRef = useRef(false)
   const recoveryInFlightRef = useRef(false)
+  const snapshotFlightRef = useRef<{
+    channels: NonNullable<typeof channels>
+    sessionId: string
+    promise: Promise<SessionStateMerge | null>
+  } | null>(null)
   // A reconnect that happens while the user is on another screen still leaves a
   // hole; remember it and repair on the way back rather than pulling a whole
   // transcript for a view nobody is looking at.
@@ -451,28 +459,37 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [agentPreset, effortLevel, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
 
-  const refreshSessionState = useCallback(async (): Promise<SessionStateMerge | null> => {
-    if (!channels || !terminalCwd) return null
+  const refreshSessionState = useCallback((): Promise<SessionStateMerge | null> => {
+    if (!channels || !terminalCwd) return Promise.resolve(null)
+    const flight = snapshotFlightRef.current
+    if (flight?.channels === channels && flight.sessionId === sessionId) return flight.promise
     const scope = useClaudeStore.getState().scopeKey
     const owned = () => useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope
-    try {
-      const synced = await refreshSessionReplay(channels.claude, sessionId)
-      if (!owned()) return null
-      if (synced) return 'stitched'
-      if (!usesLegacySessionEvents(channels.claude, sessionId)) {
-        return sessionReplayHasTranscriptGap(channels.claude, sessionId) ? 'kept-local' : null
+    const promise = (async () => {
+      try {
+        const synced = await refreshSessionReplay(channels.claude, sessionId)
+        if (!owned()) return null
+        if (synced) return 'stitched'
+        if (!usesLegacySessionEvents(channels.claude, sessionId)) {
+          return sessionReplayHasTranscriptGap(channels.claude, sessionId) ? 'kept-local' : null
+        }
+        const state = await channels.claude.getSessionState(sessionId)
+        if (!state || !owned()) return null
+        const verdict = useClaudeStore.getState().handleSessionState(sessionId, state)
+        if (state.meta) {
+          useClaudeStore.getState().handleStatus(sessionId, state.meta)
+        }
+        return verdict
+      } catch (e) {
+        dlog('CLAUDE_SCREEN', `focus refresh getSessionState error: ${e}`)
+        return null
       }
-      const state = await channels.claude.getSessionState(sessionId)
-      if (!state || !owned()) return null
-      const verdict = useClaudeStore.getState().handleSessionState(sessionId, state)
-      if (state.meta) {
-        useClaudeStore.getState().handleStatus(sessionId, state.meta)
-      }
-      return verdict
-    } catch (e) {
-      dlog('CLAUDE_SCREEN', `focus refresh getSessionState error: ${e}`)
-      return null
-    }
+    })()
+    snapshotFlightRef.current = { channels, sessionId, promise }
+    void promise.finally(() => {
+      if (snapshotFlightRef.current?.promise === promise) snapshotFlightRef.current = null
+    })
+    return promise
   }, [channels, sessionId, terminalCwd])
 
   /**
@@ -495,16 +512,16 @@ export function ClaudeScreen({ route, navigation }: Props) {
    * most of the conversation and a turn may be in flight.
    */
   const recoverTranscript = useCallback(async (why: string) => {
-    if (!channels || !terminalCwd) return
+    if (!channels || !terminalCwd) return false
     if (recoveryInFlightRef.current || inFlightSessionKeyRef.current) {
       dlog('CLAUDE_SCREEN', `transcript recovery (${why}) skipped, a load is already running sessionId=${sessionId}`)
-      return
+      return false
     }
     // The host's own id wins; ours may predate a compaction that rewrote it.
     const sdkSessionId = useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId || terminalSdkSessionId
     if (!sdkSessionId) {
       dlog('CLAUDE_SCREEN', `transcript recovery (${why}) skipped, no sdkSessionId sessionId=${sessionId}`)
-      return
+      return false
     }
     recoveryInFlightRef.current = true
     const before = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
@@ -514,11 +531,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
       await channels.claude.clientResume(sessionId, sdkSessionId, terminalCwd, model, buildResumeOptions(model))
       const after = useClaudeStore.getState().sessions[sessionId]?.messages.length ?? 0
       dlog('!CLAUDE_SCREEN', `transcript recovery (${why}) sessionId=${sessionId} messages ${before} -> ${after}`)
+      return useConnectionStore.getState().channels === channels
     } catch (e) {
       // '!' tag: a failed repair means the user is looking at a conversation
       // that is quietly not the whole conversation, which is worth being able
       // to find in the logs afterwards.
       dlog('!CLAUDE_SCREEN', `transcript recovery (${why}) failed sessionId=${sessionId}: ${e instanceof Error ? e.message : String(e)}`)
+      return false
     } finally {
       recoveryInFlightRef.current = false
     }
@@ -589,19 +608,23 @@ export function ClaudeScreen({ route, navigation }: Props) {
    * would re-truncate the transcript the repair just restored.
    */
   const resyncAfterReconnect = useCallback(async (why: string) => {
+    if (!channels || useConnectionStore.getState().channels !== channels) return
     const endRecovery = recoverySpan('chat.recover', { sessionId, reason: why })
     try {
       const verdict = await refreshSessionState()
       if (verdict === 'kept-local') {
         dlog('!CLAUDE_SCREEN', `host window shares no id with the local transcript after ${why}; pulling the full transcript`)
-        await recoverTranscript(why)
+        if (!await recoverTranscript(why)) {
+          endRecovery('incomplete', { verdict })
+          return
+        }
       }
-      endRecovery('completed', { verdict })
+      endRecovery(verdict === null ? 'deferred' : 'completed', { verdict })
     } catch (error) {
       endRecovery('error')
       throw error
     }
-  }, [refreshSessionState, recoverTranscript, sessionId])
+  }, [channels, refreshSessionState, recoverTranscript, sessionId])
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
@@ -614,19 +637,19 @@ export function ClaudeScreen({ route, navigation }: Props) {
 
   // Every reconnect is a window we were not listening through, so treat it as a
   // hole until proven otherwise. The mount effect owns the first load.
-  const lastConnectionStatusRef = useRef(connectionStatus)
+  const lastRecoveryChannelsRef = useRef(channels)
   useEffect(() => {
-    const previous = lastConnectionStatusRef.current
-    lastConnectionStatusRef.current = connectionStatus
-    if (connectionStatus !== 'connected' || previous === 'connected') return
+    const previous = lastRecoveryChannelsRef.current
+    lastRecoveryChannelsRef.current = channels
+    if (!channels || previous === channels) return
     if (!focusRefreshedRef.current) return
-    const why = `reconnect after ${previous}`
+    const why = 'profile ready after reconnect'
     if (isFocusedRef.current) {
       resyncAfterReconnect(why)
     } else {
       pendingRecoveryRef.current = why
     }
-  }, [connectionStatus, resyncAfterReconnect])
+  }, [channels, resyncAfterReconnect])
 
   useFocusEffect(
     useCallback(() => {
@@ -634,7 +657,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       isFocusedRef.current = true
       useClaudeStore.getState().setActiveSession(sessionId)
 
-      if (connectionStatus === 'connected') {
+      if (channels && connectionStatus === 'connected') {
         dlog('CLAUDE_SCREEN', `focus health check sessionId=${sessionId}`)
         checkConnection().then(ok => {
           if (!cancelled) {
@@ -665,7 +688,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         cancelled = true
         isFocusedRef.current = false
       }
-    }, [checkConnection, connectionStatus, resyncAfterReconnect, refreshSessionState, sessionId]),
+    }, [channels, checkConnection, connectionStatus, resyncAfterReconnect, refreshSessionState, sessionId]),
   )
 
   // Init session in store and load history
@@ -746,6 +769,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
           dlog('CLAUDE_SCREEN', `loadArchived error: ${e}`)
           return null
         })
+        if (cancelled || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
         const archivedMessages = Array.isArray(archived?.messages) ? archived.messages : []
         diag.archived = archivedMessages.length
         dlog('CLAUDE_SCREEN', `loadArchived messages=${archivedMessages.length} total=${archived?.total ?? 0}`)
@@ -760,6 +784,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
         try {
           const synced = await refreshSessionReplay(channels.claude, sessionId)
           if (cancelled || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
+          if (!synced && !usesLegacySessionEvents(channels.claude, sessionId) &&
+            !sessionReplayHasTranscriptGap(channels.claude, sessionId)) throw new Error('Session synchronization pending')
           if (synced || !usesLegacySessionEvents(channels.claude, sessionId)) {
             const state = useClaudeStore.getState().sessions[sessionId]
             if (!state || state.runtimeExists === false) return { exists: false, liveCount: 0, isStreaming: false }
@@ -793,7 +819,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
           return { exists: true, liveCount: stateMessageCount, isStreaming: state.isStreaming === true }
         } catch (e) {
           dlog('CLAUDE_SCREEN', `getSessionState error: ${e}`)
-          return { exists: false, liveCount: 0, isStreaming: false }
+          // Only a successful null response proves that a runtime is missing.
+          // An unreadable state must never authorize starting/resuming one.
+          throw e
         }
       }
       const resumeWithSdkSessionId = async (sdkSessionIdToResume: string) => {
@@ -818,6 +846,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
                   sessionId, sdkSessionIdToResume, terminalCwd, resumeModel, resumeOptions,
                 )
               } catch (e) {
+                if (cancelled || useConnectionStore.getState().channels !== channels ||
+                  !(e instanceof Error) || !isRemoteMethodNotFound(e)) throw e
                 // Hosts older than agent:client-resume reject the channel
                 // outright. Restarting the session is worse than viewing it,
                 // but both beat rendering the conversation blank.
@@ -888,6 +918,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                 `getSessionMeta sessionId=${sessionId}`,
                 () => channels.claude.getSessionMeta(sessionId),
               )
+              if (cancelled || useConnectionStore.getState().channels !== channels) throw new Error('Profile selection changed')
               if (meta) {
                 metaLoaded = true
                 useClaudeStore.getState().handleStatus(sessionId, meta)
@@ -910,6 +941,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
               }
             } catch (e) {
               dlog('CLAUDE_SCREEN', `getSessionMeta error: ${e}`)
+              if (cancelled || useConnectionStore.getState().channels !== channels ||
+                !(e instanceof Error) || !isRemoteMethodNotFound(e)) throw e
             }
             stateLoaded = (await loadSessionState()).exists
             diag.path = metaLoaded ? 'meta/no-sdkId-state' : stateLoaded ? 'state-only' : 'fresh'

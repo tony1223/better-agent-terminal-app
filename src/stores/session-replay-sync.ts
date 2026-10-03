@@ -120,6 +120,8 @@ export function subscribeSessionReplay(channel: ClaudeChannel): () => void {
   const current = () =>
     !disposed &&
     foreground &&
+    useConnectionStore.getState().status === 'connected' &&
+    (!client?.supportsProfileContext || useConnectionStore.getState().profileStatus === 'ready') &&
     useClaudeStore.getState().scopeKey === scope &&
     useConnectionStore.getState().client === client &&
     useConnectionStore.getState().channels?.claude === channel

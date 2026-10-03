@@ -67,6 +67,8 @@ beforeEach(() => {
     },
   } as unknown as ClaudeChannel
   useConnectionStore.setState({
+    status: 'connected',
+    profileStatus: 'ready',
     client: {} as never,
     channels: { claude: channel } as Channels,
   })
@@ -85,6 +87,30 @@ test('live and replayed stream events are applied exactly once', async () => {
   expect(await refreshSessionReplay(channel, 's')).toBe(true)
   expect(useClaudeStore.getState().sessions.s.streamingText).toBe('onetwo')
   expect(useClaudeStore.getState().sessions.s.syncCursor).toEqual(cursor(2))
+})
+
+test('concurrent recovery requests share one replay and apply the result once', async () => {
+  let finish!: (reply: SessionSyncReply) => void
+  sync.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const requests = Array.from({ length: 20 }, () => refreshSessionReplay(channel, 's'))
+  expect(sync).toHaveBeenCalledTimes(1)
+  finish(delta(1, [event(1, 'once')]))
+  expect(await Promise.all(requests)).toEqual(Array(20).fill(true))
+  expect(useClaudeStore.getState().sessions.s.streamingText).toBe('once')
+})
+
+test('foreground sync waits for a ready profile and preserves the cursor while offline', async () => {
+  Object.assign(useConnectionStore.getState().client!, { supportsProfileContext: true })
+  useConnectionStore.setState({ profileStatus: 'loading' })
+  expect(await refreshSessionReplay(channel, 's')).toBe(false)
+  expect(sync).not.toHaveBeenCalled()
+  useConnectionStore.setState({ profileStatus: 'ready', status: 'reconnecting' })
+  expect(await refreshSessionReplay(channel, 's')).toBe(false)
+  expect(sync).not.toHaveBeenCalled()
+  expect(useClaudeStore.getState().sessions.s.syncCursor).toEqual(cursor(0))
+  useConnectionStore.setState({ status: 'connected' })
+  expect(await refreshSessionReplay(channel, 's')).toBe(true)
+  expect(sync).toHaveBeenCalledTimes(1)
 })
 
 test('buffers live frames while pulling and deduplicates overlap', async () => {

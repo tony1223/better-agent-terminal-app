@@ -7,6 +7,10 @@ import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
+import android.os.SystemClock
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -39,6 +43,15 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
         val normalizedFP = fingerprint?.uppercase()?.replace(":", "")
         val currentConnectionId = connectionId ?: ""
+        val startedAt = SystemClock.elapsedRealtime()
+        fun timing(phase: String) {
+            emit("TLSWebSocket_onTiming", Arguments.createMap().apply {
+                putString("connectionId", currentConnectionId)
+                putString("phase", phase)
+                putDouble("elapsedMs", (SystemClock.elapsedRealtime() - startedAt).toDouble())
+            })
+        }
+        timing("native-start")
 
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -68,6 +81,21 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
         val hostnameVerifier = HostnameVerifier { _, _ -> true }
 
         client = OkHttpClient.Builder()
+            .eventListener(object : okhttp3.EventListener() {
+                override fun connectStart(call: Call, address: InetSocketAddress, proxy: Proxy) {
+                    timing("tcp-start")
+                }
+                override fun secureConnectStart(call: Call) { timing("tls-start") }
+                override fun secureConnectEnd(call: Call, handshake: Handshake?) { timing("tls-end") }
+                override fun connectEnd(call: Call, address: InetSocketAddress, proxy: Proxy, protocol: Protocol?) {
+                    timing("connect-end")
+                }
+                override fun connectFailed(call: Call, address: InetSocketAddress, proxy: Proxy, protocol: Protocol?, ioe: IOException) {
+                    timing("connect-failed")
+                }
+                override fun responseHeadersStart(call: Call) { timing("upgrade-response-start") }
+                override fun responseHeadersEnd(call: Call, response: Response) { timing("upgrade-response-end") }
+            })
             .sslSocketFactory(sslContext.socketFactory, trustManager)
             .hostnameVerifier(hostnameVerifier)
             .pingInterval(0, TimeUnit.SECONDS)
@@ -79,6 +107,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
         webSocket = client!!.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                timing("websocket-open")
                 emit("TLSWebSocket_onOpen", Arguments.createMap().apply {
                     putString("connectionId", currentConnectionId)
                 })
@@ -119,6 +148,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                timing("websocket-failed")
                 emit("TLSWebSocket_onError", Arguments.createMap().apply {
                     putString("connectionId", currentConnectionId)
                     putString("message", t.message ?: "WebSocket failure")

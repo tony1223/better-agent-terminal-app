@@ -117,6 +117,51 @@ afterEach(() => {
 })
 
 describe('recovering from a drop', () => {
+  it('allows slow socket setup a separate authentication budget', async () => {
+    const client = new WebSocketClient()
+    const connecting = client.connect('host', 1234, 'token')
+    const socket = mockSockets[0]
+    await jest.advanceTimersByTimeAsync(14_000)
+    expect(client.status).toBe('connecting')
+    socket.open()
+    await jest.advanceTimersByTimeAsync(9_000)
+    expect(client.status).toBe('authenticating')
+    socket.authOk()
+    await expect(connecting).resolves.toBe(true)
+    client.disconnect()
+  })
+
+  it.each(['connect', 'auth'])('ignores late callbacks after %s timeout', async stage => {
+    const client = new WebSocketClient()
+    const connecting = client.connect('host', 1234, 'token')
+    const socket = mockSockets[0]
+    jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    if (stage === 'auth') socket.open()
+    await jest.advanceTimersByTimeAsync(stage === 'auth' ? 10_000 : 15_000)
+    await expect(connecting).resolves.toBe(false)
+    expect(client.error).toBe(stage === 'auth' ? 'Authentication timeout' : 'Connection timeout')
+    socket.open()
+    socket.authOk()
+    socket.fail('late error')
+    expect(client.status).toBe('error')
+    expect(client.willRetry).toBe(false)
+    client.disconnect()
+  })
+
+  it('settles a cancelled native connection even without an onClose event', async () => {
+    const client = new WebSocketClient()
+    const connecting = client.connect('host', 1234, 'token')
+    const socket = mockSockets[0]
+    jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
+    client.disconnect()
+    await expect(connecting).resolves.toBe(false)
+    socket.open()
+    socket.authOk()
+    expect(client.status).toBe('disconnected')
+    await jest.advanceTimersByTimeAsync(60_000)
+    expect(mockSockets).toHaveLength(1)
+  })
+
   it('retries a native failure immediately even when no close event follows', async () => {
     const { client, socket } = await connectedClient()
     jest.spyOn(socket, 'close').mockImplementation(() => { socket.isOpen = false })
@@ -356,7 +401,8 @@ describe('sending something large', () => {
     // it must expire, and a link that then goes quiet has to be caught.
     await jest.advanceTimersByTimeAsync(3 * 60_000)
     expect(socket.closedWith?.code).toBe(4000)
-    expect(client.status).toBe('reconnecting')
+    expect(['reconnecting', 'connecting']).toContain(client.status)
+    expect(client.willRetry).toBe(true)
   })
 
   it('puts the payload on the wire once, not twice', async () => {

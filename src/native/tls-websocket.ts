@@ -1,5 +1,6 @@
 import { NativeModules, NativeEventEmitter } from 'react-native'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent } from '@/utils/recovery-diagnostics'
 
 const { TLSWebSocket: NativeTLS } = NativeModules
 
@@ -36,6 +37,7 @@ export class TLSWebSocket {
     this.cleanup()
     this.callbacks = callbacks
     this.connectionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    recoveryEvent('socket.native.request', { connectionId: this.connectionId })
     dlog('!TLS', `connect requested native=${!!NativeTLS} emitter=${!!emitter} url=${url} pin=${!!fingerprint}`)
 
     if (!NativeTLS || !emitter) {
@@ -51,6 +53,10 @@ export class TLSWebSocket {
     this._readyState = 'CONNECTING'
 
     this.subs.push(
+      emitter.addListener('TLSWebSocket_onTiming', (event: { connectionId?: string; phase: string; elapsedMs: number }) => {
+        if (event.connectionId !== this.connectionId) return
+        recoveryEvent('socket.native.timing', { connectionId: this.connectionId, phase: event.phase, elapsedMs: event.elapsedMs })
+      }),
       emitter.addListener('TLSWebSocket_onOpen', (event: { connectionId?: string }) => {
         if (event.connectionId !== this.connectionId) return
         dlog('TLS', 'connected (native TLS)')

@@ -52,6 +52,7 @@ export interface RemoteClientContext {
 }
 
 const AUTH_TIMEOUT_MS = 10_000
+const CONNECT_TIMEOUT_MS = 15_000
 const INVOKE_TIMEOUT_MS = 30_000
 const HEARTBEAT_MS = 10_000
 // A mobile socket dies quietly — Wi-Fi/LTE handoff, carrier NAT dropping an
@@ -118,7 +119,7 @@ function summarizeRemoteValue(value: unknown): string {
   return `{${parts.join(',')}}`
 }
 
-function isRemoteMethodNotFound(error: Error): boolean {
+export function isRemoteMethodNotFound(error: Error): boolean {
   return /method not found/i.test(error.message)
 }
 
@@ -249,6 +250,7 @@ export class WebSocketClient {
   // failure the caller reports to the user instead.
   private sessionEstablished = false
   private connectInFlight = false
+  private cancelConnect: (() => void) | null = null
 
   // Heartbeat
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -343,6 +345,8 @@ export class WebSocketClient {
   disconnect(): void {
     this.shouldReconnect = false
     this.sessionEstablished = false
+    this.cancelConnect?.()
+    this.generation++
     this.stopHeartbeat()
 
     if (this.reconnectTimer) {
@@ -391,21 +395,37 @@ export class WebSocketClient {
       this.ws = ws
 
       let authResolved = false
-
-      const authTimeout = setTimeout(() => {
-        if (!authResolved && gen === this.generation) {
+      let retired = false
+      let authTimeout: ReturnType<typeof setTimeout>
+      const current = () => !retired && gen === this.generation && this.ws === ws
+      const cancel = () => {
+        retired = true
+        clearTimeout(authTimeout)
+        this.cancelConnect = null
+        authResolved = true
+        endConnect('cancelled')
+        resolve(false)
+      }
+      this.cancelConnect = cancel
+      const armDeadline = (stage: 'connect' | 'auth', timeoutMs: number) => setTimeout(() => {
+        if (!authResolved && current()) {
           authResolved = true
-          endConnect('auth-timeout')
-          dlog('!WS', `auth timeout waiting for server response`, { host: this.host, port: this.port, tls: this.useTLS })
-          this.setFailedStatus('Authentication timeout')
+          retired = true
+          this.cancelConnect = null
+          endConnect(`${stage}-timeout`)
+          dlog('!WS', `${stage} timeout waiting for server response`, { host: this.host, port: this.port, tls: this.useTLS })
+          this.setFailedStatus(stage === 'connect' ? 'Connection timeout' : 'Authentication timeout')
           ws.close()
           resolve(false)
         }
-      }, AUTH_TIMEOUT_MS)
+      }, timeoutMs)
+      authTimeout = armDeadline('connect', CONNECT_TIMEOUT_MS)
 
       ws.connect(url, this.fingerprint, {
         onOpen: () => {
-          if (gen !== this.generation) return
+          if (!current() || authResolved) return
+          clearTimeout(authTimeout)
+          authTimeout = armDeadline('auth', AUTH_TIMEOUT_MS)
           recoveryEvent('socket.open', { generation: gen })
           dlog('WS', 'socket opened, sending auth...')
           this.setStatus('authenticating')
@@ -421,7 +441,7 @@ export class WebSocketClient {
         },
 
         onMessage: (data: string) => {
-          if (gen !== this.generation) return
+          if (!current()) return
           // Any frame proves the link is alive — that is what the heartbeat
           // watches, so record it before we care what the frame says.
           this.lastFrameAt = Date.now()
@@ -434,9 +454,11 @@ export class WebSocketClient {
 
           if (frame.type === 'auth-result') {
             clearTimeout(authTimeout)
+            this.cancelConnect = null
             if (!authResolved) {
               authResolved = true
               if (frame.error) {
+                retired = true
                 endConnect('auth-rejected')
                 dlog('!WS', `auth failed: ${frame.error}`)
                 // A rejected token stays rejected: retrying would hammer the
@@ -444,6 +466,7 @@ export class WebSocketClient {
                 // error that tells them to re-pair.
                 this.shouldReconnect = false
                 this.setStatus('error', frame.error)
+                ws.close()
                 resolve(false)
               } else {
                 this.protocol = frame.protocol === REMOTE_PROTOCOL_V2
@@ -510,7 +533,9 @@ export class WebSocketClient {
         },
 
         onClose: (code: number, reason: string) => {
-          if (gen !== this.generation) return
+          if (!current()) return
+          retired = true
+          this.cancelConnect = null
           endConnect('closed', { code })
           recoveryEvent('socket.closed', { generation: gen, code, status: this._status })
           const closeTag = authResolved && this._status === 'connected' ? 'WS' : '!WS'
@@ -540,7 +565,7 @@ export class WebSocketClient {
         },
 
         onError: (message: string) => {
-          if (gen !== this.generation) return
+          if (!current()) return
           endConnect('error')
           recoveryEvent('socket.error', { generation: gen, status: this._status })
           dlog('!WS', `socket error: ${message}`)
@@ -549,8 +574,11 @@ export class WebSocketClient {
             clearTimeout(authTimeout)
             if (!authResolved) {
               authResolved = true
+              retired = true
+              this.cancelConnect = null
               this.shouldReconnect = false
               this.setStatus('error', message)
+              ws.close()
               resolve(false)
             }
             return
@@ -559,7 +587,10 @@ export class WebSocketClient {
           if (!authResolved) {
             clearTimeout(authTimeout)
             authResolved = true
+            retired = true
+            this.cancelConnect = null
             this.setFailedStatus(message || 'Connection failed')
+            ws.close()
             resolve(false)
           } else if (this._status === 'connected') {
             // Native onFailure need not be followed by onClose. A known broken
