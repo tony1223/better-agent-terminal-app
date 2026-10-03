@@ -119,7 +119,7 @@ export function WorkspaceListScreen() {
       const stopActivity = channels ? watchSessionActivity(channels.claude, null) : undefined
       if (!useWorkspaceNavigationStore.getState().pending) {
         load()
-          .then(() => refreshSessionActivity())
+          .then(() => refreshSessionActivity(false))
           .catch(() => {})
       }
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {

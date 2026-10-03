@@ -5,6 +5,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { appVersionLabel } from '@/native/app-info'
 import { getDebugLogText } from './debug-log'
 import { getRecoveryDiagnostics } from './recovery-diagnostics'
+import { flushPerformanceDiagnostics } from './performance-diagnostics'
 
 export function redactDiagnosticText(text: string): string {
   return text
@@ -15,6 +16,7 @@ export function redactDiagnosticText(text: string): string {
 }
 
 export function getDiagnosticLogText(): string {
+  flushPerformanceDiagnostics('export')
   return `Recovery timings\n${getRecoveryDiagnostics()}\nDebug logs\n${redactDiagnosticText(getDebugLogText())}`
 }
 
@@ -24,6 +26,7 @@ export async function uploadDiagnosticReport(): Promise<string> {
   const client = state.client
   if (!client || state.status !== 'connected') throw new Error('Not connected to host')
   const createdAt = new Date().toISOString()
+  flushPerformanceDiagnostics('export')
   const report = JSON.stringify({
     schemaVersion: 1,
     createdAt,

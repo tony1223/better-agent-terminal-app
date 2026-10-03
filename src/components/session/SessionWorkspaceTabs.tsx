@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { BackHandler, Keyboard, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { FilesPane, GitPane } from '@/screens/WorkspaceDetailScreen'
-import { useClaudeStore, EMPTY_SESSION } from '@/stores/claude-store'
+import { useClaudeStore } from '@/stores/claude-store'
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { ChatTimestamp } from '@/components/claude/ChatTimestamp'
 import { appColors, spacing } from '@/theme/colors'
@@ -18,7 +19,19 @@ export function SessionWorkspaceTabs({ sessionId, cwd, children }: {
   const { t } = useTranslation()
   const [active, setActive] = useState<Tab>('session')
   const [visited, setVisited] = useState<Partial<Record<Tab, boolean>>>({})
-  const session = useClaudeStore(s => s.sessions[sessionId] || EMPTY_SESSION)
+  // File/Git status needs phases, not every growing text/thinking fragment.
+  const session = useClaudeStore(useShallow(s => {
+    const value = s.sessions[sessionId]
+    return {
+      // The label displays seconds; millisecond deltas need no new layout.
+      lastDataAt: value?.lastDataAt == null ? value?.lastDataAt : Math.floor(value.lastDataAt / 1000) * 1000,
+      runtimeStatus: value?.meta?.runtimeStatus ?? (value?.isStreaming ? 'working' : null),
+      runtimeStatusSince: value?.runtimeStatusSince ?? null,
+      turnStartedAt: value?.turnStartedAt ?? null,
+      responding: !!value?.streamingText,
+      thinking: !!value?.streamingThinking,
+    }
+  }))
   useEffect(() => { setActive('session'); setVisited({}) }, [sessionId, cwd])
   useFocusEffect(React.useCallback(() => {
     if (active === 'session') return
@@ -58,9 +71,9 @@ export function SessionWorkspaceTabs({ sessionId, cwd, children }: {
               </TouchableOpacity>
               {session.lastDataAt != null && <View><Text style={styles.label}>{t('sessionTabs.lastData')}</Text><ChatTimestamp timestamp={session.lastDataAt} /></View>}
             </View>
-            <RuntimeStatusBar runtimeStatus={session.meta?.runtimeStatus ?? (session.isStreaming ? 'working' : null)}
+            {active === tab && <RuntimeStatusBar runtimeStatus={session.runtimeStatus}
               runtimeSince={session.runtimeStatusSince} turnStartedAt={session.turnStartedAt}
-              responding={!!session.streamingText} thinking={!!session.streamingThinking} />
+              responding={session.responding} thinking={session.thinking} />}
           </> : null}
         </View>)}
       </View>

@@ -8,6 +8,7 @@ import Markdown from 'react-native-markdown-display'
 import { useTranslation } from 'react-i18next'
 import { createPathLinkerRules } from './LinkedText'
 import { hostMarkdown } from '@/utils/host-markdown'
+import { recordPerformance } from '@/utils/performance-diagnostics'
 import { MessageSelectionButton } from './MessageSelection'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import { darkMarkdownBase } from '@/theme/markdown'
@@ -22,6 +23,7 @@ export const StreamingText = React.memo(function StreamingText({ text, thinking,
   const { t } = useTranslation()
   const cursorOpacity = useRef(new Animated.Value(1)).current
   const rules = useMemo(() => createPathLinkerRules(cwd), [cwd])
+  useEffect(() => { recordPerformance('stream-view', text.length + (thinking?.length ?? 0)) })
 
   useEffect(() => {
     const animation = Animated.loop(

@@ -13,6 +13,8 @@ import { TLSWebSocket } from '../src/native/tls-websocket'
 import { NativeModules } from 'react-native'
 import { clearRecoveryDiagnostics, getRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
 
+afterEach(() => clearRecoveryDiagnostics())
+
 test('native stage timings are correlated to the current socket and removed on close', () => {
   clearRecoveryDiagnostics()
   const socket = new TLSWebSocket()

@@ -22,6 +22,7 @@ import { useUsageStore } from '@/stores/usage-store'
 import { openConnectionLink } from '@/utils/connection-link'
 import { dlog, flushDebugLogs } from '@/utils/debug-log'
 import { flushRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
+import { subscribePerformanceDiagnostics } from '@/utils/performance-diagnostics'
 import { appVersionLabel } from '@/native/app-info'
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
   const lastLinkRef = useRef<string | null>(null)
 
   useEffect(() => subscribeMessageReconnectRetry(), [])
+  useEffect(() => subscribePerformanceDiagnostics(), [])
 
   useEffect(() => {
     const flush = () => { flushDebugLogs(); flushRecoveryDiagnostics() }

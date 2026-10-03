@@ -2,6 +2,7 @@ import { uploadDiagnosticReport, redactDiagnosticText } from '../src/utils/diagn
 import { Buffer } from 'buffer'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { recoveryEvent, recoverySpan, getRecoveryDiagnostics, clearRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
+import { recordPerformance, subscribePerformanceDiagnostics } from '../src/utils/performance-diagnostics'
 
 jest.mock('@/stores/connection-store', () => ({ useConnectionStore: { getState: jest.fn() } }))
 jest.mock('@/native/app-info', () => ({ appVersionLabel: '1.0.test (1)' }))
@@ -49,6 +50,18 @@ it('does not start uploading while disconnected', async () => {
   state.status = 'reconnecting'
   await expect(uploadDiagnosticReport()).rejects.toThrow('Not connected')
   expect(state.client.invokeParams).not.toHaveBeenCalled()
+})
+
+it('upload includes performance counters immediately, without waiting for their batch timer', async () => {
+  const stop = subscribePerformanceDiagnostics()
+  try {
+    recordPerformance('markdown-parse', 1200, 8.25)
+    await uploadDiagnosticReport()
+    const report = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'))
+    const events = report.recoveryEvents.trim().split('\n').map((line: string) => JSON.parse(line))
+    expect(events).toContainEqual(expect.objectContaining({ event: 'performance.window',
+      metric: 'markdown-parse', chars: 1200, count: 1, totalMs: 8.25, reason: 'export' }))
+  } finally { stop() }
 })
 
 it('aborts the partial upload on a failed chunk', async () => {

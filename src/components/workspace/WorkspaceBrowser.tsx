@@ -145,7 +145,7 @@ export function WorkspaceBrowser({
     setRefreshError(null)
     try {
       await Promise.all([
-        load().then(refreshSessionActivity),
+        load().then(() => refreshSessionActivity()),
         activity.refresh(),
       ])
     } catch (cause) {

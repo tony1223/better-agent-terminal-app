@@ -24,7 +24,7 @@ beforeEach(() => {
   })
   getMeta = jest.fn().mockResolvedValue(meta({ isStreaming: true, runtimeStatus: null, lastDataAt: 1000 }))
   channel = { getSessionMeta: getMeta } as unknown as ClaudeChannel
-  useConnectionStore.setState({ channels: { claude: channel } as Channels })
+  useConnectionStore.setState({ channels: { claude: channel } as Channels, client: null })
 })
 afterEach(() => { stop?.(); stop = undefined; jest.useRealTimers(); jest.restoreAllMocks() })
 const flush = () => jest.advanceTimersByTimeAsync(0)
@@ -234,4 +234,36 @@ test('workspace overview observes all sessions but an old profile cannot keep po
     await jest.advanceTimersByTimeAsync(10_000)
     expect(getMeta).not.toHaveBeenCalled()
   } finally { unwatch() }
+})
+
+test('initial load, focus and workspace discovery coalesce recently checked sessions', async () => {
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  const unwatch = watchSessionActivity(channel, null)
+  try {
+    await refreshSessionActivity(false)
+    useWorkspaceStore.setState({ terminals: [terminal('s'), terminal('new')] })
+    await flush()
+    expect(getMeta.mock.calls).toEqual([['s'], ['new']])
+    await jest.advanceTimersByTimeAsync(10_000)
+    expect(getMeta.mock.calls).toEqual([['s'], ['new'], ['s'], ['new']])
+  } finally { unwatch() }
+})
+
+test('profile transition waits for the correct ready workspace before bootstrap', async () => {
+  useConnectionStore.setState({ client: { supportsProfileContext: true } as never,
+    selectedProfileId: 'new-profile', profileStatus: 'loading' })
+  useWorkspaceStore.setState({ activeLocalProfileId: 'old-profile', loadStatus: 'ok' })
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  expect(getMeta).not.toHaveBeenCalled()
+  useConnectionStore.setState({ profileStatus: 'ready' })
+  await flush()
+  expect(getMeta).not.toHaveBeenCalled()
+  useWorkspaceStore.setState({ activeLocalProfileId: 'new-profile', loadStatus: 'idle' })
+  await flush()
+  expect(getMeta).not.toHaveBeenCalled()
+  useWorkspaceStore.setState({ loadStatus: 'ok' })
+  await flush()
+  expect(getMeta).toHaveBeenCalledTimes(1)
 })

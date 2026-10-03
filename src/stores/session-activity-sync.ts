@@ -1,6 +1,7 @@
 import { AppState } from 'react-native'
 import type { ClaudeChannel } from '@/api/channels/claude'
 import { isSdkAgentSession } from '@/types'
+import { recoveryEvent } from '@/utils/recovery-diagnostics'
 import { useClaudeStore } from './claude-store'
 import { useConnectionStore } from './connection-store'
 import { useWorkspaceStore } from './workspace-store'
@@ -20,8 +21,8 @@ export function watchSessionActivity(channel: ClaudeChannel, ids: string[] | nul
 }
 
 /** Refresh badges when the workspace list is opened or explicitly refreshed. */
-export async function refreshSessionActivity(): Promise<void> {
-  await Promise.all([...refreshListeners].map(refresh => refresh()))
+export async function refreshSessionActivity(force = true): Promise<void> {
+  await Promise.all([...refreshListeners].map(refresh => refresh(force)))
 }
 
 /** Bootstrap quiet, already-running sessions; live events remain the fast path.
@@ -36,25 +37,36 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
   let forceAgain = false
   const checkedAt = new Map<string, number>()
   const sessionIds = () => useWorkspaceStore.getState().terminals.filter(isSdkAgentSession).map(item => item.id)
-  const isCurrent = () => !disposed && foreground && useConnectionStore.getState().channels?.claude === claude
+  const isCurrent = () => {
+    const connection = useConnectionStore.getState()
+    const workspace = useWorkspaceStore.getState()
+    return !disposed && foreground && connection.channels?.claude === claude &&
+      (!connection.client?.supportsProfileContext || (connection.profileStatus === 'ready' &&
+        connection.selectedProfileId === workspace.activeLocalProfileId &&
+        (workspace.loadStatus === 'ok' || workspace.loadStatus === 'empty')))
+  }
 
   const isVisible = (id: string) => useClaudeStore.getState().activeSessionId === id ||
     [...visibleLists].some(list => list.channel === claude && (list.ids === null || list.ids.has(id)))
 
-  async function refresh(force = true) {
+  async function refresh(force = false) {
     if (!isCurrent()) return
     if (refreshing) { refreshAgain = true; forceAgain ||= force; return }
     if (timer) { clearTimeout(timer); timer = null }
     refreshing = true
     const wanted = sessionIds()
+    const started = Date.now()
+    let queried = 0
     let cursor = 0
     try {
       await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, wanted.length) }, async () => {
         while (cursor < wanted.length && isCurrent()) {
           const id = wanted[cursor++]
           if (!sessionIds().includes(id)) continue
-          if (!force && !isVisible(id) && Date.now() - (checkedAt.get(id) ?? -Infinity) < OFFSCREEN_REFRESH_MS) continue
+          const interval = isVisible(id) ? REFRESH_MS : OFFSCREEN_REFRESH_MS
+          if (!force && Date.now() - (checkedAt.get(id) ?? -Infinity) < interval) continue
           checkedAt.set(id, Date.now())
+          queried++
           const before = useClaudeStore.getState().sessions[id]
           try {
             const meta = await claude.getSessionMeta(id)
@@ -83,6 +95,9 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
       }))
     } finally {
       refreshing = false
+      if (queried) recoveryEvent('session.activity.sweep', {
+        force, total: wanted.length, queried, elapsedMs: Date.now() - started,
+      })
       if (isCurrent()) {
         const delay = refreshAgain ? 0 : REFRESH_MS
         const nextForce = forceAgain
@@ -94,19 +109,26 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
   }
 
   let idsKey = JSON.stringify(sessionIds())
-  const unsubscribeWorkspace = useWorkspaceStore.subscribe(() => {
+  let wasCurrent = isCurrent()
+  const checkWorkspace = () => {
+    const current = isCurrent()
+    const becameReady = current && !wasCurrent
+    wasCurrent = current
     const next = JSON.stringify(sessionIds())
-    if (next === idsKey) return
+    if (next === idsKey && !becameReady) return
     idsKey = next
+    for (const id of checkedAt.keys()) if (!sessionIds().includes(id)) checkedAt.delete(id)
     refresh()
-  })
+  }
+  const unsubscribeWorkspace = useWorkspaceStore.subscribe(checkWorkspace)
+  const unsubscribeConnection = useConnectionStore.subscribe(checkWorkspace)
   const appState = AppState.addEventListener('change', state => {
     foreground = state === 'active'
     if (!foreground) {
       if (timer) { clearTimeout(timer); timer = null }
       return
     }
-    refresh()
+    refresh(true)
   })
   refreshListeners.add(refresh)
   refresh()
@@ -116,5 +138,6 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
     if (timer) clearTimeout(timer)
     appState.remove()
     unsubscribeWorkspace()
+    unsubscribeConnection()
   }
 }

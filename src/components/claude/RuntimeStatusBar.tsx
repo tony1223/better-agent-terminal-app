@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native'
+import { AppState, View, Text, ActivityIndicator, StyleSheet } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
@@ -44,8 +44,17 @@ export function RuntimeStatusBar({ runtimeStatus, runtimeSince, turnStartedAt, r
 
   useEffect(() => {
     if (!active) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
+    let timer: ReturnType<typeof setInterval> | undefined
+    const update = (foreground: boolean) => {
+      if (timer !== undefined) clearInterval(timer)
+      timer = undefined
+      if (!foreground) return
+      setNow(Date.now())
+      timer = setInterval(() => setNow(Date.now()), 1000)
+    }
+    update(AppState.currentState !== 'background' && AppState.currentState !== 'inactive')
+    const listener = AppState.addEventListener('change', state => update(state === 'active'))
+    return () => { if (timer !== undefined) clearInterval(timer); listener.remove() }
   }, [active])
 
   if (!active) return null

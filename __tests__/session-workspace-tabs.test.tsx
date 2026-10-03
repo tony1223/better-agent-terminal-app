@@ -3,6 +3,7 @@ import Renderer, { act } from 'react-test-renderer'
 import { Keyboard, TextInput, TouchableOpacity } from 'react-native'
 import { SessionWorkspaceTabs } from '../src/components/session/SessionWorkspaceTabs'
 import { FilesPane, GitPane } from '../src/screens/WorkspaceDetailScreen'
+import { RuntimeStatusBar } from '../src/components/claude/RuntimeStatusBar'
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('@react-navigation/native', () => ({ useFocusEffect: (effect: any) => require('react').useEffect(effect, [effect]) }))
@@ -26,15 +27,18 @@ test('switches locally, preserves the chat and visited tools, and uses session c
   expect(renderer.root.findAllByType(FilesPane)).toHaveLength(0)
   expect(renderer.root.findAllByType(GitPane)).toHaveLength(0)
   press(1)
+  expect(renderer.root.findAllByType(RuntimeStatusBar)).toHaveLength(1)
   expect(dismiss).toHaveBeenCalledTimes(1)
   expect(renderer.root.findByType(FilesPane).props).toMatchObject({ rootPath: '/repo/worktrees/fix', active: true })
   const files = renderer.root.findByProps({ testID: 'files-content' }).instance
   expect(renderer.root.findByProps({ testID: 'session-pane-session' }).props.pointerEvents).toBe('none')
   expect(renderer.root.findByProps({ testID: 'session-pane-session' }).props.importantForAccessibility).toBe('no-hide-descendants')
   press(2)
+  expect(renderer.root.findAllByType(RuntimeStatusBar)).toHaveLength(1)
   expect(renderer.root.findByType(GitPane).props).toMatchObject({ cwd: '/repo/worktrees/fix', active: true })
   expect(renderer.root.findByType(FilesPane).props.active).toBe(false)
   press(0)
+  expect(renderer.root.findAllByType(RuntimeStatusBar)).toHaveLength(0)
   expect(renderer.root.findByType(TextInput).instance).toBe(chat)
   expect(renderer.root.findByType(TextInput).props.defaultValue).toBe('draft not yet sent')
   expect(renderer.root.findByProps({ testID: 'files-content' }).instance).toBe(files)

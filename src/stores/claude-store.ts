@@ -19,6 +19,7 @@ import { subscribeSessionReplay, usesLegacySessionEvents } from './session-repla
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore } from '@/stores/usage-store'
 import { dlog } from '@/utils/debug-log'
+import { performanceNow, recordPerformance } from '@/utils/performance-diagnostics'
 import { isCompactSummaryMessage } from '@/utils/compact-summary'
 
 interface SessionState {
@@ -740,6 +741,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   handleStream: (sessionId, rawData, observedAt = Date.now()) => {
+    const started = performanceNow()
     const { sessions } = get()
     const session = sessions[sessionId] || createEmptySession()
     const data = normalizeStreamData(rawData)
@@ -774,6 +776,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         },
       },
     })
+    recordPerformance('stream-dispatch', (data.text?.length ?? 0) + (data.thinking?.length ?? 0), performanceNow() - started)
   },
 
   handleResult: (sessionId, result, observedAt = Date.now()) => {
