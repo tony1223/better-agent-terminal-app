@@ -1,6 +1,6 @@
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import { TextInput } from 'react-native'
+import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native'
 import { TerminalScreen } from '../src/screens/TerminalScreen'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
@@ -31,8 +31,16 @@ jest.mock('../src/components/session/SessionWorkspaceTabs', () => ({
 }))
 let renderer: Renderer.ReactTestRenderer
 let write: jest.Mock
+let keyboardListeners: Map<string, (event: any) => void>
 
 beforeEach(() => {
+  jest.replaceProperty(Platform, 'OS', 'android')
+  keyboardListeners = new Map()
+  const addKeyboardListener = Keyboard.addListener.bind(Keyboard)
+  jest.spyOn(Keyboard, 'addListener').mockImplementation((name, listener) => {
+    keyboardListeners.set(name, listener)
+    return addKeyboardListener(name, listener)
+  })
   write = jest.fn().mockResolvedValue(undefined)
   const channels = {
     pty: { write, onOutput: () => () => {}, onViewportState: () => () => {} },
@@ -67,7 +75,10 @@ beforeEach(() => {
     )
   })
 })
-afterEach(() => act(() => renderer.unmount()))
+afterEach(() => {
+  act(() => renderer.unmount())
+  jest.restoreAllMocks()
+})
 const command = () => renderer.root.findByType(TextInput)
 const key = (label: string) =>
   renderer.root.findByProps({ testID: `terminal-key-${label}` })
@@ -131,4 +142,38 @@ test('text typed during an in-flight command is not erased by its acknowledgemen
   act(() => command().props.onChangeText('next'))
   await act(async () => finish())
   expect(command().props.value).toBe('next')
+})
+
+test('Android keyboard shrinks the terminal area above the IME and restores it on hide', async () => {
+  const layout = () => renderer.root.findByType(KeyboardAvoidingView)
+    .findAllByType(View).find(view => typeof view.props.onLayout === 'function')!
+  const updateLayout = (height: number) => layout().props.onLayout({
+    persist: jest.fn(), nativeEvent: { layout: { x: 0, y: 0, width: 400, height } },
+  })
+  await act(async () => { await updateLayout(800) })
+  act(() => command().props.onChangeText('echo draft'))
+  await act(async () => {
+    keyboardListeners.get('keyboardDidShow')!({
+      duration: 0, easing: 'keyboard',
+      endCoordinates: { screenX: 0, screenY: 500, width: 400, height: 356 },
+    })
+  })
+  // The screen starts below the 56pt navigation header, so its bottom must
+  // stop at the keyboard's 500pt top. Both input and toolbar stay in this area.
+  expect(StyleSheet.flatten(layout().props.style).height).toBe(444)
+  expect(key('Ctrl+C')).toBeDefined()
+  expect(command().props.value).toBe('echo draft')
+  expect(write).not.toHaveBeenCalled()
+  // A layout caused by our own height change must not subtract the IME twice.
+  await act(async () => { await updateLayout(444) })
+  expect(StyleSheet.flatten(layout().props.style).height).toBe(444)
+  await act(async () => {
+    keyboardListeners.get('keyboardDidHide')!({
+      duration: 0, easing: 'keyboard',
+      endCoordinates: { screenX: 0, screenY: 856, width: 400, height: 0 },
+    })
+  })
+  expect(StyleSheet.flatten(layout().props.style).height).toBeUndefined()
+  expect(StyleSheet.flatten(layout().props.style).flex).toBe(1)
+  expect(command().props.value).toBe('echo draft')
 })

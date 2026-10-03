@@ -459,7 +459,9 @@ export function TerminalScreen({ route, navigation }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // Android's edge-to-edge window may not resize for the IME. Constrain
+      // the whole screen so the WebView yields space to the command/toolbar.
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={headerHeight}
     >
       <SessionContextBar
