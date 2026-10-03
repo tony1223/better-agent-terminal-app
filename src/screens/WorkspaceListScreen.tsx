@@ -1,6 +1,5 @@
 import React, {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -48,10 +47,11 @@ export function WorkspaceListScreen() {
   const open = useWorkspaceNavigationStore(s => s.open)
   const [profilePickerOpen, setProfilePickerOpen] = useState(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       !pendingWorkspace ||
-      useWorkspaceNavigationStore.getState().pending?.id !== pendingWorkspace.id
+      useWorkspaceNavigationStore.getState().pending?.id !== pendingWorkspace.id ||
+      useWorkspaceNavigationStore.getState().pending?.navigating
     )
       return
     const connection = useConnectionStore.getState()
@@ -97,10 +97,17 @@ export function WorkspaceListScreen() {
       finish(pendingWorkspace.id, t('workspaceList.workspaceUnavailable'))
       return
     }
-    finish(pendingWorkspace.id)
+    useWorkspaceNavigationStore.getState().beginNavigation(pendingWorkspace.id)
     switchWorkspace(pendingWorkspace.workspaceId)
-    navigation.navigate('WorkspaceDetail', {
-      workspaceId: pendingWorkspace.workspaceId,
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: 'WorkspaceList' },
+        { name: 'WorkspaceDetail', params: {
+          workspaceId: pendingWorkspace.workspaceId,
+          workspaceNavigationId: pendingWorkspace.id,
+        } },
+      ],
     })
   }, [
     pendingWorkspace,
@@ -123,6 +130,7 @@ export function WorkspaceListScreen() {
           .catch(() => {})
       }
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (useWorkspaceNavigationStore.getState().pending) return true
         disconnect()
         return true
       })
@@ -151,7 +159,7 @@ export function WorkspaceListScreen() {
   }, [navigation, disconnect, t])
 
   const openWorkspace = (entry: WorkspaceEntry) => {
-    if (pendingWorkspace) return
+    if (useWorkspaceNavigationStore.getState().pending) return
     if (entry.profileId !== activeLocalProfileId) return open(entry)
     switchWorkspace(entry.workspaceId)
     navigation.navigate('WorkspaceDetail', { workspaceId: entry.workspaceId })

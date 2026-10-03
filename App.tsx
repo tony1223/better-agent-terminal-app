@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef } from 'react'
-import { AppState, Linking, StatusBar, View, StyleSheet } from 'react-native'
+import { AppState, Linking, StatusBar, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 
@@ -12,6 +12,7 @@ import { RootNavigator } from '@/navigation/RootNavigator'
 import { PermissionDialog } from '@/components/claude/PermissionDialog'
 import { AskUserDialog } from '@/components/claude/AskUserDialog'
 import { ConnectionBanner } from '@/components/ConnectionBanner'
+import { WorkspaceNavigationTransition } from '@/components/workspace/WorkspaceNavigationTransition'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { subscribeClaudeEvents } from '@/stores/claude-store'
@@ -111,13 +112,13 @@ function App() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor="#1a1a1a" />
-        <View style={styles.root}>
+        <WorkspaceNavigationTransition>
           <RootNavigator />
           {/* Global overlays for Claude permission / ask-user dialogs */}
           <PermissionDialog />
           <AskUserDialog />
           <ConnectionBanner />
-        </View>
+        </WorkspaceNavigationTransition>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

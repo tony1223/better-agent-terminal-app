@@ -19,6 +19,7 @@ export function SessionContextBar({ workspaceId, detail, right }: Props) {
   const { t } = useTranslation()
   const navigation = useNavigation<any>()
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const switchingWorkspace = useWorkspaceNavigationStore(s => !!s.pending)
   const workspace = useWorkspaceStore(s =>
     workspaceId ? s.workspaces.find(w => w.id === workspaceId) : undefined,
   )
@@ -90,7 +91,7 @@ export function SessionContextBar({ workspaceId, detail, right }: Props) {
       {right ? <View style={styles.right}>{right}</View> : null}
       <Modal
         visible={switcherOpen}
-        animationType="slide"
+        animationType={switchingWorkspace ? 'none' : 'slide'}
         onRequestClose={() => setSwitcherOpen(false)}
       >
         <SafeAreaView style={styles.modal}>

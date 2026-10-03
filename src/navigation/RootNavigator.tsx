@@ -102,7 +102,11 @@ function WorkspacesStack() {
       <WorkspacesNav.Screen
         name="WorkspaceDetail"
         component={WorkspaceDetailScreen}
-        options={{ title: t('nav.workspace') }}
+        options={({ route }) => ({
+          title: t('nav.workspace'),
+          animation: (route.params as { workspaceNavigationId?: number } | undefined)?.workspaceNavigationId !== undefined
+            ? 'none' : 'default',
+        })}
       />
       {/* Sessions opened from a workspace push onto this stack (not the
           Terminals tab), so back goes Session → WorkspaceDetail → list. */}
@@ -242,7 +246,8 @@ export function RootNavigator() {
     <NavigationContainer theme={navTheme}>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {isConnected ? (
-          <RootStack.Screen name="Main" component={MainTabs} navigationKey={profileKey} />
+          // The global workspace transition covers profile remounts.
+          <RootStack.Screen name="Main" component={MainTabs} navigationKey={profileKey} options={{ animation: 'none' }} />
         ) : (
           <RootStack.Screen
             name="Connect"

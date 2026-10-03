@@ -19,6 +19,7 @@ jest.mock('@react-navigation/native', () => ({
   useFocusEffect: jest.fn(),
   useNavigation: () => ({
     navigate: mockCurrentNavigate,
+    reset: mockCurrentNavigate,
     getParent: jest.fn(),
     setOptions: mockSetOptions,
   }),
@@ -161,8 +162,12 @@ test.each(['success', 'failed', 'deleted', 'server-changed'])(
     expect(state.loadProfileWorkspace).toHaveBeenCalledWith('second')
     await act(async () => { finish(); await opening })
     if (outcome === 'success') {
-      expect(mockNavigate).toHaveBeenCalledWith('WorkspaceDetail', { workspaceId: 'same-id' })
+      expect(mockNavigate).toHaveBeenCalledWith({ index: 1, routes: [
+        { name: 'WorkspaceList' },
+        { name: 'WorkspaceDetail', params: { workspaceId: 'same-id', workspaceNavigationId: expect.any(Number) } },
+      ] })
       expect(state.switchWorkspace).toHaveBeenCalledWith('same-id')
+      expect(useWorkspaceNavigationStore.getState().pending?.navigating).toBe(true)
     } else {
       expect(mockNavigate).not.toHaveBeenCalled()
     }
@@ -228,9 +233,12 @@ test.each(['before-load', 'after-load', 'superseded-load'])(
     }
     expect(mockNavigate).not.toHaveBeenCalled()
     expect(newNavigate).toHaveBeenCalledTimes(1)
-    expect(newNavigate).toHaveBeenCalledWith('WorkspaceDetail', { workspaceId: 'same-id' })
+    expect(newNavigate).toHaveBeenCalledWith({ index: 1, routes: [
+      { name: 'WorkspaceList' },
+      { name: 'WorkspaceDetail', params: { workspaceId: 'same-id', workspaceNavigationId: expect.any(Number) } },
+    ] })
     expect(state.loadProfileWorkspace).toHaveBeenCalledTimes(1)
-    expect(useWorkspaceNavigationStore.getState().pending).toBeNull()
+    expect(useWorkspaceNavigationStore.getState().pending?.navigating).toBe(true)
     act(() => renderer.unmount())
   },
 )

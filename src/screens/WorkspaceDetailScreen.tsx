@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next'
 import { useConnectionStore, workspaceShortcutServerKey } from '@/stores/connection-store'
 import { useSupportedSessionTypes } from '@/hooks/use-supported-session-types'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useWorkspaceNavigationStore } from '@/stores/workspace-navigation-store'
 import { useRecentsStore } from '@/stores/recents-store'
 import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
 import { useSessionPreviews } from '@/hooks/use-session-previews'
@@ -73,6 +74,7 @@ const TABS: Array<{ id: DetailTab; labelKey: string }> = [
 export function WorkspaceDetailScreen({ route, navigation }: Props) {
   const { t } = useTranslation()
   const workspaceId = route.params?.workspaceId as string | undefined
+  const workspaceNavigationId = route.params?.workspaceNavigationId as number | undefined
   const workspaces = useWorkspaceStore(s => s.workspaces)
   const switchWorkspace = useWorkspaceStore(s => s.switchWorkspace)
   const workspace = workspaces.find(w => w.id === workspaceId)
@@ -91,7 +93,10 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
       const client = useConnectionStore.getState().client
       const store = useWorkspaceStore.getState()
       const requestedProfile = store.activeLocalProfileId
-      store.load()
+      // The shortcut already loaded this profile's snapshot before navigating.
+      const arriving = workspaceNavigationId !== undefined &&
+        useWorkspaceNavigationStore.getState().pending?.id === workspaceNavigationId
+      ;(arriving ? Promise.resolve() : store.load())
         .then(() => {
           const connection = useConnectionStore.getState()
           const state = useWorkspaceStore.getState()
@@ -111,7 +116,7 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
         })
         .catch(() => {})
       return () => { focused = false }
-    }, [workspaceId]),
+    }, [workspaceId, workspaceNavigationId]),
   )
 
   useEffect(() => {
@@ -131,7 +136,14 @@ export function WorkspaceDetailScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={() => {
+        if (workspaceNavigationId !== undefined) {
+          useWorkspaceNavigationStore.getState().arrive(workspaceNavigationId)
+        }
+      }}
+    >
       <SessionContextBar workspaceId={workspace.id} />
       <View style={styles.tabs}>
         {TABS.map(tab => (

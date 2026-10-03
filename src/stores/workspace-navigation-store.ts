@@ -9,13 +9,17 @@ interface WorkspaceDestination {
   profileId: string
   workspaceId: string | null
   ready: boolean
+  navigating: boolean
   viewKey: string | null
+  label: string
 }
 
 interface WorkspaceNavigationState {
   pending: WorkspaceDestination | null
   error: string | null
-  open: (destination: { profileId: string; workspaceId: string | null }) => Promise<void>
+  open: (destination: { profileId: string; workspaceId: string | null; name?: string; profileName?: string }) => Promise<void>
+  beginNavigation: (id: number) => void
+  arrive: (id: number) => void
   finish: (id: number, error?: string) => void
 }
 
@@ -27,14 +31,16 @@ let requestId = 0
 export const useWorkspaceNavigationStore = create<WorkspaceNavigationState>((set, get) => ({
   pending: null,
   error: null,
-  open: async ({ profileId, workspaceId }) => {
+  open: async ({ profileId, workspaceId, name, profileName }) => {
     if (get().pending) return
     const connection = useConnectionStore.getState()
     const serverKey = workspaceShortcutServerKey(connection)
     if (!connection.channels || !serverKey) return
     const id = ++requestId
     const client = connection.client
-    set({ pending: { id, client, serverKey, profileId, workspaceId, ready: false, viewKey: null }, error: null })
+    const label = [profileName ?? useWorkspaceStore.getState().profiles.find(p => p.id === profileId)?.name, name]
+      .filter(Boolean).join(' / ')
+    set({ pending: { id, client, serverKey, profileId, workspaceId, ready: false, navigating: false, viewKey: null, label }, error: null })
     const isCurrent = () => get().pending?.id === id
     try {
       await useWorkspaceStore.getState().loadProfileWorkspace(profileId)
@@ -53,6 +59,22 @@ export const useWorkspaceNavigationStore = create<WorkspaceNavigationState>((set
         get().finish(id, sameServer ? String(error) : undefined)
       }
     }
+  },
+  beginNavigation: id => {
+    const pending = get().pending
+    if (pending?.id === id && pending.ready) set({ pending: { ...pending, navigating: true } })
+  },
+  // Only the destination screen's layout can uncover the new navigation stack.
+  arrive: id => {
+    const pending = get().pending
+    const connection = useConnectionStore.getState()
+    const workspace = useWorkspaceStore.getState()
+    if (pending?.id !== id || !pending.navigating ||
+      pending.client !== connection.client || pending.serverKey !== workspaceShortcutServerKey(connection) ||
+      pending.viewKey !== (connection.profileViewKey ?? null) ||
+      pending.profileId !== workspace.activeLocalProfileId ||
+      !workspace.workspaces.some(w => w.id === pending.workspaceId)) return
+    get().finish(id)
   },
   finish: (id, error) => {
     if (get().pending?.id === id) set({ pending: null, error: error ?? null })
