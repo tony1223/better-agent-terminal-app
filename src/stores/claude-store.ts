@@ -196,6 +196,35 @@ function scrubHostNoise(text: string): string {
     .trim()
 }
 
+/** Recovery can return a completed assistant item in both history and the
+ * host's stream buffer. Reconcile only the latest main-agent reply in this
+ * turn; matching older turns, subagents or substrings can hide new output.
+ * Text and thinking are independent: tools/new reasoning may follow a reply.
+ */
+function reconcileRecoveredStream(
+  messages: (ClaudeMessage | ClaudeToolCall)[],
+  streamingText: string,
+  streamingThinking: string,
+): Pick<SessionState, 'streamingText' | 'streamingThinking'> {
+  let checkedText = !streamingText
+  let checkedThinking = !streamingThinking
+  for (let i = messages.length - 1; i >= 0 && (!checkedText || !checkedThinking); i--) {
+    const message = messages[i]
+    if ('toolName' in message || message.parentToolUseId) continue
+    if (message.role === 'user') break
+    if (message.role !== 'assistant') continue
+    if (!checkedText && message.content.trim()) {
+      checkedText = true
+      if (scrubHostNoise(streamingText) === scrubHostNoise(message.content)) streamingText = ''
+    }
+    if (!checkedThinking && message.thinking?.trim()) {
+      checkedThinking = true
+      if (scrubHostNoise(streamingThinking) === scrubHostNoise(message.thinking)) streamingThinking = ''
+    }
+  }
+  return { streamingText, streamingThinking }
+}
+
 /**
  * Fold the in-flight streamed reply into the message list.
  *
@@ -1066,19 +1095,25 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         }
       : baseMeta
 
+    const messages = carryPendingLocalSends(
+      session.messages,
+      stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
+    )
+    const recoveredStream = reconcileRecoveredStream(
+      messages,
+      snapshot.streamingText ?? session.streamingText,
+      snapshot.streamingThinking ?? session.streamingThinking,
+    )
+
     set({
       sessions: {
         ...sessions,
         [sessionId]: {
           ...session,
-          messages: carryPendingLocalSends(
-            session.messages,
-            stitched ?? (shouldReplaceMessages ? nextMessages : session.messages),
-          ),
+          messages,
           runtimeExists: true,
           isStreaming: snapshot.isStreaming ?? session.isStreaming,
-          streamingText: snapshot.streamingText ?? session.streamingText,
-          streamingThinking: snapshot.streamingThinking ?? session.streamingThinking,
+          ...recoveredStream,
           meta: nextMeta,
           turnStartedAt,
         },
@@ -1135,6 +1170,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       session.messages,
       incoming.map(item => normalizeHistoryItem(sessionId, item)),
     )
+    const recoveredStream = reconcileRecoveredStream(messages, session.streamingText, session.streamingThinking)
 
     set({
       sessions: {
@@ -1142,6 +1178,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         [sessionId]: {
           ...session,
           messages,
+          ...recoveredStream,
         },
       },
     })

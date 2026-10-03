@@ -108,3 +108,95 @@ describe('subagent chatter stays out of the main stream', () => {
     expect(assistantTexts()).toEqual(['subagent report'])
   })
 })
+
+describe('reopening a session reconciles completed text with the stream buffer', () => {
+  const reply: ClaudeMessage = {
+    id: 'host-reply', sessionId: SESSION_ID, role: 'assistant',
+    content: 'The window is open. I am checking the next step.', timestamp: 100,
+  }
+  const runningTool = {
+    id: 'tool', sessionId: SESSION_ID, toolName: 'Bash', input: {},
+    status: 'running' as const, timestamp: 101,
+  }
+
+  it('keeps one reply while tools continue, including after repeated focus snapshots', () => {
+    const store = useClaudeStore.getState()
+    const snapshot = { messages: [reply, runningTool], isStreaming: true, streamingText: reply.content }
+    store.handleSessionState(SESSION_ID, snapshot)
+    store.handleSessionState(SESSION_ID, snapshot)
+    const session = useClaudeStore.getState().sessions[SESSION_ID]
+    expect(assistantTexts()).toEqual([reply.content])
+    expect(session.streamingText).toBe('')
+    expect(session.isStreaming).toBe(true)
+    expect(session.turnStartedAt).not.toBeNull()
+    // The next real text delta must start a new bubble, without the old prefix.
+    stream('The next step passed.')
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe('The next step passed.')
+    store.handleTurnEnd(SESSION_ID)
+    expect(assistantTexts()).toEqual([reply.content, 'The next step passed.'])
+  })
+
+  it.each(['snapshot-first', 'history-first'])(
+    'also reconciles when transcript and stream arrive separately: %s', order => {
+      const store = useClaudeStore.getState()
+      const snapshot = () => store.handleSessionState(SESSION_ID, { isStreaming: true, streamingText: reply.content })
+      const history = () => store.handleHistory(SESSION_ID, [reply, runningTool])
+      if (order === 'snapshot-first') { snapshot(); history() } else { history(); snapshot() }
+      expect(assistantTexts()).toEqual([reply.content])
+      expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe('')
+    },
+  )
+
+  it('clears an already committed local buffer when history fills a missed message event', () => {
+    stream(reply.content)
+    useClaudeStore.getState().handleHistory(SESSION_ID, [reply, runningTool])
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe('')
+    expect(assistantTexts()).toEqual([reply.content])
+  })
+
+  it('clears matching thinking independently, retaining newer reasoning after a completed reply', () => {
+    const store = useClaudeStore.getState()
+    store.handleSessionState(SESSION_ID, {
+      messages: [{ ...reply, thinking: 'Previous reasoning' }], isStreaming: true,
+      streamingText: reply.content, streamingThinking: 'New reasoning',
+    })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe('')
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingThinking).toBe('New reasoning')
+    store.handleSessionState(SESSION_ID, { streamingThinking: 'Previous reasoning' })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingThinking).toBe('')
+  })
+
+  it('finds the completed reply across the hidden tools and thinking blocks shown in the repro', () => {
+    useClaudeStore.getState().handleSessionState(SESSION_ID, {
+      messages: [reply, runningTool, { ...reply, id: 'reasoning', content: '', thinking: 'Check the tool result' }],
+      isStreaming: true, streamingText: reply.content, streamingThinking: 'Check the tool result',
+    })
+    const session = useClaudeStore.getState().sessions[SESSION_ID]
+    expect(session.messages).toHaveLength(3)
+    expect(session.streamingText).toBe('')
+    expect(session.streamingThinking).toBe('')
+    expect(session.turnStartedAt).not.toBeNull()
+  })
+
+  it('normalizes host notification noise before comparing the recovered reply', () => {
+    useClaudeStore.getState().handleSessionState(SESSION_ID, {
+      messages: [reply], isStreaming: true,
+      streamingText: `${reply.content}\n<task-notification>done</task-notification>`,
+    })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe('')
+  })
+
+  it.each(['longer', 'shorter', 'previous-turn', 'subagent', 'older-reply'])(
+    'preserves actual in-flight output rather than loosely matching history: %s', scenario => {
+      const messages: ClaudeMessage[] = [{ ...reply }]
+      let text = reply.content
+      if (scenario === 'longer') text += ' More details.'
+      if (scenario === 'shorter') text = text.slice(0, 10)
+      if (scenario === 'previous-turn') messages.push({ ...reply, id: 'user', role: 'user', content: 'Repeat that' })
+      if (scenario === 'subagent') messages[0].parentToolUseId = 'task'
+      if (scenario === 'older-reply') messages.push({ ...reply, id: 'newer', content: 'Something else' })
+      useClaudeStore.getState().handleSessionState(SESSION_ID, { messages, isStreaming: true, streamingText: text })
+      expect(useClaudeStore.getState().sessions[SESSION_ID].streamingText).toBe(text)
+    },
+  )
+})
