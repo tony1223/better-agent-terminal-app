@@ -909,6 +909,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       ? { ...session.meta, ...meta } : meta
     const mergedMeta = activityMeta
       ? {
+          codexSandboxMode: session.meta?.codexSandboxMode,
+          codexApprovalPolicy: session.meta?.codexApprovalPolicy,
           fastMode: session.meta?.fastMode,
           supportsFastMode: session.meta?.supportsFastMode,
           fastModeState: session.meta?.fastModeState,
@@ -1044,8 +1046,11 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const baseMeta = snapshot.meta ?? session.meta
     const hostModel = typeof snapshot.model === 'string' ? snapshot.model : undefined
     const hostPermissionMode = typeof snapshot.permissionMode === 'string' ? snapshot.permissionMode : undefined
-    const nextMeta = baseMeta || hostModel || hostPermissionMode
+    const hasCodexPermissions = snapshot.codexSandboxMode !== undefined || snapshot.codexApprovalPolicy !== undefined
+    const nextMeta = baseMeta || hostModel || hostPermissionMode || hasCodexPermissions
       ? {
+          codexSandboxMode: session.meta?.codexSandboxMode,
+          codexApprovalPolicy: session.meta?.codexApprovalPolicy,
           fastMode: session.meta?.fastMode,
           supportsFastMode: session.meta?.supportsFastMode,
           fastModeState: session.meta?.fastModeState,
@@ -1053,6 +1058,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           ...(baseMeta ?? EMPTY_META),
           ...(hostModel ? { model: hostModel } : {}),
           ...(hostPermissionMode ? { permissionMode: hostPermissionMode } : {}),
+          ...(snapshot.codexSandboxMode !== undefined ? { codexSandboxMode: snapshot.codexSandboxMode } : {}),
+          ...(snapshot.codexApprovalPolicy !== undefined ? { codexApprovalPolicy: snapshot.codexApprovalPolicy } : {}),
         }
       : baseMeta
 

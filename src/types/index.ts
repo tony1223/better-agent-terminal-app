@@ -316,6 +316,8 @@ export interface SessionMeta {
   // while a 300k auto-compact preset is what governs the session.
   autoCompactWindow?: number | null
   permissionMode?: string
+  codexSandboxMode?: string | null
+  codexApprovalPolicy?: string | null
   // Host-side turn lifecycle between the user send and the first model
   // frame: 'starting' (host received, preparing the request), 'queued',
   // 'waiting_for_api', 'compacting'. The host broadcasts null once the
@@ -339,6 +341,8 @@ export interface SessionStateSnapshot {
   // current model on focus refresh.
   model?: string
   permissionMode?: string
+  codexSandboxMode?: string | null
+  codexApprovalPolicy?: string | null
 }
 
 // ============================================

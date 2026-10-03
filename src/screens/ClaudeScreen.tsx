@@ -2,6 +2,7 @@
  * ClaudeScreen - Claude agent chat interface
  */
 
+import { CODEX_SANDBOX_MODES, CODEX_APPROVAL_POLICIES, resolveCodexPermissions } from '@/utils/codex-permissions'
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react'
 import {
   View,
@@ -109,8 +110,6 @@ const PERMISSION_LABELS: Record<string, string> = {
 
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
-const CODEX_SANDBOX_MODES = ['read-only', 'workspace-write', 'danger-full-access'] as const
-const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const
 const MAX_IMAGES = 5
 // ~2 MiB decoded. Larger images go through fs:upload-tmp-* to the host's tmp
 // dir instead of riding inline in the agent:send-message frame.
@@ -424,16 +423,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
     [sessionId, terminalModel],
   )
 
-  const resumeSandboxMode = useMemo(() => (
-    terminalSandboxMode === 'read-only' || terminalSandboxMode === 'workspace-write' || terminalSandboxMode === 'danger-full-access'
-      ? terminalSandboxMode
-      : undefined
-  ), [terminalSandboxMode])
-  const resumeApprovalPolicy = useMemo(() => (
-    terminalApprovalPolicy === 'untrusted' || terminalApprovalPolicy === 'on-request' || terminalApprovalPolicy === 'never'
-      ? terminalApprovalPolicy
-      : undefined
-  ), [terminalApprovalPolicy])
+  const resolveSessionPermissions = useCallback(() => resolveCodexPermissions(
+    useClaudeStore.getState().sessions[sessionId]?.meta,
+    { sandboxMode: terminalSandboxMode, approvalPolicy: terminalApprovalPolicy },
+  ), [sessionId, terminalSandboxMode, terminalApprovalPolicy])
   // Worktree sessions must declare useWorktree + the host-side worktree path so
   // the host sidecar validates the folder and fails loudly when it is missing
   // instead of silently running in the original checkout.
@@ -453,11 +446,10 @@ export function ClaudeScreen({ route, navigation }: Props) {
       effort: effortLevel,
       ...(isClaudeCodeAgent ? { permissionMode } : {}),
       ...(autoCompactWindow !== undefined ? { autoCompactWindow } : {}),
-      codexSandboxMode: resumeSandboxMode,
-      codexApprovalPolicy: resumeApprovalPolicy,
+      ...resolveSessionPermissions(),
       ...worktreeOptions,
     }
-  }, [agentPreset, effortLevel, isClaudeCodeAgent, permissionMode, resumeSandboxMode, resumeApprovalPolicy, worktreeOptions])
+  }, [agentPreset, effortLevel, isClaudeCodeAgent, permissionMode, resolveSessionPermissions, worktreeOptions])
 
   const refreshSessionState = useCallback((): Promise<SessionStateMerge | null> => {
     if (!channels || !terminalCwd) return Promise.resolve(null)
@@ -579,12 +571,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
       model,
       effort: effortLevel,
       agentPreset,
-      codexSandboxMode: resumeSandboxMode,
-      codexApprovalPolicy: resumeApprovalPolicy,
+      ...resolveSessionPermissions(),
       ...worktreeOptions,
     })
   }, [channels, sessionId, terminalCwd, terminalSdkSessionId, resolveSessionModel, buildResumeOptions,
-    isClaudeCodeAgent, permissionMode, effortLevel, agentPreset, resumeSandboxMode, resumeApprovalPolicy,
+    isClaudeCodeAgent, permissionMode, effortLevel, agentPreset, resolveSessionPermissions,
     worktreeOptions])
 
   // The retry lives on a message bubble, which has no route back to this
@@ -752,8 +743,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         sdkSessionId: sdkSessionIdToResume,
         model: resolveSessionModel() ?? null,
         agentPreset: agentPreset ?? null,
-        codexSandboxMode: resumeSandboxMode ?? null,
-        codexApprovalPolicy: resumeApprovalPolicy ?? null,
+        ...resolveSessionPermissions(),
       })
       // Always-on load diagnostic (logged even with debug mode off, via the
       // '!' tag) so a "尚無訊息 but history should exist" report can be traced
@@ -960,8 +950,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
                       model: resolveSessionModel(),
                       effort: effortLevel,
                       agentPreset,
-                      codexSandboxMode: resumeSandboxMode,
-                      codexApprovalPolicy: resumeApprovalPolicy,
+                      ...resolveSessionPermissions(),
                       ...worktreeOptions,
                     }),
                   )
@@ -1017,8 +1006,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
     resolveSessionModel,
     buildResumeOptions,
     worktreeOptions,
-    resumeSandboxMode,
-    resumeApprovalPolicy,
+    resolveSessionPermissions,
     agentPreset,
     isClaudeCodeAgent,
     permissionMode,
@@ -1099,15 +1087,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
   }, [approvalOptions, codexApprovalPolicy, isCodexAgent])
 
   useEffect(() => {
-    const sandbox = terminal?.agentParams?.sandboxMode
-    if (sandbox === 'read-only' || sandbox === 'workspace-write' || sandbox === 'danger-full-access') {
-      setCodexSandboxMode(sandbox)
-    }
-    const approval = terminal?.agentParams?.approvalPolicy
-    if (approval === 'untrusted' || approval === 'on-request' || approval === 'never') {
-      setCodexApprovalPolicy(approval)
-    }
-  }, [terminal?.agentParams])
+    const permissions = resolveSessionPermissions()
+    setCodexSandboxMode(permissions.codexSandboxMode ?? 'workspace-write')
+    setCodexApprovalPolicy(permissions.codexApprovalPolicy ?? 'on-request')
+    if (isCodexAgent) recoveryEvent('chat.codex-permissions', { sessionId, ...permissions })
+  }, [resolveSessionPermissions, session.meta?.codexSandboxMode, session.meta?.codexApprovalPolicy, isCodexAgent, sessionId])
 
   const handleSend = useCallback(async () => {
     if (sendInFlightRef.current) return
@@ -1306,22 +1290,38 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const handleCodexSandboxSelect = useCallback(async (mode: string) => {
     if (!channels) return
     setShowSandboxPicker(false)
+    const scope = useClaudeStore.getState().scopeKey
+    const before = useClaudeStore.getState().sessions[sessionId]?.meta
     try {
-      await channels.claude.setCodexSandboxMode(sessionId, mode)
-      setCodexSandboxMode(mode)
+      const result = await channels.claude.setCodexSandboxMode(sessionId, mode)
+      if (result === false) throw new Error(t('claude.errors.switchSandboxFailed'))
+      if (useConnectionStore.getState().channels !== channels || useClaudeStore.getState().scopeKey !== scope) return
+      const current = useClaudeStore.getState().sessions[sessionId]?.meta
+      // A reset or a newer host setting supersedes this acknowledgement.
+      if ((before && !current) || current?.codexSandboxMode !== before?.codexSandboxMode) return
+      useClaudeStore.getState().handleSessionState(sessionId, { codexSandboxMode: mode })
     } catch (e) {
-      Alert.alert(t('claude.errors.switchSandboxFailed'), String(e))
+      if (useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope)
+        Alert.alert(t('claude.errors.switchSandboxFailed'), String(e))
     }
   }, [channels, sessionId, t])
 
   const handleCodexApprovalSelect = useCallback(async (policy: string) => {
     if (!channels) return
     setShowApprovalPicker(false)
+    const scope = useClaudeStore.getState().scopeKey
+    const before = useClaudeStore.getState().sessions[sessionId]?.meta
     try {
-      await channels.claude.setCodexApprovalPolicy(sessionId, policy)
-      setCodexApprovalPolicy(policy)
+      const result = await channels.claude.setCodexApprovalPolicy(sessionId, policy)
+      if (result === false) throw new Error(t('claude.errors.switchApprovalFailed'))
+      if (useConnectionStore.getState().channels !== channels || useClaudeStore.getState().scopeKey !== scope) return
+      const current = useClaudeStore.getState().sessions[sessionId]?.meta
+      // A reset or a newer host setting supersedes this acknowledgement.
+      if ((before && !current) || current?.codexApprovalPolicy !== before?.codexApprovalPolicy) return
+      useClaudeStore.getState().handleSessionState(sessionId, { codexApprovalPolicy: policy })
     } catch (e) {
-      Alert.alert(t('claude.errors.switchApprovalFailed'), String(e))
+      if (useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope)
+        Alert.alert(t('claude.errors.switchApprovalFailed'), String(e))
     }
   }, [channels, sessionId, t])
 

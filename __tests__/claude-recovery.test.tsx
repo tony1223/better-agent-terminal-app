@@ -1,6 +1,6 @@
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import { AppState } from 'react-native'
+import { Alert, AppState, FlatList, Text, TouchableOpacity } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { getRecoveryDiagnostics, clearRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
 import { ClaudeScreen } from '../src/screens/ClaudeScreen'
@@ -14,7 +14,7 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('@react-navigation/native', () => ({ useFocusEffect: jest.fn() }))
 jest.mock('@/components/claude/ChatHistoryList', () => ({ ChatHistoryList: () => null }))
 jest.mock('@/components/session/SessionContextBar', () => ({ SessionContextBar: () => null }))
-jest.mock('@/components/session/SessionWorkspaceTabs', () => ({ SessionWorkspaceTabs: () => null }))
+jest.mock('@/components/session/SessionWorkspaceTabs', () => ({ SessionWorkspaceTabs: ({ children }: { children: React.ReactNode }) => children }))
 jest.mock('@/components/claude/FastModeControl', () => ({ FastModeControl: () => null }))
 
 let renderer: Renderer.ReactTestRenderer | undefined
@@ -177,4 +177,66 @@ test('a failed transcript repair retains history and is logged as incomplete', a
   expect(useClaudeStore.getState().sessions.s.messages).toHaveLength(200)
   expect(channel.resumeSession).not.toHaveBeenCalled()
   act(() => blur())
+})
+
+
+test('resume uses live host permissions instead of App creation defaults', async () => {
+  useWorkspaceStore.setState({ terminals: useWorkspaceStore.getState().terminals.map(t => ({
+    ...t, agentParams: { sandboxMode: 'workspace-write', approvalPolicy: 'on-request' },
+  })) })
+  channel.getSessionState.mockResolvedValue({ messages: [], isStreaming: false,
+    codexSandboxMode: 'danger-full-access', codexApprovalPolicy: 'never' })
+  await mount()
+  expect(channel.clientResume).toHaveBeenCalledWith('s', 'sdk', '/project', undefined,
+    expect.objectContaining({ codexSandboxMode: 'danger-full-access', codexApprovalPolicy: 'never' }))
+})
+
+test('fresh session uses explicitly selected workspace permissions including on-failure', async () => {
+  useWorkspaceStore.setState({ terminals: useWorkspaceStore.getState().terminals.map(t => ({
+    ...t, sdkSessionId: undefined, agentParams: { sandboxMode: 'read-only', approvalPolicy: 'on-failure' },
+  })) })
+  await mount()
+  expect(channel.startSession).toHaveBeenCalledWith('s', expect.objectContaining({ codexSandboxMode: 'read-only', codexApprovalPolicy: 'on-failure' }))
+})
+
+
+async function chooseCodexSetting(kind: 'sandbox' | 'approval', value: string) {
+  act(() => renderer!.root.findByProps({ accessibilityLabel: 'claude.controls.more' }).props.onPress())
+  const label = kind === 'sandbox' ? 'claude.modal.actionSandbox' : 'claude.modal.actionApproval'
+  const button = renderer!.root.findAllByType(TouchableOpacity).filter(node =>
+    node.findAllByType(Text).some(text => text.props.children === label)).at(-1)!
+  act(() => button.props.onPress())
+  act(() => jest.advanceTimersByTime(250))
+  const picker = renderer!.root.findAllByType(FlatList).find(node => node.props.data?.includes(value))!
+  await act(async () => { await picker.props.renderItem({ item: value }).props.onPress() })
+}
+
+test.each([
+  ['sandbox', 'setCodexSandboxMode', 'codexSandboxMode', 'danger-full-access'],
+  ['approval', 'setCodexApprovalPolicy', 'codexApprovalPolicy', 'never'],
+] as const)('acknowledged %s changes are retained for recovery', async (kind, method, field, value) => {
+  channel.getSessionState.mockResolvedValue({ messages: [], isStreaming: true })
+  channel[method] = jest.fn().mockResolvedValue(true)
+  await mount()
+  await chooseCodexSetting(kind, value)
+  expect(channel[method]).toHaveBeenCalledWith('s', value)
+  expect(useClaudeStore.getState().sessions.s.meta?.[field]).toBe(value)
+  act(() => renderer!.unmount())
+  renderer = undefined
+  channel.getSessionState.mockResolvedValue({ messages: [], isStreaming: false })
+  await mount()
+  expect(channel.clientResume).toHaveBeenCalledWith('s', 'sdk', '/project', undefined, expect.objectContaining({ [field]: value }))
+})
+
+test.each([
+  ['sandbox', 'setCodexSandboxMode', 'codexSandboxMode', 'danger-full-access'],
+  ['approval', 'setCodexApprovalPolicy', 'codexApprovalPolicy', 'never'],
+] as const)('a rejected %s change is not displayed as accepted', async (kind, method, field, value) => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+  channel.getSessionState.mockResolvedValue({ messages: [], isStreaming: true })
+  channel[method] = jest.fn().mockResolvedValue(false)
+  await mount()
+  await chooseCodexSetting(kind, value)
+  expect(useClaudeStore.getState().sessions.s.meta?.[field]).not.toBe(value)
+  expect(alert).toHaveBeenCalled()
 })

@@ -62,3 +62,23 @@ describe('host model adoption', () => {
     expect(useClaudeStore.getState().sessions[SESSION_ID].meta?.model).toBe('opus')
   })
 })
+
+
+describe('host Codex permissions', () => {
+  it('adopts top-level settings without usage meta and preserves them across partial updates', () => {
+    const store = useClaudeStore.getState()
+    store.handleSessionState(SESSION_ID, { codexSandboxMode: 'danger-full-access', codexApprovalPolicy: 'never' })
+    store.handleStatus(SESSION_ID, usageMeta({ isStreaming: true }))
+    store.handleSessionState(SESSION_ID, { meta: usageMeta() })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].meta).toMatchObject({ codexSandboxMode: 'danger-full-access', codexApprovalPolicy: 'never' })
+  })
+
+  it('honours later host changes, including explicit unset values', () => {
+    const store = useClaudeStore.getState()
+    store.handleSessionState(SESSION_ID, { codexSandboxMode: 'danger-full-access', codexApprovalPolicy: 'never' })
+    store.handleStatus(SESSION_ID, usageMeta({ codexSandboxMode: 'read-only', codexApprovalPolicy: 'on-failure' }))
+    expect(useClaudeStore.getState().sessions[SESSION_ID].meta).toMatchObject({ codexSandboxMode: 'read-only', codexApprovalPolicy: 'on-failure' })
+    store.handleSessionState(SESSION_ID, { codexSandboxMode: null, codexApprovalPolicy: null })
+    expect(useClaudeStore.getState().sessions[SESSION_ID].meta).toMatchObject({ codexSandboxMode: null, codexApprovalPolicy: null })
+  })
+})
