@@ -397,6 +397,12 @@
     }
   },
   "workspaceDetail": {
+    "files": {
+      "searchPlaceholder": "搜索文件或文件夹名称",
+      "searchHint": "搜索当前目录及子目录",
+      "noResults": "没有匹配的文件",
+      "noResultsHint": "请尝试其他文件名，或清除搜索返回目录列表。"
+    },
     "tab": {
       "sessions": "会话",
       "files": "文件",
@@ -492,6 +498,7 @@
     "defaultWorkspace": "工作区",
     "errors": {
       "switchPermissionFailed": "无法切换权限模式",
+      "stopFailed": "无法中断当前会话",
       "switchEffortFailed": "无法切换强度",
       "switchSandboxFailed": "无法切换沙箱模式",
       "switchApprovalFailed": "无法切换审批策略",
@@ -534,8 +541,8 @@
       "approval": "approval:{{value}}",
       "compact": "精简",
       "fork": "分支",
-      "stop": "停止",
-      "stopAgain": "再点中断",
+      "stop": "中断",
+      "stopping": "中断中…",
       "more": "更多选项",
       "attach": "附加图片",
       "send": "发送"

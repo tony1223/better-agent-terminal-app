@@ -397,6 +397,12 @@
     }
   },
   "workspaceDetail": {
+    "files": {
+      "searchPlaceholder": "搜尋檔案或資料夾名稱",
+      "searchHint": "搜尋目前目錄及子目錄",
+      "noResults": "沒有符合的檔案",
+      "noResultsHint": "請嘗試其他檔名，或清除搜尋回到目錄清單。"
+    },
     "tab": {
       "sessions": "工作階段",
       "files": "檔案",
@@ -492,6 +498,7 @@
     "defaultWorkspace": "工作區",
     "errors": {
       "switchPermissionFailed": "無法切換權限模式",
+      "stopFailed": "無法中斷目前工作階段",
       "switchEffortFailed": "無法切換強度",
       "switchSandboxFailed": "無法切換沙箱模式",
       "switchApprovalFailed": "無法切換核准原則",
@@ -534,8 +541,8 @@
       "approval": "approval:{{value}}",
       "compact": "精簡",
       "fork": "分支",
-      "stop": "停止",
-      "stopAgain": "再點中斷",
+      "stop": "中斷",
+      "stopping": "中斷中…",
       "more": "更多選項",
       "attach": "附加圖片",
       "send": "送出"

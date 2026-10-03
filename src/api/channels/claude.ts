@@ -166,7 +166,9 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ws.invokeParams<boolean>('agent:stop-session', { sessionId }, [sessionId]),
 
     abortSession: (sessionId: string) =>
-      ws.invokeParams('agent:abort-session', { sessionId }, [sessionId]),
+      ws.invokeParams<boolean | { ok: boolean; error?: string; alreadyFinished?: boolean }>(
+        'agent:abort-session', { sessionId }, [sessionId],
+      ),
 
     resetSession: (sessionId: string) =>
       ws.invokeParams('agent:reset-session', { sessionId }, [sessionId]),

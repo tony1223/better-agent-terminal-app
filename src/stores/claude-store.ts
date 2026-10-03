@@ -418,6 +418,7 @@ interface ClaudeState {
   handleStream: (sessionId: string, data: ClaudeStreamData, observedAt?: number) => void
   handleResult: (sessionId: string, result: ClaudeResult, observedAt?: number) => void
   handleTurnEnd: (sessionId: string, observedAt?: number) => void
+  handleInterruptConfirmed: (sessionId: string) => void
   handleError: (sessionId: string, error: string) => void
   handleStatus: (sessionId: string, meta: SessionMeta) => void
   setSyncCursor: (sessionId: string, cursor: SyncCursor, runtimeExists?: boolean) => void
@@ -866,6 +867,29 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             ? observedAt : session.lastCompletedAt,
         },
       },
+    })
+  },
+
+  // The interrupt RPC confirms the turn ended even if its broadcast was missed.
+  // Keep the conversation and partial output, without reporting a successful completion.
+  handleInterruptConfirmed: sessionId => {
+    const { sessions, pendingPermission, pendingAskUser } = get()
+    const session = sessions[sessionId]
+    if (!session) return
+    set({
+      sessions: { ...sessions, [sessionId]: {
+        ...session,
+        messages: commitStreamedText(sessionId, session),
+        isStreaming: false,
+        streamingText: '',
+        streamingThinking: '',
+        meta: clearedRuntimeMeta(session.meta),
+        runtimeStatusSince: null,
+        turnStartedAt: null,
+        lastCompletedAt: null,
+      } },
+      pendingPermission: pendingPermission?.sessionId === sessionId ? null : pendingPermission,
+      pendingAskUser: pendingAskUser?.sessionId === sessionId ? null : pendingAskUser,
     })
   },
 

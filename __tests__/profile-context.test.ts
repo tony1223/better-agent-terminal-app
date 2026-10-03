@@ -74,6 +74,20 @@ test('Fast settings use the selected execution host and stale controls cannot se
   expect(targetInvoke).toHaveBeenCalledTimes(1)
 })
 
+test('interrupt targets the selected execution host and session, with stale channels rejected', async () => {
+  const client = mockClient()
+  const targetInvoke = jest.fn().mockResolvedValue({ ok: true })
+  client.scoped.mockReturnValue({ invoke: targetInvoke, invokeParams: targetInvoke, on: jest.fn().mockReturnValue(() => {}) })
+  useConnectionStore.setState({ client: client as any })
+  const channels = await useConnectionStore.getState().selectProfile('remote')
+  await expect(channels.claude.abortSession('running')).resolves.toEqual({ ok: true })
+  expect(targetInvoke).toHaveBeenCalledWith('agent:abort-session', { sessionId: 'running' }, ['running'], undefined)
+  expect(client.invokeParams).not.toHaveBeenCalledWith('agent:abort-session', expect.anything(), expect.anything())
+  await useConnectionStore.getState().selectProfile('other')
+  await expect(channels.claude.abortSession('running')).rejects.toThrow('Profile selection changed')
+  expect(targetInvoke).toHaveBeenCalledTimes(1)
+})
+
 test('a late profile open cannot replace the newer selection', async () => {
   const client = mockClient()
   const late = deferred<any>()

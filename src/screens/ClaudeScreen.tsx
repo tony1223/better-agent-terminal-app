@@ -259,6 +259,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showMoreActions, setShowMoreActions] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
   const newSessionInFlight = useRef(false)
+  const [stopping, setStopping] = useState(false)
+  const interruptRequestRef = useRef<symbol | null>(null)
   const [codexAccounts, setCodexAccounts] = useState<CodexAccountEntry[]>([])
   const [codexAccountsLoading, setCodexAccountsLoading] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
@@ -1079,7 +1081,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   }, [resolveSessionPermissions, session.meta?.codexSandboxMode, session.meta?.codexApprovalPolicy, isCodexAgent, sessionId])
 
   const handleSend = useCallback(async () => {
-    if (sendInFlightRef.current) return
+    if (sendInFlightRef.current || interruptRequestRef.current) return
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
     sendInFlightRef.current = true
     const text = inputText.trim()
@@ -1202,35 +1204,42 @@ export function ClaudeScreen({ route, navigation }: Props) {
     }
   }, [channels, terminal?.cwd, isOpenAIAgent, isCodexAgent])
 
-  // Esc-key replacement: tap once = soft stop (stop & wait for input),
-  // double-tap within 500ms = hard abort (fully interrupt), mirroring the
-  // desktop's single-vs-double Esc behavior.
-  const lastStopTapRef = useRef(0)
-  const stopArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [stopArmed, setStopArmed] = useState(false)
-
-  useEffect(() => () => {
-    if (stopArmTimerRef.current) clearTimeout(stopArmTimerRef.current)
-  }, [])
+  useEffect(() => {
+    interruptRequestRef.current = null
+    setStopping(false)
+    return () => { interruptRequestRef.current = null }
+  }, [channels, sessionId])
 
   const handleStop = useCallback(async () => {
-    if (!channels) return
-    const now = Date.now()
-    const isDoubleTap = now - lastStopTapRef.current < 500
-    lastStopTapRef.current = now
-    if (stopArmTimerRef.current) {
-      clearTimeout(stopArmTimerRef.current)
-      stopArmTimerRef.current = null
+    if (!channels || interruptRequestRef.current || useConnectionStore.getState().channels !== channels) return
+    const request = Symbol('interrupt')
+    interruptRequestRef.current = request
+    setStopping(true)
+    const scope = useClaudeStore.getState().scopeKey
+    const turnStartedAt = useClaudeStore.getState().sessions[sessionId]?.turnStartedAt
+    const current = () => interruptRequestRef.current === request &&
+      useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope
+    try {
+      // stopSession tears down host tracking; abortSession actually interrupts
+      // the running turn and retains its conversation, including for Codex.
+      const result = await channels.claude.abortSession(sessionId)
+      if (!current()) return
+      if (result !== true && (!result || typeof result !== 'object' || result.ok !== true)) {
+        throw new Error(typeof result === 'object' && result?.error ? result.error : t('claude.errors.stopFailed'))
+      }
+      const state = useClaudeStore.getState()
+      const activeTurn = state.sessions[sessionId]?.turnStartedAt
+      // Another device may already have started a new turn before this ack.
+      if (activeTurn == null || activeTurn === turnStartedAt) state.handleInterruptConfirmed(sessionId)
+    } catch (error) {
+      if (current()) Alert.alert(t('claude.errors.stopFailed'), String(error))
+    } finally {
+      if (interruptRequestRef.current === request) {
+        interruptRequestRef.current = null
+        setStopping(false)
+      }
     }
-    if (isDoubleTap) {
-      setStopArmed(false)
-      await channels.claude.abortSession(sessionId)
-    } else {
-      setStopArmed(true)
-      stopArmTimerRef.current = setTimeout(() => setStopArmed(false), 500)
-      await channels.claude.stopSession(sessionId)
-    }
-  }, [channels, sessionId])
+  }, [channels, sessionId, t])
 
   const handleNewSession = useCallback(async () => {
     if (!terminal?.workspaceId || newSessionInFlight.current || !channels) return
@@ -1753,9 +1762,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: agentColor }, (!inputText.trim() && attachedImages.length === 0) && styles.sendDisabled]}
+            style={[styles.sendButton, { backgroundColor: agentColor }, (stopping || (!inputText.trim() && attachedImages.length === 0)) && styles.sendDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim() && attachedImages.length === 0}
+            disabled={stopping || (!inputText.trim() && attachedImages.length === 0)}
             accessibilityRole="button"
             accessibilityLabel={t('claude.controls.send')}
           >
@@ -1776,13 +1785,18 @@ export function ClaudeScreen({ route, navigation }: Props) {
           >
             {/* First, so the one control that may be needed urgently is already
                 in view when the row sits at its scroll origin. */}
-            {turnActive && (
+            {(turnActive || stopping) && (
               <TouchableOpacity
-                style={[styles.chip, { backgroundColor: stopArmed ? appColors.warning : appColors.error, borderColor: stopArmed ? appColors.warning : appColors.error }]}
+                testID="chat-interrupt"
+                accessibilityRole="button"
+                accessibilityLabel={t('claude.controls.stop')}
+                accessibilityState={{ disabled: stopping || !channels, busy: stopping }}
+                disabled={stopping || !channels}
+                style={[styles.chip, { backgroundColor: appColors.error, borderColor: appColors.error }, stopping && styles.sendDisabled]}
                 onPress={handleStop}
               >
                 <Text style={[styles.chipText, styles.chipTextOnFill]}>
-                  {stopArmed ? t('claude.controls.stopAgain') : t('claude.controls.stop')}
+                  {t(stopping ? 'claude.controls.stopping' : 'claude.controls.stop')}
                 </Text>
               </TouchableOpacity>
             )}

@@ -1,6 +1,6 @@
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import { Alert, AppState, FlatList, Text, TouchableOpacity } from 'react-native'
+import { Alert, AppState, FlatList, Text, TextInput, TouchableOpacity } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { getRecoveryDiagnostics, clearRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
 import { ClaudeScreen } from '../src/screens/ClaudeScreen'
@@ -31,7 +31,8 @@ beforeEach(() => {
   jest.useFakeTimers()
   useClaudeStore.setState({ sessions: {}, activeSessionId: null, scopeKey: 'test' })
   channel = Object.fromEntries(['getSessionState', 'getSessionMeta', 'clientResume', 'resumeSession', 'startSession',
-    'loadArchived', 'getSupportedEfforts', 'getSupportedCodexSandboxModes', 'getSupportedCodexApprovalPolicies']
+    'loadArchived', 'getSupportedEfforts', 'getSupportedCodexSandboxModes', 'getSupportedCodexApprovalPolicies',
+    'abortSession', 'stopSession', 'sendMessage']
     .map(name => [name, jest.fn().mockResolvedValue(null)]))
   useConnectionStore.setState({ status: 'connected', profileStatus: 'ready',
     client: { supportsProfileContext: true } as never, channels: { claude: channel } as unknown as Channels })
@@ -39,6 +40,96 @@ beforeEach(() => {
   useWorkspaceStore.setState({ workspaces: [], terminals: [
     { id: 's', workspaceId: 'w', type: 'terminal', title: 'Chat', cwd: '/project', sdkSessionId: 'sdk', agentPreset: 'codex-agent', scrollbackBuffer: [] },
   ], activeLocalProfileId: 'p', loadStatus: 'ok' })
+})
+
+async function mountRunningSession() {
+  channel.getSessionState.mockResolvedValue({ messages: [], isStreaming: true })
+  await mount()
+  act(() => useClaudeStore.getState().handleStream('s', { text: 'Partial answer' }))
+}
+const interruptButton = () => renderer!.root.findByProps({ testID: 'chat-interrupt' })
+
+test('one interrupt tap aborts the turn, preserves output, and blocks duplicate requests and sends until acknowledged', async () => {
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.abortSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const input = () => renderer!.root.findAllByType(TextInput).find(node => node.props.onSubmitEditing)!
+  act(() => input().props.onChangeText('Keep my next prompt'))
+  let stopping!: Promise<void>
+  act(() => {
+    stopping = interruptButton().props.onPress()
+    interruptButton().props.onPress()
+  })
+  expect(channel.abortSession).toHaveBeenCalledTimes(1)
+  expect(channel.abortSession).toHaveBeenCalledWith('s')
+  expect(channel.stopSession).not.toHaveBeenCalled()
+  expect(interruptButton().props.disabled).toBe(true)
+  expect(useClaudeStore.getState().sessions.s.isStreaming).toBe(true)
+  await act(async () => input().props.onSubmitEditing())
+  expect(channel.sendMessage).not.toHaveBeenCalled()
+  await act(async () => { finish({ ok: true }); await stopping })
+  const session = useClaudeStore.getState().sessions.s
+  expect(session.isStreaming).toBe(false)
+  expect(session.turnStartedAt).toBeNull()
+  expect(session.lastCompletedAt).toBeNull()
+  expect(session.messages).toEqual([expect.objectContaining({ role: 'assistant', content: 'Partial answer' })])
+  expect(session.runtimeExists).toBe(true)
+  expect(input().props.value).toBe('Keep my next prompt')
+  expect(renderer!.root.findAllByProps({ testID: 'chat-interrupt' })).toHaveLength(0)
+})
+
+test.each(['transport', 'host-rejected', 'false-result'])(
+  'an interrupt failure is visible and retains the running session for retry: %s', async failure => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+    await mountRunningSession()
+    if (failure === 'transport') channel.abortSession.mockRejectedValueOnce(new Error('offline'))
+    else channel.abortSession.mockResolvedValueOnce(failure === 'host-rejected' ? { ok: false, error: 'turn still starting' } : false)
+    await act(async () => interruptButton().props.onPress())
+    expect(alert).toHaveBeenCalledWith('claude.errors.stopFailed', expect.any(String))
+    expect(useClaudeStore.getState().sessions.s.isStreaming).toBe(true)
+    expect(useClaudeStore.getState().sessions.s.streamingText).toBe('Partial answer')
+    expect(interruptButton().props.disabled).toBe(false)
+    channel.abortSession.mockResolvedValueOnce(true)
+    await act(async () => interruptButton().props.onPress())
+    expect(useClaudeStore.getState().sessions.s.isStreaming).toBe(false)
+    expect(channel.stopSession).not.toHaveBeenCalled()
+  },
+)
+
+test('an interrupt acknowledgement from an old profile cannot clear a session with the same ID', async () => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.abortSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  let stopping!: Promise<void>
+  act(() => { stopping = interruptButton().props.onPress() })
+  act(() => {
+    useConnectionStore.setState({ channels: null, profileStatus: 'loading' })
+    useClaudeStore.setState({ scopeKey: 'other', sessions: {} })
+    useClaudeStore.getState().initSession('s')
+    useClaudeStore.getState().handleStream('s', { text: 'Other profile output' })
+  })
+  await act(async () => { finish({ ok: true }); await stopping })
+  expect(useClaudeStore.getState().sessions.s.streamingText).toBe('Other profile output')
+  expect(useClaudeStore.getState().sessions.s.isStreaming).toBe(true)
+  expect(alert).not.toHaveBeenCalled()
+})
+
+test('a late interrupt acknowledgement preserves a new turn started on another device', async () => {
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.abortSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  let stopping!: Promise<void>
+  act(() => { stopping = interruptButton().props.onPress() })
+  act(() => {
+    useClaudeStore.getState().handleTurnEnd('s')
+    jest.advanceTimersByTime(1)
+    useClaudeStore.getState().handleStream('s', { text: 'New turn output' })
+  })
+  await act(async () => { finish({ ok: true }); await stopping })
+  expect(useClaudeStore.getState().sessions.s.streamingText).toBe('New turn output')
+  expect(useClaudeStore.getState().sessions.s.isStreaming).toBe(true)
+  expect(interruptButton().props.disabled).toBe(false)
 })
 afterEach(() => {
   if (renderer) act(() => renderer!.unmount())

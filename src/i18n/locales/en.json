@@ -397,6 +397,12 @@
     }
   },
   "workspaceDetail": {
+    "files": {
+      "searchPlaceholder": "Search file or folder names",
+      "searchHint": "Search this directory and subdirectories",
+      "noResults": "No matching files",
+      "noResultsHint": "Try another filename or clear the search to browse this directory."
+    },
     "tab": {
       "sessions": "Sessions",
       "files": "Files",
@@ -492,6 +498,7 @@
     "defaultWorkspace": "Workspace",
     "errors": {
       "switchPermissionFailed": "Unable to switch permission mode",
+      "stopFailed": "Unable to interrupt this session",
       "switchEffortFailed": "Unable to switch effort",
       "switchSandboxFailed": "Unable to switch sandbox mode",
       "switchApprovalFailed": "Unable to switch approval policy",
@@ -535,7 +542,7 @@
       "compact": "compact",
       "fork": "Fork",
       "stop": "Stop",
-      "stopAgain": "Tap to abort",
+      "stopping": "Interrupting…",
       "more": "More options",
       "attach": "Attach image",
       "send": "Send"

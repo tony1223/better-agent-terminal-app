@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -422,6 +423,8 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
   const { t } = useTranslation()
   const channels = useConnectionStore(s => s.channels)
   const [currentPath, setCurrentPath] = useState(rootPath)
+  const [query, setQuery] = useState('')
+  const searchQuery = query.trim()
   const [entries, setEntries] = useState<FsEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -429,7 +432,11 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
   const loadGeneration = useRef(0)
 
-  useEffect(() => setCurrentPath(rootPath), [rootPath])
+  useEffect(() => {
+    setCurrentPath(rootPath)
+    setQuery('')
+    setPreview(null)
+  }, [rootPath])
 
   const load = useCallback(async () => {
     if (!channels) return
@@ -437,7 +444,9 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
     setLoading(true)
     setError(null)
     try {
-      const raw = await channels.fs.readdir(currentPath)
+      const raw = searchQuery
+        ? await channels.fs.search(currentPath, searchQuery)
+        : await channels.fs.readdir(currentPath)
       if (generation !== loadGeneration.current) return
       setEntries(normalizeFsEntries(raw))
     } catch (e) {
@@ -447,18 +456,40 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
     } finally {
       if (generation === loadGeneration.current) setLoading(false)
     }
-  }, [channels, currentPath])
+  }, [channels, currentPath, searchQuery])
 
   useEffect(() => {
     const generation = loadGeneration
-    if (active) void load()
-    return () => { generation.current++ }
-  }, [load, active])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    if (active && channels) {
+      setEntries([])
+      setError(null)
+      setLoading(true)
+      if (searchQuery) timer = setTimeout(() => { void load() }, 250)
+      else void load()
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+      generation.current++
+    }
+  }, [load, active, channels, searchQuery])
+
+  const changeQuery = (value: string) => {
+    // Invalidate immediately, including responses racing the debounce interval.
+    if (value.trim() !== searchQuery) loadGeneration.current++
+    setQuery(value)
+  }
+
+  const openDirectory = (path: string) => {
+    loadGeneration.current++
+    setQuery('')
+    setCurrentPath(path)
+  }
 
   const openEntry = (entry: FsEntry) => {
     if (!channels) return
     if (entry.isDirectory) {
-      setCurrentPath(entry.path)
+      openDirectory(entry.path)
       return
     }
     setPreview(entry.path)
@@ -487,22 +518,51 @@ export function FilesPane({ rootPath, active = true }: { rootPath: string; activ
       <View style={styles.pathBar}>
         <TouchableOpacity
           style={styles.smallButton}
-          onPress={() => setCurrentPath(parentPath(currentPath))}
+          onPress={() => openDirectory(parentPath(currentPath))}
           disabled={normalizePath(currentPath) === normalizePath(rootPath)}
         >
           <Text style={styles.smallButtonText}>{t('workspaceDetail.button.up')}</Text>
         </TouchableOpacity>
         <Text style={styles.pathBarText} numberOfLines={1}>{currentPath}</Text>
       </View>
+      <View style={styles.fileSearchBar}>
+        <TextInput
+          testID="file-search"
+          style={styles.fileSearchInput}
+          value={query}
+          onChangeText={changeQuery}
+          placeholder={t('workspaceDetail.files.searchPlaceholder')}
+          placeholderTextColor={appColors.textMuted}
+          accessibilityLabel={t('workspaceDetail.files.searchPlaceholder')}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {!!query && <TouchableOpacity
+          testID="file-search-clear"
+          style={styles.fileSearchClear}
+          onPress={() => changeQuery('')}
+          accessibilityRole="button"
+          accessibilityLabel={t('workspaceBrowser.clearSearch')}
+        >
+          <Text style={styles.smallButtonText}>×</Text>
+        </TouchableOpacity>}
+      </View>
+      <Text style={styles.fileSearchHint}>{t('workspaceDetail.files.searchHint')}</Text>
       {loading && entries.length === 0 ? (
         <LoadingState />
       ) : (
         <FlatList
           data={entries}
           keyExtractor={item => item.path}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={appColors.accent} />}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={<EmptyMessage title={t('workspaceDetail.empty.noFilesTitle')} body={error || t('workspaceDetail.empty.noFilesBody')} />}
+          ListEmptyComponent={<EmptyMessage
+            title={t(searchQuery ? 'workspaceDetail.files.noResults' : 'workspaceDetail.empty.noFilesTitle')}
+            body={error || t(searchQuery ? 'workspaceDetail.files.noResultsHint' : 'workspaceDetail.empty.noFilesBody')}
+          />}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.compactRow} onPress={() => openEntry(item)}>
               <Text style={styles.fileIcon}>{item.isDirectory ? 'dir' : fileExt(item.name) || 'file'}</Text>
@@ -961,6 +1021,31 @@ const styles = StyleSheet.create({
     backgroundColor: appColors.surface,
     borderBottomWidth: 1,
     borderBottomColor: appColors.border,
+  },
+  fileSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: appColors.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: appColors.border,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
+  fileSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    color: appColors.text,
+    fontSize: fontSize.md,
+  },
+  fileSearchClear: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  fileSearchHint: {
+    color: appColors.textSecondary,
+    fontSize: fontSize.xs,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.xs,
   },
   pathBarText: {
     flex: 1,
