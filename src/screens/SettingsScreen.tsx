@@ -35,6 +35,7 @@ import {
 } from '@/utils/debug-log'
 import { getDiagnosticLogText, uploadDiagnosticReport } from '@/utils/diagnostic-report'
 import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
+import { clearIncidentDiagnostics } from '@/utils/incident-diagnostics'
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets()
@@ -204,6 +205,7 @@ export function SettingsScreen() {
             onPress={() => {
               clearDebugLogs()
               clearRecoveryDiagnostics()
+              clearIncidentDiagnostics()
               Alert.alert(t('settings.clearedTitle'), t('settings.clearedMessage'))
             }}
           >

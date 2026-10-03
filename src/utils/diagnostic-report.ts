@@ -6,6 +6,8 @@ import { appVersionLabel } from '@/native/app-info'
 import { getDebugLogText } from './debug-log'
 import { getRecoveryDiagnostics } from './recovery-diagnostics'
 import { flushPerformanceDiagnostics } from './performance-diagnostics'
+import { getIncidentDiagnostics } from './incident-diagnostics'
+import { captureRuntimeDiagnostics } from '@/native/runtime-diagnostics'
 
 export function redactDiagnosticText(text: string): string {
   return text
@@ -17,7 +19,7 @@ export function redactDiagnosticText(text: string): string {
 
 export function getDiagnosticLogText(): string {
   flushPerformanceDiagnostics('export')
-  return `Recovery timings\n${getRecoveryDiagnostics()}\nDebug logs\n${redactDiagnosticText(getDebugLogText())}`
+  return `Performance incidents\n${getIncidentDiagnostics()}\nRecovery timings\n${getRecoveryDiagnostics()}\nDebug logs\n${redactDiagnosticText(getDebugLogText())}`
 }
 
 /** Use the entry host, even when a remote profile is selected or unavailable. */
@@ -27,6 +29,8 @@ export async function uploadDiagnosticReport(): Promise<string> {
   if (!client || state.status !== 'connected') throw new Error('Not connected to host')
   const createdAt = new Date().toISOString()
   flushPerformanceDiagnostics('export')
+  const runtimeDiagnostics = await captureRuntimeDiagnostics('export', true)
+  if (useConnectionStore.getState().client !== client) throw new Error('Connection changed during upload')
   const report = JSON.stringify({
     schemaVersion: 1,
     createdAt,
@@ -34,6 +38,8 @@ export async function uploadDiagnosticReport(): Promise<string> {
     platform: Platform.OS,
     platformVersion: Platform.Version,
     hostVersion: client.serverVersion,
+    runtimeDiagnostics,
+    performanceIncidents: getIncidentDiagnostics(),
     connection: { status: state.status, tls: state.tls, profileStatus: state.profileStatus,
       selectedProfileId: state.selectedProfileId, supportsMobileSync: client.supportsMobileSync },
     recoveryEvents: getRecoveryDiagnostics(),

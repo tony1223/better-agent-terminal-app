@@ -5,7 +5,8 @@ const storage = createMMKV({ id: 'bat-recovery-diagnostics' })
 const KEY = 'events'
 const MAX_CHARS = 256 * 1024
 const log = createBufferedLog(storage, KEY, MAX_CHARS)
-const run = Date.now().toString(36)
+export const diagnosticRunId = Date.now().toString(36)
+const run = diagnosticRunId
 let sequence = 0
 type Fields = Record<string, string | number | boolean | null | undefined>
 

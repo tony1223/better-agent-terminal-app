@@ -1,12 +1,14 @@
 import { AppState } from 'react-native'
 import { recordPerformance, flushPerformanceDiagnostics, subscribePerformanceDiagnostics } from '../src/utils/performance-diagnostics'
 import { recoveryEvent } from '../src/utils/recovery-diagnostics'
+import { clearIncidentDiagnostics, getIncidentDiagnostics } from '../src/utils/incident-diagnostics'
 
 jest.mock('../src/utils/recovery-diagnostics', () => ({ recoveryEvent: jest.fn() }))
 let stop: () => void
 let change: (state: string) => void
 beforeEach(() => {
   jest.useFakeTimers()
+  clearIncidentDiagnostics()
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, callback) => {
     change = callback as typeof change
     return { remove: jest.fn() }
@@ -39,5 +41,17 @@ test('background cancels timers, groups background work separately, and export f
   recordPerformance('stream-view', 200)
   flushPerformanceDiagnostics('export')
   expect(recoveryEvent).toHaveBeenLastCalledWith('performance.window', expect.objectContaining({ metric: 'stream-view', reason: 'export', chars: 200 }))
+  expect(jest.getTimerCount()).toBe(0)
+})
+
+test('a delayed foreground timer leaves a separate durable incident, without claiming an ANR', async () => {
+  recordPerformance('stream-dispatch', 5, 1)
+  jest.setSystemTime(Date.now() + 90_000)
+  flushPerformanceDiagnostics('interval')
+  await Promise.resolve()
+  const incidents = getIncidentDiagnostics().trim().split('\n').map(line => JSON.parse(line))
+  expect(incidents[0]).toMatchObject({ event: 'performance.late-timer', lateMs: 60_000, foreground: true })
+  expect(incidents[0].appVersion).toBeTruthy()
+  expect(incidents[1]).toMatchObject({ event: 'performance.late-timer-sample', after: null })
   expect(jest.getTimerCount()).toBe(0)
 })

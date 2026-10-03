@@ -18,12 +18,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 import {
-  getDebugLogText,
   clearDebugLogs,
   isDebugMode,
   setDebugMode,
   dlog,
 } from '@/utils/debug-log'
+import { getDiagnosticLogText } from '@/utils/diagnostic-report'
+import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
+import { clearIncidentDiagnostics } from '@/utils/incident-diagnostics'
 
 export function LocalSettingsScreen() {
   const { t } = useTranslation()
@@ -68,7 +70,7 @@ export function LocalSettingsScreen() {
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => {
-              const logs = getDebugLogText()
+              const logs = getDiagnosticLogText()
               Share.share({ message: logs, title: t('localSettings.shareTitle') })
             }}
           >
@@ -78,6 +80,8 @@ export function LocalSettingsScreen() {
             style={styles.actionRow}
             onPress={() => {
               clearDebugLogs()
+              clearRecoveryDiagnostics()
+              clearIncidentDiagnostics()
               Alert.alert(t('localSettings.clearedTitle'), t('localSettings.clearedMessage'))
             }}
           >
@@ -96,7 +100,7 @@ export function LocalSettingsScreen() {
           </View>
           <ScrollView style={styles.logViewerBody}>
             <Text style={styles.logViewerText} selectable>
-              {getDebugLogText()}
+              {getDiagnosticLogText()}
             </Text>
           </ScrollView>
         </View>

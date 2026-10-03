@@ -3,6 +3,7 @@ import { Buffer } from 'buffer'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { recoveryEvent, recoverySpan, getRecoveryDiagnostics, clearRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
 import { recordPerformance, subscribePerformanceDiagnostics } from '../src/utils/performance-diagnostics'
+import { clearIncidentDiagnostics, getIncidentDiagnostics, recordIncident } from '../src/utils/incident-diagnostics'
 
 jest.mock('@/stores/connection-store', () => ({ useConnectionStore: { getState: jest.fn() } }))
 jest.mock('@/native/app-info', () => ({ appVersionLabel: '1.0.test (1)' }))
@@ -17,6 +18,7 @@ let totalBytes: number
 
 beforeEach(() => {
   clearRecoveryDiagnostics()
+  clearIncidentDiagnostics()
   payload = ''
   totalBytes = 0
   state = {
@@ -50,6 +52,18 @@ it('does not start uploading while disconnected', async () => {
   state.status = 'reconnecting'
   await expect(uploadDiagnosticReport()).rejects.toThrow('Not connected')
   expect(state.client.invokeParams).not.toHaveBeenCalled()
+})
+
+it('preserves incidents across RPC log rollover and includes them in uploaded diagnostics', async () => {
+  recordIncident('performance.late-timer', { lateMs: 54_000 })
+  for (let i = 0; i < 500; i++) recoveryEvent('rpc.test', { index: i, padding: 'x'.repeat(1000) })
+  expect(getIncidentDiagnostics()).toContain('54000')
+  await uploadDiagnosticReport()
+  const report = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'))
+  expect(JSON.parse(report.performanceIncidents)).toMatchObject({ event: 'performance.late-timer', appVersion: '1.0.test (1)', lateMs: 54_000 })
+  expect(report.runtimeDiagnostics).toBeNull() // Older binary / unsupported platform.
+  clearIncidentDiagnostics()
+  expect(getIncidentDiagnostics()).toBe('')
 })
 
 it('upload includes performance counters immediately, without waiting for their batch timer', async () => {
