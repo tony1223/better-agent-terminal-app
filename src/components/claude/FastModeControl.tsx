@@ -123,6 +123,9 @@ export function FastModeControl({
   }, [open, channels, connected, scope, sessionId])
 
   const known = hasFastMode(meta)
+  const iconColor = known && !unavailable && meta.fastMode
+    ? appColors.accent
+    : appColors.textMuted
   const busy =
     disabled || streaming || !!meta?.runtimeStatus || meta?.isStreaming === true
   const unsupported = known && !meta.supportsFastMode
@@ -193,9 +196,11 @@ export function FastModeControl({
           setOpen(true)
         }}
       >
-        <Text style={[styles.label, meta?.fastMode === true && styles.enabled]}>
-          Fast · {t(`fastMode.${state}`)}
-        </Text>
+        {/* Native shapes keep the disabled bolt grey on emoji-font devices too. */}
+        <View style={styles.bolt} accessible={false}>
+          <View style={[styles.boltTop, { borderBottomColor: iconColor }]} />
+          <View style={[styles.boltBottom, { borderTopColor: iconColor }]} />
+        </View>
       </TouchableOpacity>
       <Modal
         visible={open}
@@ -254,10 +259,21 @@ export function FastModeControl({
 const styles = StyleSheet.create({
   chip: {
     minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.sm,
     borderRadius: 8,
     backgroundColor: appColors.surface,
+  },
+  bolt: { width: 20, height: 24 },
+  boltTop: {
+    position: 'absolute', top: 0, left: 2, width: 0, height: 0,
+    borderLeftWidth: 10, borderLeftColor: 'transparent', borderBottomWidth: 14,
+  },
+  boltBottom: {
+    position: 'absolute', top: 10, left: 8, width: 0, height: 0,
+    borderRightWidth: 10, borderRightColor: 'transparent', borderTopWidth: 14,
   },
   label: { color: appColors.text, fontSize: fontSize.sm },
   enabled: { color: appColors.accent },
