@@ -6,8 +6,18 @@ import { useConnectionStore } from './connection-store'
 import { useWorkspaceStore } from './workspace-store'
 
 const REFRESH_MS = 10_000
+const OFFSCREEN_REFRESH_MS = 60_000
 const MAX_CONCURRENT = 3
-const refreshListeners = new Set<() => Promise<void>>()
+const refreshListeners = new Set<(force?: boolean) => Promise<void>>()
+const visibleLists = new Set<{ channel: ClaudeChannel; ids: Set<string> | null }>()
+
+/** Focused lists retain fast badge updates; covered navigation screens do not. */
+export function watchSessionActivity(channel: ClaudeChannel, ids: string[] | null): () => void {
+  const interest = { channel, ids: ids === null ? null : new Set(ids) }
+  visibleLists.add(interest)
+  for (const refresh of refreshListeners) refresh(false)
+  return () => { visibleLists.delete(interest) }
+}
 
 /** Refresh badges when the workspace list is opened or explicitly refreshed. */
 export async function refreshSessionActivity(): Promise<void> {
@@ -23,12 +33,17 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
   let refreshing = false
   let refreshAgain = false
+  let forceAgain = false
+  const checkedAt = new Map<string, number>()
   const sessionIds = () => useWorkspaceStore.getState().terminals.filter(isSdkAgentSession).map(item => item.id)
   const isCurrent = () => !disposed && foreground && useConnectionStore.getState().channels?.claude === claude
 
-  async function refresh() {
+  const isVisible = (id: string) => useClaudeStore.getState().activeSessionId === id ||
+    [...visibleLists].some(list => list.channel === claude && (list.ids === null || list.ids.has(id)))
+
+  async function refresh(force = true) {
     if (!isCurrent()) return
-    if (refreshing) { refreshAgain = true; return }
+    if (refreshing) { refreshAgain = true; forceAgain ||= force; return }
     if (timer) { clearTimeout(timer); timer = null }
     refreshing = true
     const wanted = sessionIds()
@@ -38,6 +53,8 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
         while (cursor < wanted.length && isCurrent()) {
           const id = wanted[cursor++]
           if (!sessionIds().includes(id)) continue
+          if (!force && !isVisible(id) && Date.now() - (checkedAt.get(id) ?? -Infinity) < OFFSCREEN_REFRESH_MS) continue
+          checkedAt.set(id, Date.now())
           const before = useClaudeStore.getState().sessions[id]
           try {
             const meta = await claude.getSessionMeta(id)
@@ -68,8 +85,10 @@ export function subscribeSessionActivity(claude: ClaudeChannel): () => void {
       refreshing = false
       if (isCurrent()) {
         const delay = refreshAgain ? 0 : REFRESH_MS
+        const nextForce = forceAgain
         refreshAgain = false
-        timer = setTimeout(() => { refresh() }, delay)
+        forceAgain = false
+        timer = setTimeout(() => { refresh(nextForce) }, delay)
       }
     }
   }

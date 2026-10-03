@@ -1,5 +1,5 @@
 import { AppState } from 'react-native'
-import { refreshSessionActivity, subscribeSessionActivity } from '../src/stores/session-activity-sync'
+import { refreshSessionActivity, subscribeSessionActivity, watchSessionActivity } from '../src/stores/session-activity-sync'
 import { useClaudeStore } from '../src/stores/claude-store'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
@@ -183,4 +183,55 @@ test('host time is monotonic, and unknown differs from an explicit no-data respo
   useClaudeStore.getState().handleLastDataAt('s', 1000)
   useClaudeStore.getState().handleLastDataAt('s', null)
   expect(useClaudeStore.getState().sessions.s.lastDataAt).toBe(2000)
+})
+
+test('25 sessions with one open chat use 30 probes over 50 seconds instead of 150', async () => {
+  useWorkspaceStore.setState({ terminals: Array.from({ length: 25 }, (_, i) => terminal(String(i))) })
+  useClaudeStore.setState({ activeSessionId: '0' })
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  expect(getMeta).toHaveBeenCalledTimes(25)
+  await jest.advanceTimersByTimeAsync(50_000)
+  expect(getMeta).toHaveBeenCalledTimes(30)
+  // Quiet offscreen sessions still get a safety sweep once per minute.
+  await jest.advanceTimersByTimeAsync(10_000)
+  expect(getMeta).toHaveBeenCalledTimes(55)
+})
+
+test('visible list keeps fast updates and releasing focus slows its offscreen sessions', async () => {
+  useWorkspaceStore.setState({ terminals: [terminal('s'), terminal('other')] })
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  const unwatch = watchSessionActivity(channel, ['s'])
+  try {
+    await flush()
+    getMeta.mockClear()
+    await jest.advanceTimersByTimeAsync(20_000)
+    expect(getMeta.mock.calls).toEqual([['s'], ['s']])
+  } finally { unwatch() }
+  getMeta.mockClear()
+  await jest.advanceTimersByTimeAsync(10_000)
+  expect(getMeta).not.toHaveBeenCalled()
+  await refreshSessionActivity()
+  expect(getMeta.mock.calls).toEqual([['s'], ['other']])
+})
+
+test('workspace overview observes all sessions but an old profile cannot keep polling them', async () => {
+  stop = subscribeSessionActivity(channel)
+  await flush()
+  const unwatch = watchSessionActivity(channel, null)
+  try {
+    await flush()
+    getMeta.mockClear()
+    await jest.advanceTimersByTimeAsync(10_000)
+    expect(getMeta).toHaveBeenCalledTimes(1)
+    stop()
+    const next = { getSessionMeta: getMeta } as unknown as ClaudeChannel
+    useConnectionStore.setState({ channels: { claude: next } as Channels })
+    stop = subscribeSessionActivity(next)
+    await flush()
+    getMeta.mockClear()
+    await jest.advanceTimersByTimeAsync(10_000)
+    expect(getMeta).not.toHaveBeenCalled()
+  } finally { unwatch() }
 })

@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { AppState } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { useConnectionStore } from '@/stores/connection-store'
+import { watchSessionActivity } from '@/stores/session-activity-sync'
 import {
   useSessionPreviewStore,
   PREVIEW_REFRESH_MS,
@@ -20,6 +21,7 @@ export function useSessionPreviews(sessionIds: string[]): void {
     useCallback(() => {
       if (!channels) return
       const ids = JSON.parse(key) as string[]
+      const stopActivity = watchSessionActivity(channels.claude, ids)
       let timer: ReturnType<typeof setTimeout> | undefined
       let disposed = false
       let refreshing = false
@@ -46,6 +48,7 @@ export function useSessionPreviews(sessionIds: string[]): void {
       })
       return () => {
         disposed = true
+        stopActivity()
         if (timer) clearTimeout(timer)
         listener.remove()
       }

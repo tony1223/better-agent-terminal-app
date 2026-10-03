@@ -1,8 +1,10 @@
 import { createMMKV } from 'react-native-mmkv'
+import { createBufferedLog } from './buffered-log'
 
 const storage = createMMKV({ id: 'bat-recovery-diagnostics' })
 const KEY = 'events'
 const MAX_CHARS = 256 * 1024
+const log = createBufferedLog(storage, KEY, MAX_CHARS)
 const run = Date.now().toString(36)
 let sequence = 0
 type Fields = Record<string, string | number | boolean | null | undefined>
@@ -11,12 +13,8 @@ type Fields = Record<string, string | number | boolean | null | undefined>
 export function recoveryEvent(event: string, fields: Fields = {}): void {
   try {
     const line = JSON.stringify({ at: new Date().toISOString(), run, event, ...fields }) + '\n'
-    let text = (storage.getString(KEY) ?? '') + line
-    if (text.length > MAX_CHARS) {
-      text = text.slice(-MAX_CHARS)
-      text = text.slice(text.indexOf('\n') + 1)
-    }
-    storage.set(KEY, text)
+    log.append(line, fields.outcome === 'error' || event.includes('error') ||
+      (event === 'app.state' && fields.state !== 'active'))
   } catch { /* Diagnostics must never interrupt connection recovery. */ }
 }
 
@@ -32,5 +30,6 @@ export function recoverySpan(event: string, fields: Fields = {}) {
   }
 }
 
-export const getRecoveryDiagnostics = () => storage.getString(KEY) ?? ''
-export const clearRecoveryDiagnostics = () => storage.set(KEY, '')
+export const getRecoveryDiagnostics = log.read
+export const clearRecoveryDiagnostics = log.clear
+export const flushRecoveryDiagnostics = log.flush

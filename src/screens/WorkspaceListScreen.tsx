@@ -26,7 +26,7 @@ import { useWorkspaceShortcutsStore } from '@/stores/workspace-shortcuts-store'
 import { useWorkspaceNavigationStore } from '@/stores/workspace-navigation-store'
 import { type WorkspaceEntry } from '@/stores/workspace-browser-store'
 import { WorkspaceBrowser } from '@/components/workspace/WorkspaceBrowser'
-import { refreshSessionActivity } from '@/stores/session-activity-sync'
+import { refreshSessionActivity, watchSessionActivity } from '@/stores/session-activity-sync'
 import { appColors, spacing, fontSize } from '@/theme/colors'
 
 export function WorkspaceListScreen() {
@@ -41,6 +41,7 @@ export function WorkspaceListScreen() {
   } = useWorkspaceStore()
   const navigation = useNavigation<any>()
   const disconnect = useConnectionStore(s => s.disconnect)
+  const channels = useConnectionStore(s => s.channels)
   const profileViewKey = useConnectionStore(s => s.profileViewKey ?? null)
   const mountedViewKey = useRef(profileViewKey).current
   const pendingWorkspace = useWorkspaceNavigationStore(s => s.pending)
@@ -115,6 +116,7 @@ export function WorkspaceListScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      const stopActivity = channels ? watchSessionActivity(channels.claude, null) : undefined
       if (!useWorkspaceNavigationStore.getState().pending) {
         load()
           .then(() => refreshSessionActivity())
@@ -124,8 +126,8 @@ export function WorkspaceListScreen() {
         disconnect()
         return true
       })
-      return () => sub.remove()
-    }, [disconnect, load]),
+      return () => { sub.remove(); stopActivity?.() }
+    }, [disconnect, load, channels]),
   )
 
   useLayoutEffect(() => {

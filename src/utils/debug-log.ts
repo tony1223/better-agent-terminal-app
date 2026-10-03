@@ -10,11 +10,13 @@
  */
 
 import { createMMKV } from 'react-native-mmkv'
+import { createBufferedLog } from './buffered-log'
 
 const storage = createMMKV({ id: 'bat-debug-log' })
 const LOG_KEY = 'debug-log'
 const DEBUG_MODE_KEY = 'debug-mode'
 const MAX_SIZE = 100000 // ~100KB rolling buffer
+const log = createBufferedLog(storage, LOG_KEY, MAX_SIZE)
 
 function ts(): string {
   return new Date().toISOString()
@@ -42,30 +44,24 @@ export function dlog(tag: string, message: string, data?: unknown): void {
   const dataStr = data !== undefined ? ` ${JSON.stringify(data)}` : ''
   const line = `${ts()} [${tag}] ${message}${dataStr}\n`
 
-  try {
-    const existing = storage.getString(LOG_KEY) ?? ''
-    const trimmed = existing.length > MAX_SIZE
-      ? existing.slice(existing.length - MAX_SIZE)
-      : existing
-    storage.set(LOG_KEY, trimmed + line)
-  } catch {
-    storage.set(LOG_KEY, line)
-  }
+  log.append(line, isError)
 
   // Also print to Metro/logcat console
   if (isError) {
     console.warn(`[BAT] ${line.trim()}`)
-  } else {
+  } else if (__DEV__) {
     console.log(`[BAT] ${line.trim()}`)
   }
 }
 
 /** Get all logs as a single string */
 export function getDebugLogText(): string {
-  return storage.getString(LOG_KEY) ?? '(no logs)'
+  return log.read() || '(no logs)'
 }
 
 /** Clear all logs */
 export function clearDebugLogs(): void {
-  storage.set(LOG_KEY, '')
+  log.clear()
 }
+
+export const flushDebugLogs = log.flush

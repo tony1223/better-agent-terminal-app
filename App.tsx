@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef } from 'react'
-import { Linking, StatusBar, View, StyleSheet } from 'react-native'
+import { AppState, Linking, StatusBar, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 
@@ -20,7 +20,8 @@ import { subscribeSessionActivity } from '@/stores/session-activity-sync'
 import { subscribeMessageReconnectRetry } from '@/stores/message-reconnect-retry'
 import { useUsageStore } from '@/stores/usage-store'
 import { openConnectionLink } from '@/utils/connection-link'
-import { dlog } from '@/utils/debug-log'
+import { dlog, flushDebugLogs } from '@/utils/debug-log'
+import { flushRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
 import { appVersionLabel } from '@/native/app-info'
 
 function App() {
@@ -30,6 +31,14 @@ function App() {
   const lastLinkRef = useRef<string | null>(null)
 
   useEffect(() => subscribeMessageReconnectRetry(), [])
+
+  useEffect(() => {
+    const flush = () => { flushDebugLogs(); flushRecoveryDiagnostics() }
+    const listener = AppState.addEventListener('change', state => {
+      if (state !== 'active') flush()
+    })
+    return () => { listener.remove(); flush() }
+  }, [])
 
   useEffect(() => {
     // First line of every debug log, so it has to answer the question the log
