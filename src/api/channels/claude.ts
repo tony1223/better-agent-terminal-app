@@ -361,7 +361,7 @@ export function createClaudeChannel(ws: WebSocketClient) {
     onToolUse: (cb: (sessionId: string, tool: ClaudeToolCall) => void) =>
       ws.on('agent:tool-use', cb as (...args: unknown[]) => void),
 
-    onToolResult: (cb: (sessionId: string, result: { id: string; status: string; result?: string; description?: string }) => void) =>
+    onToolResult: (cb: (sessionId: string, result: { id: string; status: string; result?: string; description?: string; payloadPreview?: ClaudeToolCall['payloadPreview'] }) => void) =>
       ws.on('agent:tool-result', cb as (...args: unknown[]) => void),
 
     onStream: (cb: (sessionId: string, data: ClaudeStreamData) => void) =>

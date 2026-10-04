@@ -414,7 +414,7 @@ interface ClaudeState {
   // Event handlers (called by subscription setup)
   handleMessage: (sessionId: string, msg: ClaudeMessage) => void
   handleToolUse: (sessionId: string, tool: ClaudeToolCall) => void
-  handleToolResult: (sessionId: string, result: { id: string; status: string; result?: string; description?: string }) => void
+  handleToolResult: (sessionId: string, result: { id: string; status: string; result?: string; description?: string; payloadPreview?: ClaudeToolCall['payloadPreview'] }) => void
   handleStream: (sessionId: string, data: ClaudeStreamData, observedAt?: number) => void
   handleResult: (sessionId: string, result: ClaudeResult, observedAt?: number) => void
   handleTurnEnd: (sessionId: string, observedAt?: number) => void
@@ -757,6 +757,12 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           status: normalizedResult.status as ClaudeToolCall['status'],
           result: normalizedResult.result ?? m.result,
           description: normalizedResult.description ?? m.description,
+          payloadPreview: {
+            input: m.payloadPreview?.input || normalizedResult.payloadPreview?.input,
+            result: normalizedResult.result === undefined
+              ? m.payloadPreview?.result
+              : !!normalizedResult.payloadPreview?.result,
+          },
         }
       }
       return m

@@ -598,6 +598,7 @@
     "custom": "自訂回答"
   },
   "toolCall": {
+    "largePayloadPreview": "工具細節過長，僅顯示預覽；完整內容保留在 host。",
     "label": "工具",
     "input": "輸入：",
     "result": "結果："

@@ -435,6 +435,7 @@ export class WebSocketClient {
             token: this.token,
             protocols: [REMOTE_PROTOCOL_V2, REMOTE_PROTOCOL_LEGACY_V1],
             compression: ws.supportsGzip ? [REMOTE_COMPRESSION_GZIP] : [],
+            toolPayloadPreview: 1,
             args: this.context ? [this.label, this.context] : [this.label],
           }
           ws.send(JSON.stringify(authFrame))

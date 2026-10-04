@@ -30,6 +30,7 @@ export interface RemoteFrame {
   token?: string
   contextId?: string
   capabilities?: Record<string, unknown>
+  toolPayloadPreview?: 1
   serverVersion?: string
 }
 

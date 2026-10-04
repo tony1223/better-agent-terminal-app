@@ -279,6 +279,8 @@ export interface ClaudeToolCall {
   denyReason?: string
   denied?: boolean
   parentToolUseId?: string
+  /** The host retained full tool details and sent a bounded mobile preview. */
+  payloadPreview?: { input?: boolean; result?: boolean }
   timestamp: number
 }
 

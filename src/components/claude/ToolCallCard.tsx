@@ -78,6 +78,9 @@ export const ToolCallCard = React.memo(function ToolCallCard({ tool, cwd }: Prop
 
       {expanded && exchange.length === 0 && (
         <View style={styles.details}>
+          {(tool.payloadPreview?.input || tool.payloadPreview?.result) && (
+            <Text style={styles.detailLabel}>{t('toolCall.largePayloadPreview')}</Text>
+          )}
           <Text style={styles.detailLabel}>{t('toolCall.input')}</Text>
           <Text style={styles.detailCode} selectable>
             {JSON.stringify(tool.input, null, 2)}

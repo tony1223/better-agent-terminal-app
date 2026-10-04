@@ -117,6 +117,11 @@ afterEach(() => {
 })
 
 describe('recovering from a drop', () => {
+  it('requests bounded tool details even without device context', async () => {
+    const { client, socket } = await connectedClient()
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ type: 'auth', toolPayloadPreview: 1 })
+    client.disconnect()
+  })
   it('allows slow socket setup a separate authentication budget', async () => {
     const client = new WebSocketClient()
     const connecting = client.connect('host', 1234, 'token')

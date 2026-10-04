@@ -599,6 +599,7 @@
   },
   "toolCall": {
     "label": "TOOL",
+    "largePayloadPreview": "Large tool details are shown as a preview. Full details remain on the host.",
     "input": "Input:",
     "result": "Result:"
   },
