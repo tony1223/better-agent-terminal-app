@@ -47,6 +47,7 @@ export const PROXIED_CHANNELS = new Set([
   'agent:get-supported-session-types', 'agent:list-presets',
   'agent:start-session', 'agent:resume-session', 'agent:send-message',
   'agent:stop-session', 'agent:abort-session', 'agent:reset-session',
+  'agent:reload-session',
   'agent:rewind-to-prompt', 'agent:stop-task', 'agent:rest-session',
   'agent:wake-session', 'agent:is-resting', 'agent:fork-session',
   'agent:list-sessions',

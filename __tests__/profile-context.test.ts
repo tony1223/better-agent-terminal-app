@@ -88,6 +88,19 @@ test('interrupt targets the selected execution host and session, with stale chan
   expect(targetInvoke).toHaveBeenCalledTimes(1)
 })
 
+test('reload uses the selected execution host and stale channels cannot send it', async () => {
+  const client = mockClient()
+  const targetInvoke = jest.fn().mockResolvedValue({ ok: true, sessionId: 's', deferred: true })
+  client.scoped.mockReturnValue({ invoke: targetInvoke, invokeParams: targetInvoke, on: jest.fn().mockReturnValue(() => {}) })
+  useConnectionStore.setState({ client: client as any })
+  const channels = await useConnectionStore.getState().selectProfile('remote')
+  await channels.claude.reloadSession('s')
+  expect(targetInvoke).toHaveBeenCalledWith('agent:reload-session', { sessionId: 's' }, ['s'], { timeoutMs: 300_000 })
+  await useConnectionStore.getState().selectProfile('other')
+  await expect(channels.claude.reloadSession('s')).rejects.toThrow('Profile selection changed')
+  expect(targetInvoke).toHaveBeenCalledTimes(1)
+})
+
 test('a late profile open cannot replace the newer selection', async () => {
   const client = mockClient()
   const late = deferred<any>()

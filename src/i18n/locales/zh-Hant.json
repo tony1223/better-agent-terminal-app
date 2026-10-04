@@ -686,5 +686,15 @@
     "rendered": "預覽",
     "notConnected": "未連線到伺服器",
     "unexpectedFormat": "非預期的回應格式"
+  },
+  "reloadSession": {
+    "title": "重新啟動對話",
+    "pending": "重新啟動中…",
+    "busy": "Agent 正在重新啟動。",
+    "complete": "Agent 已重新啟動並讀取最新 MCP 設定，對話記錄與設定已保留。",
+    "nextTurn": "目前 Agent 已停止，下次傳送訊息時會啟動新的 Agent，對話記錄與設定已保留。",
+    "failed": "重新載入失敗",
+    "unavailable": "此 BAT 主機尚未支援重新載入對話，請更新主機上的 BAT 後重新連線。",
+    "unsupported": "重新載入支援 Claude SDK 與 Codex 對話。"
   }
 }

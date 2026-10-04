@@ -44,6 +44,7 @@ import { filterChatEntries, type ListEntry } from '@/utils/filter-chat-entries'
 import { HiddenBlocksPlaceholder } from '@/components/claude/HiddenBlocksPlaceholder'
 import { RuntimeStatusBar } from '@/components/claude/RuntimeStatusBar'
 import { FastModeControl } from '@/components/claude/FastModeControl'
+import { useSessionReload } from '@/hooks/useSessionReload'
 import { SessionContextBar } from '@/components/session/SessionContextBar'
 import { SessionHeaderTitle } from '@/components/session/SessionHeaderTitle'
 import { SessionWorkspaceTabs } from '@/components/session/SessionWorkspaceTabs'
@@ -1080,11 +1081,24 @@ export function ClaudeScreen({ route, navigation }: Props) {
     if (isCodexAgent) recoveryEvent('chat.codex-permissions', { sessionId, ...permissions })
   }, [resolveSessionPermissions, session.meta?.codexSandboxMode, session.meta?.codexApprovalPolicy, isCodexAgent, sessionId])
 
+  const { reload: reloadSession, pending: reloadPending, disabled: reloadDisabled } = useSessionReload(sessionId)
+  const supportsSessionReload = isCodexAgent || (isClaudeCodeAgent && agentPreset !== 'claude-code-v2')
+
   const handleSend = useCallback(async () => {
+    if (reloadPending) return
     if (sendInFlightRef.current || interruptRequestRef.current) return
     if ((!inputText.trim() && attachedImages.length === 0) || !channels) return
     sendInFlightRef.current = true
     const text = inputText.trim()
+
+    if (text === '/bat-reload' || text === '/reload') {
+      setInputText('')
+      try {
+        if (supportsSessionReload) await reloadSession()
+        else Alert.alert(t('reloadSession.title'), t('reloadSession.unsupported'))
+      } finally { sendInFlightRef.current = false }
+      return
+    }
 
     // Handle /new command
     if (text === '/new') {
@@ -1185,7 +1199,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
       .finally(() => {
         sendInFlightRef.current = false
       })
-  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent, isCodexAgent, setInputText, setAttachedImages])
+  }, [inputText, attachedImages, channels, sessionId, terminal?.cwd, isOpenAIAgent, isCodexAgent, setInputText, setAttachedImages, reloadPending, reloadSession, supportsSessionReload, t])
 
   const openResumeList = useCallback(async () => {
     if (!channels || !terminal?.cwd) return
@@ -1600,9 +1614,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
   // Everything the controls row no longer shows. Built inline rather than
   // memoised: it is rebuilt only when the sheet re-renders, and a dependency
   // array over five handlers is a staler thing to maintain than the array.
-  const moreActions: { key: string; label: string; value?: string; onPress: () => void }[] = [
+  const moreActions: { key: string; label: string; value?: string; disabled?: boolean; onPress: () => void }[] = [
     { key: 'fork', label: t('claude.modal.actionFork'), onPress: handleFork },
   ]
+  if (supportsSessionReload) {
+    moreActions.push({ key: 'reload', label: t(reloadPending ? 'reloadSession.pending' : 'reloadSession.title'),
+      disabled: reloadDisabled, onPress: reloadSession })
+  }
   if (isOpenAIAgent) {
     moreActions.push({ key: 'compact', label: t('claude.modal.actionCompact'), onPress: handleCompact })
   }
@@ -1762,9 +1780,9 @@ export function ClaudeScreen({ route, navigation }: Props) {
             blurOnSubmit={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: agentColor }, (stopping || (!inputText.trim() && attachedImages.length === 0)) && styles.sendDisabled]}
+            style={[styles.sendButton, { backgroundColor: agentColor }, (stopping || reloadPending || (!inputText.trim() && attachedImages.length === 0)) && styles.sendDisabled]}
             onPress={handleSend}
-            disabled={stopping || (!inputText.trim() && attachedImages.length === 0)}
+            disabled={stopping || reloadPending || (!inputText.trim() && attachedImages.length === 0)}
             accessibilityRole="button"
             accessibilityLabel={t('claude.controls.send')}
           >
@@ -1918,10 +1936,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
             {moreActions.map((action, i) => (
               <TouchableOpacity
                 key={action.key}
+                testID={`chat-action-${action.key}`}
+                disabled={action.disabled}
+                accessibilityState={{ disabled: !!action.disabled }}
                 style={[styles.actionRow, i === moreActions.length - 1 && styles.actionRowLast]}
                 onPress={() => runFromMoreActions(action.onPress)}
               >
-                <Text style={styles.actionLabel}>{action.label}</Text>
+                <Text style={[styles.actionLabel, action.disabled && { color: appColors.textMuted }]}>{action.label}</Text>
                 {action.value ? <Text style={styles.actionValue}>{action.value}</Text> : null}
                 <Text style={styles.actionChevron}>{'\u203A'}</Text>
               </TouchableOpacity>

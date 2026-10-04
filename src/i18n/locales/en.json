@@ -686,5 +686,15 @@
     "rendered": "Preview",
     "notConnected": "Not connected to server",
     "unexpectedFormat": "Unexpected response format"
+  },
+  "reloadSession": {
+    "title": "Restart session",
+    "pending": "Restarting…",
+    "busy": "The agent is already restarting.",
+    "complete": "Agent restarted with fresh MCP configuration. Your conversation and settings are preserved.",
+    "nextTurn": "The current agent stopped. Its replacement starts on your next message; your conversation and settings are preserved.",
+    "failed": "Session reload failed",
+    "unavailable": "This BAT host does not support session reload. Update BAT on the host and reconnect.",
+    "unsupported": "Session reload is available for Claude SDK and Codex sessions."
   }
 }

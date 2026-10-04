@@ -173,6 +173,11 @@ export function createClaudeChannel(ws: WebSocketClient) {
     resetSession: (sessionId: string) =>
       ws.invokeParams('agent:reset-session', { sessionId }, [sessionId]),
 
+    reloadSession: (sessionId: string) =>
+      ws.invokeParams<{ ok: true; sessionId: string; sdkSessionId: string | null; deferred: boolean }>(
+        'agent:reload-session', { sessionId }, [sessionId], { timeoutMs: 300_000 },
+      ),
+
     /**
      * Restart the SDK session from a transcript. Tears down whatever the host
      * has live, so it aborts an in-flight turn — only use it when the intent is

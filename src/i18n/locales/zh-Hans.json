@@ -686,5 +686,15 @@
     "rendered": "预览",
     "notConnected": "未连接到服务器",
     "unexpectedFormat": "意外的响应格式"
+  },
+  "reloadSession": {
+    "title": "重新启动会话",
+    "pending": "重新启动中…",
+    "busy": "Agent 正在重新启动。",
+    "complete": "Agent 已重新启动并读取最新 MCP 设置，对话记录与设置已保留。",
+    "nextTurn": "当前 Agent 已停止，下次发送消息时会启动新的 Agent，对话记录与设置已保留。",
+    "failed": "重新加载失败",
+    "unavailable": "此 BAT 主机尚未支持重新加载会话，请更新主机上的 BAT 后重新连接。",
+    "unsupported": "重新加载支持 Claude SDK 与 Codex 会话。"
   }
 }
