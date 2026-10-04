@@ -5,7 +5,6 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -14,7 +13,6 @@ import android.os.SystemClock
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
-import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import javax.net.ssl.*
 
@@ -122,7 +120,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 try {
-                    val text = decodeBatGzipFrame(bytes.toByteArray())
+                    val text = BatGzipFrameDecoder.decode(bytes)
                     emit("TLSWebSocket_onMessage", Arguments.createMap().apply {
                         putString("connectionId", currentConnectionId)
                         putString("data", text)
@@ -198,15 +196,4 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
         return payload.toByteString()
     }
 
-    private fun decodeBatGzipFrame(payload: ByteArray): String {
-        if (payload.size < BAT_GZIP_MAGIC.size || !payload.copyOfRange(0, BAT_GZIP_MAGIC.size).contentEquals(BAT_GZIP_MAGIC)) {
-            throw IllegalArgumentException("BAT gzip frame has unsupported envelope")
-        }
-        val compressed = payload.copyOfRange(BAT_GZIP_MAGIC.size, payload.size)
-        val output = ByteArrayOutputStream()
-        GZIPInputStream(ByteArrayInputStream(compressed)).use { gzip ->
-            gzip.copyTo(output)
-        }
-        return output.toString(Charsets.UTF_8.name())
-    }
 }
