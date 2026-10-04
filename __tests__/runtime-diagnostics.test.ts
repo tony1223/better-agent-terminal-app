@@ -46,3 +46,15 @@ test('a late native response cannot replace a newer snapshot', async () => {
   await old
   expect(getLastRuntimeDiagnostics()?.atMs).toBe(3000)
 })
+
+test('large process snapshots survive log rollover without writing every sample', async () => {
+  const large = { ...sample, pid: 900, atMs: 10_000, rssKb: 900 * 1024,
+    threadCpuTop: [{ tid: 901, kind: 'javascript', cpuMs: 6000 }], threadSampleWindowMs: 30_000 }
+  read.mockResolvedValue(large)
+  await captureRuntimeDiagnostics('interval')
+  read.mockResolvedValue({ ...large, atMs: 40_000 })
+  await captureRuntimeDiagnostics('interval')
+  const entries = getIncidentDiagnostics().trim().split('\n').map(line => JSON.parse(line))
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ event: 'performance.high-memory', rssKb: large.rssKb, threadCpuTop: large.threadCpuTop })
+})

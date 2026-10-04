@@ -8,6 +8,9 @@ import android.os.Debug
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
+import android.system.Os
+import android.system.OsConstants
+import java.io.File
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -34,6 +37,70 @@ class AppInfoModule(reactContext: ReactApplicationContext) :
 
     override fun getName() = NAME
 
+    private data class ThreadSample(val started: Long, val ticks: Long)
+    private var previousThreads = emptyMap<Int, ThreadSample>()
+    private var previousThreadSampleAt = 0L
+
+    /** Bounded reads of our own process only; sampled on the existing diagnostic cadence. */
+    private fun addProcessCounters(result: com.facebook.react.bridge.WritableMap) {
+        val startedAt = SystemClock.elapsedRealtime()
+        try {
+            File("/proc/self/status").useLines { lines ->
+                lines.firstOrNull { it.startsWith("VmRSS:") }
+                    ?.substringAfter(':')?.trim()?.substringBefore(' ')?.toDoubleOrNull()
+                    ?.let { result.putDouble("rssKb", it) }
+            }
+        } catch (_: Exception) { /* Optional on devices restricting procfs. */ }
+        try {
+            val hz = Os.sysconf(OsConstants._SC_CLK_TCK)
+            if (hz <= 0) return
+            val tasks = File("/proc/self/task").listFiles() ?: return
+            val current = mutableMapOf<Int, ThreadSample>()
+            data class CpuDelta(val tid: Int, val kind: String, val ms: Double)
+            val deltas = mutableListOf<CpuDelta>()
+            for (task in tasks.take(256)) {
+                try {
+                    val tid = task.name.toIntOrNull() ?: continue
+                    val stat = File(task, "stat").readText()
+                    // comm may contain spaces and parentheses; fields after the LAST
+                    // ')' start at field 3. utime/stime=14/15, starttime=22.
+                    val end = stat.lastIndexOf(')')
+                    val name = stat.substring(stat.indexOf('(') + 1, end)
+                    val fields = stat.substring(end + 1).trim().split(Regex("\\s+"))
+                    val sample = ThreadSample(fields[19].toLong(), fields[11].toLong() + fields[12].toLong())
+                    current[tid] = sample
+                    val before = previousThreads[tid]
+                    // A new/reused TID has no comparable sample. Do not count its
+                    // entire lifetime as work done during the latest interval.
+                    if (before == null || before.started != sample.started || sample.ticks < before.ticks) continue
+                    val kind = when {
+                        tid == Process.myPid() -> "main"
+                        name.contains("js", ignoreCase = true) || name.contains("hermes", ignoreCase = true) -> "javascript"
+                        name.contains("Render", ignoreCase = true) || name.contains("hwui", ignoreCase = true) -> "render"
+                        name.contains("Heap", ignoreCase = true) || name.contains("GC") -> "gc"
+                        else -> "other"
+                    }
+                    deltas.add(CpuDelta(tid, kind, (sample.ticks - before.ticks) * 1000.0 / hz))
+                } catch (_: Exception) { /* Threads can exit during sampling. */ }
+            }
+            val top = Arguments.createArray()
+            deltas.filter { it.ms > 0 }.sortedByDescending { it.ms }.take(8).forEach { delta ->
+                top.pushMap(Arguments.createMap().apply {
+                    putInt("tid", delta.tid)
+                    putString("kind", delta.kind) // No raw thread names/content.
+                    putDouble("cpuMs", delta.ms)
+                })
+            }
+            result.putArray("threadCpuTop", top)
+            result.putDouble("threadSampleWindowMs", if (previousThreadSampleAt == 0L) 0.0 else (startedAt - previousThreadSampleAt).toDouble())
+            result.putInt("threadsSampled", current.size)
+            result.putBoolean("threadsTruncated", tasks.size > 256)
+            previousThreads = current
+            previousThreadSampleAt = startedAt
+        } catch (_: Exception) { /* Process totals remain available without per-thread data. */ }
+        finally { result.putDouble("processCountersReadMs", (SystemClock.elapsedRealtime() - startedAt).toDouble()) }
+    }
+
     /** On demand only. CPU is cumulative process time, not a battery percentage. */
     @ReactMethod
     fun getRuntimeDiagnostics(includeExitHistory: Boolean, promise: Promise) {
@@ -53,6 +120,7 @@ class AppInfoModule(reactContext: ReactApplicationContext) :
                 putBoolean("interactive", power.isInteractive)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) putInt("thermalStatus", power.currentThermalStatus)
             }
+            addProcessCounters(result)
             if (includeExitHistory) {
                 // PSS is more expensive than the heap counters; read only at startup/export.
                 val memory = Debug.MemoryInfo()

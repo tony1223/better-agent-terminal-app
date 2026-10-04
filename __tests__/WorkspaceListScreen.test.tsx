@@ -268,8 +268,13 @@ test('the list shows another profile running before its shortcut is opened', asy
   let renderer!: ReactTestRenderer.ReactTestRenderer
   await act(async () => { renderer = ReactTestRenderer.create(<WorkspaceListScreen />) })
   let blur!: () => void
+  let stopClock!: () => void
   await act(async () => {
-    blur = (useFocusEffect as jest.Mock).mock.calls.at(-1)![0]()
+    // Focus both the expiry clock and the shortcut activity subscription.
+    // Covered screens now deliberately leave the clock stopped.
+    const effects = (useFocusEffect as jest.Mock).mock.calls.slice(-2)
+    stopClock = effects[0][0]()
+    blur = effects[1][0]()
     await jest.advanceTimersByTimeAsync(0)
   })
   const shortcut = renderer.root.findAllByType(TouchableOpacity)
@@ -281,7 +286,7 @@ test('the list shows another profile running before its shortcut is opened', asy
   read.mockRejectedValue(new Error('Remote unavailable'))
   await act(async () => { await jest.advanceTimersByTimeAsync(45_000) })
   expect(shortcut.findAllByType(Text).some(text => text.props.children === 'workspaceBrowser.statusUnknown')).toBe(true)
-  act(() => { blur(); renderer.unmount() })
+  act(() => { stopClock(); blur(); renderer.unmount() })
 })
 
 test('workspace and profile searches can be cleared; pins can be reordered directly in All', async () => {

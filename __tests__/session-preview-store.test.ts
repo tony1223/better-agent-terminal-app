@@ -6,11 +6,12 @@
  * tests are about *not* fetching.
  */
 
-import { useSessionPreviewStore, PREVIEW_REFRESH_MS } from '../src/stores/session-preview-store'
+import { useSessionPreviewStore, PREVIEW_REFRESH_MS, QUIET_PREVIEW_REFRESH_MS } from '../src/stores/session-preview-store'
 import { latestMessagePreview, sessionPreviewText } from '../src/utils/session-preview'
 import { useConnectionStore } from '../src/stores/connection-store'
 
-jest.mock('../src/stores/claude-store', () => ({ useClaudeStore: { getState: () => ({ scopeKey: 'host/profile' }) } }))
+let mockSessions: Record<string, { lastDataAt?: number | null }> = {}
+jest.mock('../src/stores/claude-store', () => ({ useClaudeStore: { getState: () => ({ scopeKey: 'host/profile', sessions: mockSessions }) } }))
 
 jest.mock('../src/stores/connection-store', () => ({
   useConnectionStore: { getState: jest.fn() },
@@ -41,7 +42,8 @@ function archive(...messages: Record<string, unknown>[]) {
 const previews = () => useSessionPreviewStore.getState().previews
 
 beforeEach(() => {
-  useSessionPreviewStore.setState({ previews: {}, timestamps: {}, fetchedAt: {} })
+  useSessionPreviewStore.setState({ previews: {}, timestamps: {}, fetchedAt: {}, observedDataAt: {} })
+  mockSessions = {}
   getStateMock.mockReset()
   setLive('s1', 's2', ...Array.from({ length: 20 }, (_, i) => `s${i}`))
 })
@@ -243,6 +245,33 @@ test('refreshes stale previews to the latest assistant reply', async () => {
   await useSessionPreviewStore.getState().load(['s1'])
   expect(previews().s1).toBe('latest reply')
   expect(useSessionPreviewStore.getState().timestamps.s1).toBe(2)
+})
+
+test('unchanged host output skips frequent reads but retains a periodic fallback', async () => {
+  const loadArchived = jest.fn().mockResolvedValue(archive({ role: 'assistant', content: 'unchanged' }))
+  mockHost(loadArchived)
+  mockSessions.s1 = { lastDataAt: 123 }
+  await useSessionPreviewStore.getState().load(['s1'])
+  useSessionPreviewStore.setState({ fetchedAt: { s1: Date.now() - PREVIEW_REFRESH_MS } })
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(loadArchived).toHaveBeenCalledTimes(1)
+  useSessionPreviewStore.setState({ fetchedAt: { s1: Date.now() - QUIET_PREVIEW_REFRESH_MS } })
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(loadArchived).toHaveBeenCalledTimes(2)
+})
+
+test('output arriving during an archive read still invalidates the quiet cache', async () => {
+  mockSessions.s1 = { lastDataAt: 100 }
+  const loadArchived = jest.fn().mockImplementationOnce(async () => {
+    mockSessions.s1 = { lastDataAt: 200 }
+    return archive({ role: 'assistant', content: 'old reply' })
+  }).mockResolvedValue(archive({ role: 'assistant', content: 'new reply' }))
+  mockHost(loadArchived)
+  await useSessionPreviewStore.getState().load(['s1'])
+  useSessionPreviewStore.setState({ fetchedAt: { s1: Date.now() - PREVIEW_REFRESH_MS } })
+  await useSessionPreviewStore.getState().load(['s1'])
+  expect(previews().s1).toBe('new reply')
+  expect(loadArchived).toHaveBeenCalledTimes(2)
 })
 
 test('skips tool-only tail pages to find the most recent readable text', async () => {

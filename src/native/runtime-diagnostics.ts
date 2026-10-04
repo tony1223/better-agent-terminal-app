@@ -14,10 +14,17 @@ export interface RuntimeDiagnostics {
   interactive: boolean
   thermalStatus?: number
   pssKb?: number
+  rssKb?: number
+  threadCpuTop?: Array<{ tid: number; kind: string; cpuMs: number }>
+  threadSampleWindowMs?: number
+  threadsSampled?: number
+  threadsTruncated?: boolean
+  processCountersReadMs?: number
   exitHistorySupported?: boolean
   exits?: Array<{ atMs: number; pid: number; reason: number; reasonLabel: string; status: number; importance: number; pssKb: number; rssKb: number }>
 }
 let last: RuntimeDiagnostics | null = null
+let lastMemoryIncident: { pid: number; atMs: number } | null = null
 export const getLastRuntimeDiagnostics = () => last
 
 /** Optional on older binaries/iOS, bounded so diagnostic upload cannot hang. */
@@ -34,6 +41,14 @@ export async function captureRuntimeDiagnostics(reason: string, includeExitHisto
     if (!last || result.atMs >= last.atMs) last = result
     const { exits, ...snapshot } = result
     recoveryEvent('performance.native', { reason, ...snapshot })
+    // Preserve evidence before a large process is killed and the rolling log
+    // is lost. These are diagnostic thresholds, not an OOM/leak diagnosis.
+    if ((result.rssKb ?? 0) >= 768 * 1024 || result.nativeHeapBytes >= 512 * 1024 * 1024) {
+      if (!lastMemoryIncident || lastMemoryIncident.pid !== result.pid || result.atMs - lastMemoryIncident.atMs >= 300_000) {
+        recordIncident('performance.high-memory', { reason, ...snapshot })
+        lastMemoryIncident = { pid: result.pid, atMs: result.atMs }
+      }
+    }
     if (includeExitHistory) recordIncident('process.snapshot', { reason, ...snapshot, exits })
     return result
   } catch {

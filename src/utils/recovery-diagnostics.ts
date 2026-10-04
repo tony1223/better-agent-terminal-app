@@ -8,7 +8,8 @@ const log = createBufferedLog(storage, KEY, MAX_CHARS)
 export const diagnosticRunId = Date.now().toString(36)
 const run = diagnosticRunId
 let sequence = 0
-type Fields = Record<string, string | number | boolean | null | undefined>
+type Scalar = string | number | boolean | null | undefined
+type Fields = Record<string, Scalar | ReadonlyArray<Record<string, Scalar>>>
 
 /** Always-on timings only. Never pass request bodies, messages or credentials. */
 export function recoveryEvent(event: string, fields: Fields = {}): void {

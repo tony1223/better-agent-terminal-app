@@ -9,15 +9,22 @@ interface SessionPreviewState {
   previews: Record<string, string>
   timestamps: Record<string, number>
   fetchedAt: Record<string, number>
+  observedDataAt: Record<string, number | null>
   load: (sessionIds: string[], isVisible?: () => boolean) => Promise<void>
   forget: (sessionId: string) => void
 }
 
 const requestsByChannels = new WeakMap<object, Map<string, symbol>>()
-const MAX_CONCURRENT_FETCHES = 4
+const MAX_CONCURRENT_FETCHES = 2
 const PREVIEW_SCAN_DEPTH = 8
 const MAX_SCAN_PAGES = 3
 export const PREVIEW_REFRESH_MS = 15_000
+export const QUIET_PREVIEW_REFRESH_MS = 60_000
+
+function lastDataAt(id: string): number | null {
+  const value = useClaudeStore.getState().sessions[id]?.lastDataAt
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
 
 async function pooled<T>(
   items: T[],
@@ -41,6 +48,7 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
     previews: {},
     timestamps: {},
     fetchedAt: {},
+    observedDataAt: {},
 
     forget: sessionId => {
       const channels = useConnectionStore.getState().channels
@@ -49,10 +57,12 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
         const previews = { ...state.previews }
         const timestamps = { ...state.timestamps }
         const fetchedAt = { ...state.fetchedAt }
+        const observedDataAt = { ...state.observedDataAt }
         delete previews[sessionId]
         delete timestamps[sessionId]
         delete fetchedAt[sessionId]
-        return { previews, timestamps, fetchedAt }
+        delete observedDataAt[sessionId]
+        return { previews, timestamps, fetchedAt, observedDataAt }
       })
     },
 
@@ -89,6 +99,7 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
           [
             ...Object.keys(state.previews),
             ...Object.keys(state.fetchedAt),
+            ...Object.keys(state.observedDataAt),
           ].every(id => live.has(id))
         )
           return {}
@@ -100,14 +111,21 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
           previews: keep(state.previews),
           timestamps: keep(state.timestamps),
           fetchedAt: keep(state.fetchedAt),
+          observedDataAt: keep(state.observedDataAt),
         }
       })
       const wanted = [...new Set(sessionIds)].filter(
-        id =>
-          livingSessionIds().has(id) &&
-          !inFlight.has(id) &&
-          (get().fetchedAt[id] === undefined ||
-            Date.now() - get().fetchedAt[id] >= PREVIEW_REFRESH_MS),
+        id => {
+          const state = get()
+          const revision = lastDataAt(id)
+          // Compare host timestamps to host timestamps, never to this phone's
+          // clock. A slow fallback also catches missed events. Legacy hosts
+          // without output timestamps keep the existing refresh cadence.
+          const interval = revision !== null && revision === state.observedDataAt[id]
+            ? QUIET_PREVIEW_REFRESH_MS : PREVIEW_REFRESH_MS
+          return livingSessionIds().has(id) && !inFlight.has(id) &&
+            (state.fetchedAt[id] === undefined || Date.now() - state.fetchedAt[id] >= interval)
+        },
       )
       const token = Symbol('preview read')
       wanted.forEach(id => inFlight.set(id, token))
@@ -118,6 +136,7 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
             livingSessionIds().has(id) &&
             inFlight.get(id) === token
           if (!valid()) return
+          const revision = lastDataAt(id)
           try {
             let preview = null
             for (let page = 0; page < MAX_SCAN_PAGES; page++) {
@@ -140,6 +159,9 @@ export const useSessionPreviewStore = create<SessionPreviewState>(
                 ? { ...state.timestamps, [id]: preview.timestamp }
                 : state.timestamps,
               fetchedAt: { ...state.fetchedAt, [id]: Date.now() },
+              // Capture before the request: output arriving during the read
+              // must still invalidate this preview on the next refresh.
+              observedDataAt: { ...state.observedDataAt, [id]: revision },
             }))
           } catch {
             /* Keep the last preview; retry failed reads on the next refresh. */
