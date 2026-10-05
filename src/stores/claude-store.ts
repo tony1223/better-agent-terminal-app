@@ -18,6 +18,7 @@ import type { ClaudeChannel, SyncCursor } from '@/api/channels/claude'
 import { subscribeSessionReplay, usesLegacySessionEvents } from './session-replay-sync'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore } from '@/stores/usage-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { dlog } from '@/utils/debug-log'
 import { performanceNow, recordPerformance } from '@/utils/performance-diagnostics'
 import { isCompactSummaryMessage } from '@/utils/compact-summary'
@@ -959,9 +960,18 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   handleStatus: (sessionId, meta) => {
+    if (meta) useWorkspaceStore.getState().applySessionMeta(sessionId, meta)
     if (meta?.lastDataAt !== undefined) get().handleLastDataAt(sessionId, meta.lastDataAt)
     const { sessions } = get()
-    const session = sessions[sessionId] || createEmptySession()
+    const previous = sessions[sessionId] || createEmptySession()
+    const nextSdkSessionId = meta?.sdkSessionId
+    const identityChanged = !!previous.meta?.sdkSessionId && !!nextSdkSessionId
+      && previous.meta.sdkSessionId !== nextSdkSessionId
+    // A different SDK id is a different transcript, even if the BAT panel id
+    // stays the same. Do not splice the old conversation into the new one.
+    const session = identityChanged
+      ? { ...createEmptySession(), messages: carryPendingLocalSends(previous.messages, []) }
+      : previous
     // A status meta is a turn/usage snapshot and does not always carry the
     // session's model or permission mode. Replacing wholesale would drop the
     // host model adopted by handleSessionState (which reads it from the
@@ -971,6 +981,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       ? { ...session.meta, ...meta } : meta
     const mergedMeta = activityMeta
       ? {
+          sdkSessionId: session.meta?.sdkSessionId,
           codexSandboxMode: session.meta?.codexSandboxMode,
           codexApprovalPolicy: session.meta?.codexApprovalPolicy,
           fastMode: session.meta?.fastMode,
@@ -1023,7 +1034,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   handleSessionState: (sessionId, snapshot) => {
     if (!snapshot || typeof snapshot !== 'object') return 'no-messages'
     const { sessions } = get()
-    const session = sessions[sessionId] || createEmptySession()
+    const previous = sessions[sessionId] || createEmptySession()
+    const nextSdkSessionId = snapshot.meta?.sdkSessionId
+    const identityChanged = !!previous.meta?.sdkSessionId && !!nextSdkSessionId
+      && previous.meta.sdkSessionId !== nextSdkSessionId
+    // A different SDK id is a different transcript, even if the BAT panel id
+    // stays the same. Do not splice the old conversation into the new one.
+    const session = identityChanged
+      ? { ...createEmptySession(), messages: carryPendingLocalSends(previous.messages, []) }
+      : previous
     const rawMessages = Array.isArray(snapshot.messages) ? snapshot.messages : null
     const nextMessages = rawMessages
       ? rawMessages.map(item => normalizeHistoryItem(sessionId, item))
@@ -1111,6 +1130,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const hasCodexPermissions = snapshot.codexSandboxMode !== undefined || snapshot.codexApprovalPolicy !== undefined
     const nextMeta = baseMeta || hostModel || hostPermissionMode || hasCodexPermissions
       ? {
+          sdkSessionId: session.meta?.sdkSessionId,
           codexSandboxMode: session.meta?.codexSandboxMode,
           codexApprovalPolicy: session.meta?.codexApprovalPolicy,
           fastMode: session.meta?.fastMode,
@@ -1149,6 +1169,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         },
       },
     })
+    if (nextMeta) useWorkspaceStore.getState().applySessionMeta(sessionId, nextMeta)
     return verdict
   },
 
@@ -1234,6 +1255,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   handleSessionReset: (sessionId) => {
+    useWorkspaceStore.getState().applySessionMeta(sessionId, { sdkSessionId: null })
     const { sessions } = get()
     dlog('CLAUDE_STORE', `handleSessionReset sid=${sessionId}`)
     set({

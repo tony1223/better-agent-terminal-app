@@ -60,6 +60,11 @@ interface WorkspaceState {
   applySnapshot: (raw: string, options?: { preserveActiveWorkspace?: boolean }) => void
   applyReload: (payload: unknown) => void
   applyState: (state: AppState, options?: { preserveActiveWorkspace?: boolean }) => void
+  applySessionMeta: (sessionId: string, meta: {
+    sdkSessionId?: string | null
+    codexSandboxMode?: string | null
+    codexApprovalPolicy?: string | null
+  }) => void
   handleProfileChanged: (payload: unknown) => void
   switchWorkspace: (id: string) => void
   setActiveTerminal: (id: string) => void
@@ -85,6 +90,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   activeLocalProfileId: null,
   loadStatus: 'idle',
   loadError: null,
+
+  // Reflect host status locally; the host owns persistence and no workspace
+  // save is sent here (it could overwrite newer settings from another client).
+  applySessionMeta: (sessionId, meta) => {
+    const terminal = get().terminals.find(item => item.id === sessionId)
+    if (!terminal) return
+    const params: Record<string, string> = {}
+    if (meta.codexSandboxMode && ['read-only', 'workspace-write', 'danger-full-access'].includes(meta.codexSandboxMode)) {
+      params.sandboxMode = meta.codexSandboxMode
+    }
+    if (meta.codexApprovalPolicy && ['untrusted', 'on-request', 'never'].includes(meta.codexApprovalPolicy)) {
+      params.approvalPolicy = meta.codexApprovalPolicy
+    }
+    const hasSdkId = Object.prototype.hasOwnProperty.call(meta, 'sdkSessionId')
+      && (meta.sdkSessionId === null || typeof meta.sdkSessionId === 'string')
+    const sdkSessionId = hasSdkId ? (meta.sdkSessionId || undefined) : terminal.sdkSessionId
+    if (sdkSessionId === terminal.sdkSessionId
+      && Object.entries(params).every(([key, value]) => terminal.agentParams?.[key] === value)) return
+    set({ terminals: get().terminals.map(item => item.id === sessionId ? {
+      ...item, sdkSessionId,
+      ...(Object.keys(params).length ? { agentParams: { ...item.agentParams, ...params } } : {}),
+    } : item) })
+  },
 
   load: async () => {
     if (useConnectionStore.getState().profileStatus === 'loading') return

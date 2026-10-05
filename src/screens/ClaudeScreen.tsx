@@ -885,7 +885,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
             } else {
               diag.path = 'sdkId/resume'
               dlog('CLAUDE_SCREEN', `no live host messages (liveCount=${state.liveCount}); resuming sdkSessionId=${terminalSdkSessionId}`)
-              await resumeWithSdkSessionId(terminalSdkSessionId)
+              const hostSdkSessionId = useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId
+              await resumeWithSdkSessionId(hostSdkSessionId || terminalSdkSessionId)
             }
           } else {
             dlog('CLAUDE_SCREEN', 'no sdkSessionId, trying getSessionMeta')
@@ -1582,8 +1583,8 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const modeColor = permissionMode === 'bypassPermissions' || permissionMode === 'planBypass'
     ? appColors.error : appColors.textSecondary
 
-  const sdkSessionShort = terminal?.sdkSessionId
-    ? terminal.sdkSessionId.slice(0, 8) : null
+  const currentSdkSessionId = session.meta?.sdkSessionId ?? terminal?.sdkSessionId
+  const sdkSessionShort = currentSdkSessionId ? currentSdkSessionId.slice(0, 8) : null
 
   // The host owns the model; fall back to the session's persisted model so the
   // chip — and with it the only way into the picker — stays reachable before
