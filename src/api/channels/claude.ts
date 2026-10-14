@@ -40,7 +40,16 @@ export interface CodexAccountEntry {
   authenticated?: boolean
   active?: boolean
   isDefault?: boolean
+  unified?: boolean
+  needsLogin?: boolean
 }
+
+export interface ClaudeAccountEntry {
+  id: string
+  email?: string
+  subscriptionType?: string
+}
+export interface HostLoginStart { ok?: boolean; url?: string; code?: string; loginId?: string; error?: string }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -171,7 +180,7 @@ export function createClaudeChannel(ws: WebSocketClient) {
       ),
 
     resetSession: (sessionId: string) =>
-      ws.invokeParams('agent:reset-session', { sessionId }, [sessionId]),
+      ws.invokeParams<boolean | { ok: boolean; error?: string }>('agent:reset-session', { sessionId }, [sessionId]),
 
     reloadSession: (sessionId: string) =>
       ws.invokeParams<{ ok: true; sessionId: string; sdkSessionId: string | null; deferred: boolean }>(
@@ -341,10 +350,10 @@ export function createClaudeChannel(ws: WebSocketClient) {
     authLogout: () => ws.invokeParams('agent:auth-logout', {}, []),
 
     // ---- Account ----
-    accountList: () => ws.invokeParams('agent:account-list', {}, []),
+    accountList: () => ws.invokeParams<{ accounts?: ClaudeAccountEntry[]; activeAccountId?: string }>('agent:account-list', {}, []),
     accountImportCurrent: () => ws.invokeParams('agent:account-import-current', {}, []),
     accountLoginNew: () => ws.invokeParams('agent:account-login-new', {}, []),
-    accountSwitch: (accountId: string) => ws.invokeParams('agent:account-switch', { accountId }, [accountId]),
+    accountSwitch: (accountId: string) => ws.invokeParams<boolean>('agent:account-switch', { accountId }, [accountId]),
     accountRemove: (accountId: string) => ws.invokeParams('agent:account-remove', { accountId }, [accountId]),
     accountMarkWarningShown: (accountId: string) => ws.invokeParams('agent:account-mark-warning-shown', { accountId }, [accountId]),
 
@@ -352,7 +361,18 @@ export function createClaudeChannel(ws: WebSocketClient) {
     codexAccountList: () =>
       ws.invokeParams<{ accounts?: CodexAccountEntry[]; activeCodexHome?: string | null }>('codex:account-list', {}, []),
     codexAccountSwitch: (codexHome: string) =>
-      ws.invokeParams('codex:account-switch', { codexHome }, [codexHome]),
+      ws.invokeParams<{ success?: boolean; error?: string }>('codex:account-switch', { codexHome }, [codexHome]),
+
+    // Login runs on the selected host; the phone only handles browser approval.
+    authLoginStart: () => ws.invokeParams<HostLoginStart>('agent:auth-login-start', {}, [], { timeoutMs: 300_000 }),
+    authLoginSubmitCode: (code: string, loginId: string) =>
+      ws.invokeParams<{ success?: boolean; error?: string; terminal?: boolean }>(
+        'agent:auth-login-submit-code', { code, loginId }, [code, loginId], { timeoutMs: 300_000 }),
+    authLoginCancel: (loginId: string) => ws.invokeParams('agent:auth-login-cancel', { loginId }, [loginId]),
+    codexAuthLoginStart: () => ws.invokeParams<HostLoginStart>('codex:auth-login-device-start', {}, [], { timeoutMs: 300_000 }),
+    codexAuthLoginPoll: (loginId: string) => ws.invokeParams<{ status?: string; error?: string }>(
+      'codex:auth-login-device-poll', { loginId }, [loginId], { timeoutMs: 300_000 }),
+    codexAuthLoginCancel: (loginId: string) => ws.invokeParams('codex:auth-login-device-cancel', { loginId }, [loginId]),
 
     // ---- Events ----
     onMessage: (cb: (sessionId: string, msg: ClaudeMessage) => void) =>

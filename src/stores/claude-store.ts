@@ -19,7 +19,9 @@ import { subscribeSessionReplay, usesLegacySessionEvents } from './session-repla
 import { useConnectionStore } from '@/stores/connection-store'
 import { useUsageStore } from '@/stores/usage-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSessionPreviewStore } from '@/stores/session-preview-store'
 import { dlog } from '@/utils/debug-log'
+import { recoveryEvent } from '@/utils/recovery-diagnostics'
 import { performanceNow, recordPerformance } from '@/utils/performance-diagnostics'
 import { isCompactSummaryMessage } from '@/utils/compact-summary'
 
@@ -967,6 +969,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const nextSdkSessionId = meta?.sdkSessionId
     const identityChanged = !!previous.meta?.sdkSessionId && !!nextSdkSessionId
       && previous.meta.sdkSessionId !== nextSdkSessionId
+    if (identityChanged) useSessionPreviewStore.getState().forget(sessionId)
     // A different SDK id is a different transcript, even if the BAT panel id
     // stays the same. Do not splice the old conversation into the new one.
     const session = identityChanged
@@ -1038,6 +1041,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const nextSdkSessionId = snapshot.meta?.sdkSessionId
     const identityChanged = !!previous.meta?.sdkSessionId && !!nextSdkSessionId
       && previous.meta.sdkSessionId !== nextSdkSessionId
+    if (identityChanged) useSessionPreviewStore.getState().forget(sessionId)
     // A different SDK id is a different transcript, even if the BAT panel id
     // stays the same. Do not splice the old conversation into the new one.
     const session = identityChanged
@@ -1255,6 +1259,12 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
 
   handleSessionReset: (sessionId) => {
+    recoveryEvent('chat.reset.received', {
+      sessionId,
+      previousSdkSessionId: get().sessions[sessionId]?.meta?.sdkSessionId,
+      previousMessageCount: get().sessions[sessionId]?.messages.length ?? 0,
+    })
+    useSessionPreviewStore.getState().forget(sessionId)
     useWorkspaceStore.getState().applySessionMeta(sessionId, { sdkSessionId: null })
     const { sessions } = get()
     dlog('CLAUDE_STORE', `handleSessionReset sid=${sessionId}`)

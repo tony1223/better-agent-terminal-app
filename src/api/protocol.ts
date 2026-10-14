@@ -66,12 +66,14 @@ export const PROXIED_CHANNELS = new Set([
   'agent:load-archived', 'agent:clear-archive',
   'agent:fetch-subagent-messages', 'agent:scan-skills',
   'agent:auth-login', 'agent:auth-status', 'agent:auth-logout',
+  'agent:auth-login-start', 'agent:auth-login-submit-code', 'agent:auth-login-cancel',
   'agent:account-list', 'agent:account-import-current',
   'agent:account-login-new', 'agent:account-switch',
   'agent:account-remove', 'agent:account-mark-warning-shown',
   'agent:get-cli-path',
   // Codex accounts (host-owned)
   'codex:account-list', 'codex:account-switch',
+  'codex:auth-login-device-start', 'codex:auth-login-device-poll', 'codex:auth-login-device-cancel',
   // PTY
   'pty:create', 'pty:write', 'pty:read-buffer', 'pty:resize',
   'pty:get-viewport-state', 'pty:set-viewport-mode', 'pty:set-viewport-size',

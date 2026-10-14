@@ -1,6 +1,7 @@
 import { useClaudeStore } from '../src/stores/claude-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
 import { useConnectionStore } from '../src/stores/connection-store'
+import { useSessionPreviewStore } from '../src/stores/session-preview-store'
 import type { SessionMeta, TerminalInstance } from '../src/types'
 
 const sid = 'phone-panel'
@@ -13,6 +14,7 @@ const message = (id: string) => ({ id, sessionId: sid, role: 'user' as const, co
 
 beforeEach(() => {
   useClaudeStore.setState({ sessions: {}, activeSessionId: null })
+  useSessionPreviewStore.setState({ previews: {}, timestamps: {}, fetchedAt: {}, observedDataAt: {} })
   useWorkspaceStore.setState({ terminals: [{
     id: sid, workspaceId: 'ws', type: 'terminal', title: 'Codex', cwd: '/repo', scrollbackBuffer: [],
     sdkSessionId: 'stale-thread', agentPreset: 'codex-agent',
@@ -77,4 +79,29 @@ test('explicit session reset clears resume identity and keeps permission setting
   expect(useWorkspaceStore.getState().terminals[0].sdkSessionId).toBeUndefined()
   expect(useWorkspaceStore.getState().terminals[0].agentParams).toMatchObject({ sandboxMode: 'read-only', approvalPolicy: 'untrusted' })
   expect(workspaceSave).not.toHaveBeenCalled()
+})
+
+test('reset clears the old preview and prevents an in-flight archive read from restoring it', async () => {
+  let finish!: (value: unknown) => void
+  const loadArchived = jest.fn(() => new Promise(resolve => { finish = resolve }))
+  useConnectionStore.setState({ status: 'connected', profileStatus: 'ready', client: null,
+    channels: { claude: { loadArchived } } as never })
+  useSessionPreviewStore.setState({ previews: { [sid]: 'Old answer' }, timestamps: { [sid]: 1 }, fetchedAt: {}, observedDataAt: {} })
+  const loading = useSessionPreviewStore.getState().load([sid])
+  useClaudeStore.getState().handleSessionReset(sid)
+  expect(useSessionPreviewStore.getState().previews[sid]).toBeUndefined()
+  finish({ messages: [message('old-archive')], hasMore: false })
+  await loading
+  expect(useSessionPreviewStore.getState().previews[sid]).toBeUndefined()
+})
+
+test.each(['status', 'snapshot'])('new host identity invalidates preview when reset was missed: %s', source => {
+  const store = useClaudeStore.getState()
+  store.handleStatus(sid, meta({ sdkSessionId: 'old-thread' }))
+  useSessionPreviewStore.setState({ previews: { [sid]: 'Old answer' }, timestamps: { [sid]: 1 } })
+  const next = meta({ sdkSessionId: 'new-thread' })
+  if (source === 'status') store.handleStatus(sid, next)
+  else store.handleSessionState(sid, { messages: [], meta: next })
+  expect(useSessionPreviewStore.getState().previews[sid]).toBeUndefined()
+  expect(useWorkspaceStore.getState().terminals[0].sdkSessionId).toBe('new-thread')
 })

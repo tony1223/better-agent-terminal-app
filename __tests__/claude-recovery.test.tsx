@@ -7,6 +7,8 @@ import { ClaudeScreen } from '../src/screens/ClaudeScreen'
 import { useConnectionStore } from '../src/stores/connection-store'
 import { useWorkspaceStore } from '../src/stores/workspace-store'
 import { useClaudeStore } from '../src/stores/claude-store'
+import { useSessionDraftsStore } from '../src/stores/session-drafts-store'
+import { useChatFilterStore } from '../src/stores/chat-filter-store'
 import type { Channels } from '../src/api/channels'
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
@@ -30,9 +32,10 @@ beforeEach(() => {
   clearRecoveryDiagnostics()
   jest.useFakeTimers()
   useClaudeStore.setState({ sessions: {}, activeSessionId: null, scopeKey: 'test' })
+  useSessionDraftsStore.setState({ drafts: {} })
   channel = Object.fromEntries(['getSessionState', 'getSessionMeta', 'clientResume', 'resumeSession', 'startSession',
     'loadArchived', 'getSupportedEfforts', 'getSupportedCodexSandboxModes', 'getSupportedCodexApprovalPolicies',
-    'abortSession', 'stopSession', 'sendMessage']
+    'abortSession', 'stopSession', 'sendMessage', 'resetSession']
     .map(name => [name, jest.fn().mockResolvedValue(null)]))
   useConnectionStore.setState({ status: 'connected', profileStatus: 'ready',
     client: { supportsProfileContext: true } as never, channels: { claude: channel } as unknown as Channels })
@@ -48,6 +51,98 @@ async function mountRunningSession() {
   act(() => useClaudeStore.getState().handleStream('s', { text: 'Partial answer' }))
 }
 const interruptButton = () => renderer!.root.findByProps({ testID: 'chat-interrupt' })
+const chatInput = () => renderer!.root.findAllByType(TextInput).find(node => node.props.onSubmitEditing)!
+
+test.each(['transport', 'host-rejected', 'false-result'])(
+  '/new failures are visible, preserve the conversation, and allow retry: %s', async failure => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+    await mountRunningSession()
+    if (failure === 'transport') channel.resetSession.mockRejectedValueOnce(new Error('offline'))
+    else channel.resetSession.mockResolvedValueOnce(failure === 'host-rejected' ? { ok: false, error: 'reset rejected' } : false)
+    act(() => chatInput().props.onChangeText('/new'))
+    await act(async () => chatInput().props.onSubmitEditing())
+    expect(alert).toHaveBeenCalledWith('claude.errors.resetFailed', expect.any(String))
+    expect(useClaudeStore.getState().sessions.s.streamingText).toBe('Partial answer')
+    expect(chatInput().props.value).toBe('/new')
+    expect(getRecoveryDiagnostics()).toContain('"outcome":"error"')
+    channel.resetSession.mockResolvedValueOnce(true)
+    await act(async () => chatInput().props.onSubmitEditing())
+    expect(channel.resetSession).toHaveBeenCalledTimes(2)
+    expect(channel.sendMessage).not.toHaveBeenCalled()
+  },
+)
+
+test('/new blocks duplicate requests and a late acknowledgement preserves the new conversation', async () => {
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.resetSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  act(() => chatInput().props.onChangeText('/new'))
+  let resetting!: Promise<void>
+  act(() => {
+    resetting = chatInput().props.onSubmitEditing()
+    chatInput().props.onSubmitEditing()
+  })
+  expect(channel.resetSession).toHaveBeenCalledTimes(1)
+  const fresh = {
+    messages: [{ id: 'new-message', sessionId: 's', role: 'user' as const, content: 'New conversation', timestamp: 1 }],
+    isStreaming: false,
+    meta: { sdkSessionId: 'new-thread', totalCost: 0, inputTokens: 0, outputTokens: 0, durationMs: 0, numTurns: 0, contextWindow: 0 },
+  }
+  channel.getSessionState.mockResolvedValue(fresh)
+  channel.getSessionMeta.mockResolvedValue(fresh.meta)
+  await act(async () => {
+    useClaudeStore.getState().handleSessionReset('s')
+    useClaudeStore.getState().handleSessionState('s', fresh)
+  })
+  await act(async () => { finish(true); await resetting })
+  expect(useWorkspaceStore.getState().terminals[0].sdkSessionId).toBe('new-thread')
+  expect(useClaudeStore.getState().sessions.s.messages).toEqual(fresh.messages)
+  expect(getRecoveryDiagnostics()).toContain('chat.reset.received')
+  expect(getRecoveryDiagnostics()).toContain('"sdkSessionId":"new-thread"')
+
+  // Reopen an empty live conversation: any resume must use the new host ID.
+  await act(async () => renderer!.unmount())
+  renderer = undefined
+  channel.clientResume.mockClear()
+  channel.getSessionState.mockResolvedValue({ ...fresh, messages: [] })
+  useClaudeStore.setState({ sessions: {} })
+  await mount()
+  expect(channel.clientResume).toHaveBeenCalledWith('s', 'new-thread', '/project', undefined, expect.objectContaining({ agentPreset: 'codex-agent' }))
+})
+
+test('a /new failure does not overwrite a prompt typed while waiting', async () => {
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.resetSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  act(() => chatInput().props.onChangeText('/new'))
+  let resetting!: Promise<void>
+  act(() => { resetting = chatInput().props.onSubmitEditing() })
+  act(() => chatInput().props.onChangeText('Next prompt'))
+  await act(async () => { finish(false); await resetting })
+  expect(chatInput().props.value).toBe('Next prompt')
+})
+
+test.each([true, false])('a stale /new acknowledgement after a profile switch has no UI side effects: %s', async result => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {})
+  const clearFilters = jest.spyOn(useChatFilterStore.getState(), 'clearSession')
+  await mountRunningSession()
+  let finish!: (value: unknown) => void
+  channel.resetSession.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  act(() => chatInput().props.onChangeText('/new'))
+  let resetting!: Promise<void>
+  act(() => { resetting = chatInput().props.onSubmitEditing() })
+  act(() => {
+    useConnectionStore.setState({ channels: null, profileStatus: 'loading' })
+    useClaudeStore.setState({ scopeKey: 'other', sessions: {} })
+    useClaudeStore.getState().initSession('s')
+    useClaudeStore.getState().handleStream('s', { text: 'Other profile output' })
+  })
+  await act(async () => { finish(result); await resetting })
+  expect(useClaudeStore.getState().sessions.s.streamingText).toBe('Other profile output')
+  expect(alert).not.toHaveBeenCalled()
+  expect(clearFilters).not.toHaveBeenCalled()
+})
 
 test('one interrupt tap aborts the turn, preserves output, and blocks duplicate requests and sends until acknowledged', async () => {
   await mountRunningSession()

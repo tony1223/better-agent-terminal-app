@@ -471,6 +471,35 @@
       "noIssues": "No open issues."
     }
   },
+  "accounts": {
+    "manage": "Host accounts",
+    "title": "{{provider}} accounts",
+    "host": "Host / Profile: {{host}}",
+    "scopeHint": "Switching or signing in changes accounts on this profile’s host and may affect its other conversations. Running work is handled by the host.",
+    "active": "Current",
+    "needsLogin": "Sign in again to use this account.",
+    "empty": "No saved accounts. Sign in to add one.",
+    "add": "Sign in to a new account",
+    "refresh": "Refresh",
+    "offline": "Connect to a ready profile to manage its host accounts.",
+    "unsupported": "This host does not support this account operation. Update BAT on the host and try again.",
+    "inProgress": "Another sign-in is already in progress on this host. Finish or cancel it first.",
+    "loadFailed": "Unable to load host accounts.",
+    "switchFailed": "The host did not confirm the account switch.",
+    "switched": "Account switched. The list below shows the host’s current account.",
+    "loginSucceeded": "Sign-in completed on the host.",
+    "loginFailed": "Unable to complete sign-in.",
+    "starting": "Starting sign-in on the host…",
+    "codexSteps": "Open the authorization page on this phone and enter this verification code. The host will complete sign-in after you approve.",
+    "claudeSteps": "Open the authorization page on this phone. After signing in, copy the authorization code from the page and paste it below.",
+    "openBrowser": "Open authorization page",
+    "openFailed": "Unable to open the browser. Copy the URL below and open it manually.",
+    "invalidUrl": "The host returned an invalid authorization URL.",
+    "codePlaceholder": "Paste authorization code",
+    "submit": "Submit code to host",
+    "waiting": "Waiting for browser approval…",
+    "retryLogin": "Close this dialog and start sign-in again to retry."
+  },
   "fastMode": {
     "title": "Fast mode",
     "enable": "Use Fast for this conversation",
@@ -499,6 +528,7 @@
     "errors": {
       "switchPermissionFailed": "Unable to switch permission mode",
       "stopFailed": "Unable to interrupt this session",
+      "resetFailed": "Unable to start a new conversation. Please try again.",
       "switchEffortFailed": "Unable to switch effort",
       "switchSandboxFailed": "Unable to switch sandbox mode",
       "switchApprovalFailed": "Unable to switch approval policy",

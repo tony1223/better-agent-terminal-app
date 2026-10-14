@@ -7,7 +7,10 @@ import { useWorkspaceStore } from '../src/stores/workspace-store'
 import { useClaudeStore } from '../src/stores/claude-store'
 import type { Channels } from '../src/api/channels'
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+jest.mock('react-i18next', () => {
+  const t = (key: string) => key
+  return { useTranslation: () => ({ t }) }
+})
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }))
 jest.mock('@react-navigation/native', () => ({ useFocusEffect: jest.fn() }))
 jest.mock('@/components/claude/ChatHistoryList', () => ({ ChatHistoryList: () => null }))
@@ -73,4 +76,16 @@ test('the overflow action restarts during a host turn', async () => {
   expect(channel.reloadSession).toHaveBeenCalledWith('s')
   expect(channel.sendMessage).not.toHaveBeenCalled()
   expect(channel.stopSession).not.toHaveBeenCalled()
+})
+
+test.each(['codex-agent', 'claude-code'] as const)('%s exposes account management from chat', async agentPreset => {
+  useWorkspaceStore.setState(state => ({ terminals: state.terminals.map(terminal => ({ ...terminal, agentPreset })) }))
+  channel.codexAccountList = jest.fn().mockResolvedValue({ accounts: [] })
+  channel.accountList = jest.fn().mockResolvedValue({ accounts: [] })
+  await mount()
+  openActions()
+  act(() => renderer.root.findByProps({ testID: 'chat-action-account' }).props.onPress())
+  await act(async () => { jest.advanceTimersByTime(250) })
+  expect(agentPreset === 'codex-agent' ? channel.codexAccountList : channel.accountList).toHaveBeenCalledTimes(1)
+  expect(renderer.root.findByProps({ testID: 'account-login' })).toBeDefined()
 })

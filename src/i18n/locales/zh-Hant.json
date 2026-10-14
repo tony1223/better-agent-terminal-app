@@ -471,6 +471,35 @@
       "noIssues": "沒有開啟中的 issue。"
     }
   },
+  "accounts": {
+    "manage": "主機帳號",
+    "title": "{{provider}} 帳號",
+    "host": "主機／Profile：{{host}}",
+    "scopeHint": "切換或登入會更新此 Profile 對應主機的帳號，可能影響同主機的其他對話；執行中的工作由主機處理。",
+    "active": "使用中",
+    "needsLogin": "需要重新登入才能使用此帳號。",
+    "empty": "尚無已儲存的帳號，請登入新增。",
+    "add": "登入新帳號",
+    "refresh": "重新整理",
+    "offline": "請先連線並開啟 Profile，才能管理主機帳號。",
+    "unsupported": "主機不支援此帳號操作，請更新主機 BAT 後重試。",
+    "inProgress": "主機已有其他登入作業，請先完成或取消該作業。",
+    "loadFailed": "無法載入主機帳號。",
+    "switchFailed": "主機未確認帳號切換成功。",
+    "switched": "帳號已切換，下方清單顯示主機目前使用的帳號。",
+    "loginSucceeded": "已完成主機帳號認證。",
+    "loginFailed": "無法完成登入。",
+    "starting": "正在主機啟動登入…",
+    "codexSteps": "在手機開啟授權頁並輸入下方驗證碼。核准後，主機會完成登入。",
+    "claudeSteps": "在手機開啟授權頁登入，再將網頁顯示的授權碼複製並貼到下方。",
+    "openBrowser": "開啟授權頁",
+    "openFailed": "無法開啟瀏覽器，可複製下方網址手動開啟。",
+    "invalidUrl": "主機回傳的授權網址無效。",
+    "codePlaceholder": "貼上授權碼",
+    "submit": "將授權碼送至主機",
+    "waiting": "等待瀏覽器授權…",
+    "retryLogin": "請關閉此視窗，再重新登入以重試。"
+  },
   "fastMode": {
     "title": "Fast 模式",
     "enable": "此對話使用 Fast",
@@ -499,6 +528,7 @@
     "errors": {
       "switchPermissionFailed": "無法切換權限模式",
       "stopFailed": "無法中斷目前工作階段",
+      "resetFailed": "無法建立新對話，請重試",
       "switchEffortFailed": "無法切換強度",
       "switchSandboxFailed": "無法切換沙箱模式",
       "switchApprovalFailed": "無法切換核准原則",

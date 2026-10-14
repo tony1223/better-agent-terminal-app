@@ -37,13 +37,17 @@ import { getDiagnosticLogText, uploadDiagnosticReport } from '@/utils/diagnostic
 import { clearRecoveryDiagnostics } from '@/utils/recovery-diagnostics'
 import { clearIncidentDiagnostics } from '@/utils/incident-diagnostics'
 import { ChatFilterSettings } from '@/components/claude/ChatFilterSettings'
+import { HostAccountManager, type AccountProvider } from '@/components/accounts/HostAccountManager'
+import type { Channels } from '@/api/channels'
 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets()
   const { t } = useTranslation()
   const languagePreference = useLanguageStore(s => s.preference)
   const setLanguagePreference = useLanguageStore(s => s.setPreference)
-  const { status, host, port, disconnect } = useConnectionStore()
+  const { status, host, port, disconnect, channels, profileStatus, client } = useConnectionStore()
+  const [accountManager, setAccountManager] = useState<{ provider: AccountProvider; channels: Channels } | null>(null)
+  const accountsReady = status === 'connected' && !!channels && (!client?.supportsProfileContext || profileStatus === 'ready')
   const activeHostId = useHostStore(s => s.activeHostId)
   const hosts = useHostStore(s => s.hosts)
   const activeHost = hosts.find(h => h.id === activeHostId)
@@ -112,6 +116,16 @@ export function SettingsScreen() {
         </View>
 
         {/* Host update */}
+        <Text style={styles.sectionTitle}>{t('accounts.manage')}</Text>
+        <View style={styles.card}>
+          {(['codex', 'claude'] as const).map(provider => <TouchableOpacity key={provider}
+            testID={`settings-accounts-${provider}`} accessibilityRole="button" style={styles.actionRow} disabled={!accountsReady}
+            onPress={() => { if (channels) setAccountManager({ provider, channels }) }}>
+            <Text style={styles.actionText}>{t('accounts.title', { provider: provider === 'codex' ? 'Codex' : 'Claude' })}</Text>
+          </TouchableOpacity>)}
+          {!accountsReady && <Text style={styles.actionText}>{t('accounts.offline')}</Text>}
+        </View>
+
         <Text style={styles.sectionTitle}>{t('settings.hostUpdate')}</Text>
         <HostUpdateSection />
 
@@ -225,6 +239,7 @@ export function SettingsScreen() {
       </ScrollView>
 
       {/* Log viewer modal */}
+      {accountManager && <HostAccountManager {...accountManager} onClose={() => setAccountManager(null)} />}
       <Modal visible={showLogViewer} animationType="slide" onRequestClose={() => setShowLogViewer(false)}>
         <View style={styles.logViewerContainer}>
           <View style={[styles.logViewerHeader, { paddingTop: insets.top + spacing.md }]}>

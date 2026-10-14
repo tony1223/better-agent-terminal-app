@@ -471,6 +471,35 @@
       "noIssues": "没有打开的 issue。"
     }
   },
+  "accounts": {
+    "manage": "主机账号",
+    "title": "{{provider}} 账号",
+    "host": "主机／Profile：{{host}}",
+    "scopeHint": "切换或登录会更新此 Profile 对应主机的账号，可能影响同主机的其他对话；运行中的任务由主机处理。",
+    "active": "使用中",
+    "needsLogin": "需要重新登录才能使用此账号。",
+    "empty": "尚无已保存的账号，请登录添加。",
+    "add": "登录新账号",
+    "refresh": "刷新",
+    "offline": "请先连接并打开 Profile，才能管理主机账号。",
+    "unsupported": "主机不支持此账号操作，请更新主机 BAT 后重试。",
+    "inProgress": "主机已有其他登录任务，请先完成或取消该任务。",
+    "loadFailed": "无法加载主机账号。",
+    "switchFailed": "主机未确认账号切换成功。",
+    "switched": "账号已切换，下方列表显示主机目前使用的账号。",
+    "loginSucceeded": "已完成主机账号认证。",
+    "loginFailed": "无法完成登录。",
+    "starting": "正在主机启动登录…",
+    "codexSteps": "在手机打开授权页并输入下方验证码。批准后，主机会完成登录。",
+    "claudeSteps": "在手机打开授权页登录，再将网页显示的授权码复制并粘贴到下方。",
+    "openBrowser": "打开授权页",
+    "openFailed": "无法打开浏览器，可复制下方网址手动打开。",
+    "invalidUrl": "主机返回的授权网址无效。",
+    "codePlaceholder": "粘贴授权码",
+    "submit": "将授权码发送至主机",
+    "waiting": "等待浏览器授权…",
+    "retryLogin": "请关闭此窗口，再重新登录以重试。"
+  },
   "fastMode": {
     "title": "Fast 模式",
     "enable": "此对话使用 Fast",
@@ -499,6 +528,7 @@
     "errors": {
       "switchPermissionFailed": "无法切换权限模式",
       "stopFailed": "无法中断当前会话",
+      "resetFailed": "无法创建新对话，请重试",
       "switchEffortFailed": "无法切换强度",
       "switchSandboxFailed": "无法切换沙箱模式",
       "switchApprovalFailed": "无法切换审批策略",

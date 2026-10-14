@@ -61,7 +61,8 @@ import {
   setModelArgsForClaudeSelection,
 } from '@/utils/claude-model-presets'
 import type { ClaudeMessage, ClaudeToolCall } from '@/types'
-import type { CodexAccountEntry } from '@/api/channels/claude'
+import type { Channels } from '@/api/channels'
+import { HostAccountManager, type AccountProvider } from '@/components/accounts/HostAccountManager'
 import { isToolCall } from '@/types'
 import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
@@ -256,14 +257,12 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [showEffortPicker, setShowEffortPicker] = useState(false)
   const [showSandboxPicker, setShowSandboxPicker] = useState(false)
   const [showApprovalPicker, setShowApprovalPicker] = useState(false)
-  const [showCodexAccountPicker, setShowCodexAccountPicker] = useState(false)
+  const [accountManager, setAccountManager] = useState<{ provider: AccountProvider; channels: Channels } | null>(null)
   const [showMoreActions, setShowMoreActions] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
   const newSessionInFlight = useRef(false)
   const [stopping, setStopping] = useState(false)
   const interruptRequestRef = useRef<symbol | null>(null)
-  const [codexAccounts, setCodexAccounts] = useState<CodexAccountEntry[]>([])
-  const [codexAccountsLoading, setCodexAccountsLoading] = useState(false)
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([])
   const [supportedEffortOptions, setSupportedEffortOptions] = useState<string[]>([])
   const [supportedSandboxOptions, setSupportedSandboxOptions] = useState<string[]>([])
@@ -282,6 +281,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
   const [resumeLoading, setResumeLoading] = useState(false)
   const listRef = useRef<FlatList<ListEntry>>(null)
   const sendInFlightRef = useRef(false)
+  const resetRequestRef = useRef<symbol | null>(null)
   const loadSeqRef = useRef(0)
   const loadedSessionKeyRef = useRef<string | null>(null)
   const inFlightSessionKeyRef = useRef<string | null>(null)
@@ -1104,16 +1104,40 @@ export function ClaudeScreen({ route, navigation }: Props) {
     // Handle /new command
     if (text === '/new') {
       setInputText('')
-      channels.claude.resetSession(sessionId)
-        .then(() => {
-          useChatFilterStore.getState().clearSession(sessionId)
+      const request = Symbol('reset')
+      resetRequestRef.current = request
+      const scope = useClaudeStore.getState().scopeKey
+      const current = () => resetRequestRef.current === request &&
+        useConnectionStore.getState().channels === channels && useClaudeStore.getState().scopeKey === scope
+      const endReset = recoverySpan('chat.reset', {
+        sessionId,
+        previousSdkSessionId: useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId,
+      })
+      try {
+        const result = await channels.claude.resetSession(sessionId)
+        if (!current()) { endReset('stale'); return }
+        if (result !== true && (!result || typeof result !== 'object' || result.ok !== true)) {
+          throw new Error(typeof result === 'object' && result?.error ? result.error : t('claude.errors.resetFailed'))
+        }
+        // Host reset/status events own the transcript and new SDK identity.
+        // Clearing here could erase a new turn received before the RPC ack.
+        useChatFilterStore.getState().clearSession(sessionId)
+        endReset('completed', {
+          sdkSessionId: useClaudeStore.getState().sessions[sessionId]?.meta?.sdkSessionId,
         })
-        .catch(e => {
-          console.warn('[Claude] resetSession error:', e)
-        })
-        .finally(() => {
+      } catch (error) {
+        endReset(current() ? 'error' : 'stale')
+        dlog('!CLAUDE_SCREEN', `resetSession failed sid=${sessionId}: ${error}`)
+        if (current()) {
+          setInputText(draft => draft || text)
+          Alert.alert(t('claude.errors.resetFailed'), String(error))
+        }
+      } finally {
+        if (resetRequestRef.current === request) {
+          resetRequestRef.current = null
           sendInFlightRef.current = false
-        })
+        }
+      }
       return
     }
 
@@ -1222,7 +1246,13 @@ export function ClaudeScreen({ route, navigation }: Props) {
   useEffect(() => {
     interruptRequestRef.current = null
     setStopping(false)
-    return () => { interruptRequestRef.current = null }
+    return () => {
+      interruptRequestRef.current = null
+      if (resetRequestRef.current) {
+        resetRequestRef.current = null
+        sendInFlightRef.current = false
+      }
+    }
   }, [channels, sessionId])
 
   const handleStop = useCallback(async () => {
@@ -1347,32 +1377,6 @@ export function ClaudeScreen({ route, navigation }: Props) {
     setShowMoreActions(false)
     setTimeout(action, 250)
   }, [])
-
-  const openCodexAccountPicker = useCallback(async () => {
-    if (!channels) return
-    setShowCodexAccountPicker(true)
-    setCodexAccountsLoading(true)
-    try {
-      const result = await channels.claude.codexAccountList()
-      setCodexAccounts(Array.isArray(result?.accounts) ? result.accounts : [])
-    } catch (e) {
-      setCodexAccounts([])
-      dlog('CLAUDE_SCREEN', `codexAccountList error: ${e}`)
-    } finally {
-      setCodexAccountsLoading(false)
-    }
-  }, [channels])
-
-  const handleCodexAccountSelect = useCallback(async (entry: CodexAccountEntry) => {
-    if (!channels) return
-    setShowCodexAccountPicker(false)
-    if (entry.active) return
-    try {
-      await channels.claude.codexAccountSwitch(entry.id)
-    } catch (e) {
-      Alert.alert('Unable to switch Codex account', String(e))
-    }
-  }, [channels])
 
   const handleModelPress = useCallback(async () => {
     if (!channels) return
@@ -1629,8 +1633,11 @@ export function ClaudeScreen({ route, navigation }: Props) {
     moreActions.push(
       { key: 'sandbox', label: t('claude.modal.actionSandbox'), value: codexSandboxMode, onPress: () => setShowSandboxPicker(true) },
       { key: 'approval', label: t('claude.modal.actionApproval'), value: codexApprovalPolicy, onPress: () => setShowApprovalPicker(true) },
-      { key: 'account', label: t('claude.modal.actionAccount'), onPress: openCodexAccountPicker },
     )
+  }
+  if (isCodexAgent || isClaudeCodeAgent) {
+    moreActions.push({ key: 'account', label: t('accounts.manage'), disabled: !channels || connectionStatus !== 'connected',
+      onPress: () => { if (channels) setAccountManager({ provider: isCodexAgent ? 'codex' : 'claude', channels }) } })
   }
 
   return (
@@ -2032,38 +2039,7 @@ export function ClaudeScreen({ route, navigation }: Props) {
         </TouchableOpacity>
       </Modal>
 
-      {/* Codex account picker modal */}
-      <Modal visible={showCodexAccountPicker} transparent animationType="fade" onRequestClose={() => setShowCodexAccountPicker(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCodexAccountPicker(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Codex Account</Text>
-            {codexAccountsLoading ? (
-              <ActivityIndicator style={{ margin: 16 }} />
-            ) : codexAccounts.length === 0 ? (
-              <Text style={[styles.modelItemText, { padding: 16 }]}>No signed-in Codex accounts on host</Text>
-            ) : (
-              <FlatList
-                data={codexAccounts}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.modelItem, item.active && { backgroundColor: agentSelectedBg }]}
-                    onPress={() => handleCodexAccountSelect(item)}
-                  >
-                    <Text style={[styles.modelItemText, item.active && { color: agentColor }]}>
-                      {item.label || item.email || item.id}
-                      {item.authenticated === false ? ' (needs login)' : ''}
-                    </Text>
-                    {item.active && (
-                      <Text style={[styles.modelCheck, { color: agentColor }]}>{'✓'}</Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-              />
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {accountManager && <HostAccountManager {...accountManager} onClose={() => setAccountManager(null)} />}
 
       {/* Image preview modal */}
       <Modal visible={!!previewImageUri} transparent animationType="fade" onRequestClose={() => setPreviewImageUri(null)}>
