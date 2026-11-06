@@ -55,6 +55,22 @@ test('image_view reads the host image without expanding JSON, opens full preview
   expect(mockChannels.fs.readFile).not.toHaveBeenCalled()
 })
 
+test.each(['photo.jfif', 'image-without-extension'])('image_view opens %s using the loaded image instead of reading it as text', async filename => {
+  await render(<ToolCallCard tool={{ ...tool, input: { path: `C:/project/${filename}` } }} />)
+  await pressButton('filePreview.openImage')
+  expect(renderer.root.findAllByType(Image)).toHaveLength(2)
+  expect(renderer.root.findAllByType(Image).every(node => node.props.source.uri === png)).toBe(true)
+  expect(mockChannels.fs.readImageAsDataUrl).toHaveBeenCalledTimes(1)
+  expect(mockChannels.fs.readFile).not.toHaveBeenCalled()
+})
+
+test('a JFIF file opens directly as an image', async () => {
+  await render(<FilePreviewModal filePath="C:/project/photo.JFIF" visible onClose={() => {}} />)
+  expect(mockChannels.fs.readImageAsDataUrl).toHaveBeenCalledWith('C:/project/photo.JFIF')
+  expect(renderer.root.findByType(Image).props.source.uri).toBe(png)
+  expect(mockChannels.fs.readFile).not.toHaveBeenCalled()
+})
+
 test('does not fetch running tools and supports desktop inline results after completion', async () => {
   await render(<ToolCallCard tool={{ ...tool, status: 'running' }} />)
   expect(mockChannels.fs.readImageAsDataUrl).not.toHaveBeenCalled()

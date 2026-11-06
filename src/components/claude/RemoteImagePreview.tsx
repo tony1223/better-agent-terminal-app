@@ -23,12 +23,12 @@ export function RemoteImagePreview({ path = 'image.png', dataUrl }: { path?: str
           <Text style={styles.caption}>{t('connection.retry')}</Text>
         </TouchableOpacity>
       ) : imageUrl ? (
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('filePreview.openImage')} onPress={() => navigate ? navigate(path, dataUrl) : setOpen(true)}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('filePreview.openImage')} onPress={() => navigate ? navigate(path, imageUrl) : setOpen(true)}>
           <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="contain" onError={() => setFailedUrl(imageUrl)} />
           <Text style={styles.caption}>{t('filePreview.openImage')}</Text>
         </TouchableOpacity>
       ) : null}
-      {open && <FilePreviewModal filePath={path} inlineImage={dataUrl} visible onClose={() => setOpen(false)} />}
+      {open && imageUrl && <FilePreviewModal filePath={path} inlineImage={imageUrl} visible onClose={() => setOpen(false)} />}
     </View>
   )
 }

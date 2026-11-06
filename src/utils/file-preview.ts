@@ -1,7 +1,7 @@
 import type { ClaudeToolCall } from '@/types'
 import { getFileExt } from './path-tokenizer'
 
-export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
+export const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'bmp', 'ico'])
 export const isMarkdownFile = (path: string) => ['md', 'markdown', 'mdown'].includes(getFileExt(path))
 
 export type PreviewLinkTarget =
