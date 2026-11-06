@@ -91,10 +91,10 @@ test('unknown status never becomes a fake idle badge', async () => {
   expect(onSummary).not.toHaveBeenCalled()
 })
 
-test('unavailable new summary retains the old query path without an upstream version probe', async () => {
+test('unsupported new summary retains the old query path without an upstream version probe', async () => {
   client.supportsMobileSync = true
   invoke.mockImplementation(async (channel, params) => {
-    if (channel === 'workspace:summary') throw new Error('unavailable')
+    if (channel === 'workspace:summary') throw new Error('Method not found')
     return channel === 'profile:open' ? { contextId: `ctx-${params.profileId}`, profileId: params.profileId, status: 'ready' } : { ok: true }
   })
   subscription = subscribeWorkspaceShortcutActivity([target('a')], onSummary)
@@ -203,4 +203,34 @@ test('legacy hosts are not queried through an unscoped execution fallback', asyn
   await flush()
   expect(invoke).not.toHaveBeenCalled()
   expect(read).not.toHaveBeenCalled()
+})
+
+test.each(['Remote invoke timeout', 'Connection lost', 'Profile unavailable'])(
+  'summary failure does not fan out into remote profile scans: %s', async error => {
+    client.supportsMobileSync = true
+    invoke.mockRejectedValue(new Error(error))
+    subscription = subscribeWorkspaceShortcutActivity([target('a'), target('b')], onSummary)
+    await flush()
+    expect(invoke.mock.calls.map(([channel]) => channel)).toEqual(['workspace:summary'])
+    expect(onSummary).not.toHaveBeenCalled()
+    await jest.advanceTimersByTimeAsync(10_000)
+    expect(invoke.mock.calls.map(([channel]) => channel)).toEqual(['workspace:summary', 'workspace:summary'])
+  },
+)
+
+test('replacing observers waits for the old host request and discards superseded queued targets', async () => {
+  client.supportsMobileSync = true
+  const pending = deferred<any>()
+  invoke.mockReturnValueOnce(pending.promise).mockResolvedValue({ profiles: [] })
+  subscription = subscribeWorkspaceShortcutActivity([target('a')], onSummary)
+  subscription.dispose()
+  subscription = subscribeWorkspaceShortcutActivity([target('b')], onSummary)
+  subscription.dispose()
+  subscription = subscribeWorkspaceShortcutActivity([target('c')], onSummary)
+  await flush()
+  expect(invoke).toHaveBeenCalledTimes(1)
+  pending.resolve({ profiles: [] })
+  await flush()
+  expect(invoke).toHaveBeenCalledTimes(2)
+  expect(invoke).toHaveBeenLastCalledWith('workspace:summary', { targets: [target('c')] })
 })

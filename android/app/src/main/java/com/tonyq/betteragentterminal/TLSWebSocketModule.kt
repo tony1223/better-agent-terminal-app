@@ -13,6 +13,7 @@ import android.os.SystemClock
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.GZIPOutputStream
 import javax.net.ssl.*
 
@@ -28,6 +29,33 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
     private var webSocket: WebSocket? = null
     private var client: OkHttpClient? = null
+    private class TransportStats(val connectionId: String) {
+        val sent = AtomicLong()
+        val received = AtomicLong()
+        val lastReceiveAt = AtomicLong(SystemClock.elapsedRealtime())
+    }
+    private var transportStats: TransportStats? = null
+
+    private fun reportTransport(stats: TransportStats, socket: WebSocket?, phase: String) {
+        emit("TLSWebSocket_onState", Arguments.createMap().apply {
+            putString("connectionId", stats.connectionId)
+            putString("state", "transport-$phase")
+            putString("message", "queuedBytes=${socket?.queueSize() ?: 0} sent=${stats.sent.get()} received=${stats.received.get()} receiveSilentMs=${SystemClock.elapsedRealtime() - stats.lastReceiveAt.get()}")
+        })
+    }
+
+    private fun sendFailed(stats: TransportStats, socket: WebSocket?, message: String) {
+        reportTransport(stats, socket, "send-failed")
+        emit("TLSWebSocket_onError", Arguments.createMap().apply {
+            putString("connectionId", stats.connectionId)
+            putString("message", message)
+        })
+    }
+
+    @ReactMethod
+    fun inspectTransport() {
+        transportStats?.let { reportTransport(it, webSocket, "probe") }
+    }
 
     private fun emit(eventName: String, params: WritableMap) {
         reactApplicationContext
@@ -41,6 +69,8 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
         val normalizedFP = fingerprint?.uppercase()?.replace(":", "")
         val currentConnectionId = connectionId ?: ""
+        val stats = TransportStats(currentConnectionId)
+        transportStats = stats
         val startedAt = SystemClock.elapsedRealtime()
         fun timing(phase: String) {
             emit("TLSWebSocket_onTiming", Arguments.createMap().apply {
@@ -112,6 +142,8 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                stats.received.incrementAndGet()
+                stats.lastReceiveAt.set(SystemClock.elapsedRealtime())
                 emit("TLSWebSocket_onMessage", Arguments.createMap().apply {
                     putString("connectionId", currentConnectionId)
                     putString("data", text)
@@ -119,6 +151,8 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                stats.received.incrementAndGet()
+                stats.lastReceiveAt.set(SystemClock.elapsedRealtime())
                 try {
                     val text = BatGzipFrameDecoder.decode(bytes)
                     emit("TLSWebSocket_onMessage", Arguments.createMap().apply {
@@ -147,9 +181,10 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 timing("websocket-failed")
+                reportTransport(stats, webSocket, "failed")
                 emit("TLSWebSocket_onError", Arguments.createMap().apply {
                     putString("connectionId", currentConnectionId)
-                    putString("message", t.message ?: "WebSocket failure")
+                    putString("message", "${t.javaClass.simpleName}: ${t.message ?: "WebSocket failure"}")
                 })
             }
         })
@@ -157,17 +192,21 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun send(message: String) {
-        webSocket?.send(message)
+        val stats = transportStats ?: return
+        val socket = webSocket
+        if (socket?.send(message) == true) stats.sent.incrementAndGet()
+        else sendFailed(stats, socket, "WebSocket send rejected")
     }
 
     @ReactMethod
     fun sendGzip(message: String) {
+        val stats = transportStats ?: return
+        val socket = webSocket
         try {
-            webSocket?.send(encodeBatGzipFrame(message))
+            if (socket?.send(encodeBatGzipFrame(message)) == true) stats.sent.incrementAndGet()
+            else sendFailed(stats, socket, "Gzip WebSocket send rejected")
         } catch (error: Exception) {
-            emit("TLSWebSocket_onError", Arguments.createMap().apply {
-                putString("message", error.message ?: "Gzip WebSocket send failed")
-            })
+            sendFailed(stats, socket, error.message ?: "Gzip WebSocket send failed")
         }
     }
 
@@ -177,6 +216,7 @@ class TLSWebSocketModule(reactContext: ReactApplicationContext) :
             webSocket?.close(code, reason)
         } catch (_: Exception) {}
         webSocket = null
+        transportStats = null
         client?.dispatcher?.executorService?.shutdown()
         client = null
     }

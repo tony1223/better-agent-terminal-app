@@ -48,6 +48,7 @@ jest.mock('@/native/tls-websocket', () => ({
 
     send(data: string) { this.sent.push(data) }
     sendGzip(data: string) { this.sent.push(data) }
+    inspectTransport() {}
 
     close(code = 1000, reason = '') {
       if (this.closedWith) return
@@ -438,6 +439,39 @@ describe('sending something large', () => {
 })
 
 describe('health probe', () => {
+  it('shares concurrent checks and counts their timeout as a single failure', async () => {
+    const { client, socket } = await connectedClient()
+    const first = client.checkConnection(1000)
+    const second = client.checkConnection(1000)
+    expect(second).toBe(first)
+    expect(socket.pings).toBe(1)
+    await jest.advanceTimersByTimeAsync(1000)
+    await expect(Promise.all([first, second])).resolves.toEqual([false, false])
+    expect(socket.closedWith).toBeNull()
+    const retry = client.checkConnection(1000)
+    expect(socket.pings).toBe(2)
+    await jest.advanceTimersByTimeAsync(1000)
+    await expect(retry).resolves.toBe(false)
+    expect(socket.closedWith?.reason).toBe('health check timeout')
+    client.disconnect()
+  })
+
+  it('does not reuse a pending probe after reconnecting', async () => {
+    const { client, socket } = await connectedClient()
+    const oldProbe = client.checkConnection()
+    socket.serverClose()
+    await jest.advanceTimersByTimeAsync(1500)
+    const replacement = mockSockets[1]
+    replacement.open()
+    replacement.authOk()
+    const newProbe = client.checkConnection()
+    expect(newProbe).not.toBe(oldProbe)
+    answerLastPing(replacement)
+    await expect(oldProbe).resolves.toBe(false)
+    await expect(newProbe).resolves.toBe(true)
+    client.disconnect()
+  })
+
   // The generic pong() helper answers a fixed id; a probe is matched by the id
   // it actually went out with.
   function answerLastPing(socket: FakeSocket) {

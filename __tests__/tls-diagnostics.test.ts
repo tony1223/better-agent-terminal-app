@@ -1,6 +1,6 @@
 const mockListeners = new Map<string, Set<(event: unknown) => void>>()
 jest.mock('react-native', () => ({
-  NativeModules: { TLSWebSocket: { connect: jest.fn(), close: jest.fn(), send: jest.fn() } },
+  NativeModules: { TLSWebSocket: { connect: jest.fn(), close: jest.fn(), send: jest.fn(), inspectTransport: jest.fn() } },
   NativeEventEmitter: class {
     addListener(name: string, handler: (event: unknown) => void) {
       if (!mockListeners.has(name)) mockListeners.set(name, new Set())
@@ -14,6 +14,28 @@ import { NativeModules } from 'react-native'
 import { clearRecoveryDiagnostics, getRecoveryDiagnostics } from '../src/utils/recovery-diagnostics'
 
 afterEach(() => clearRecoveryDiagnostics())
+
+test('transport diagnostics and send errors are scoped to the active connection', () => {
+  const onError = jest.fn()
+  const socket = new TLSWebSocket()
+  socket.connect('wss://host', 'fingerprint', { onError })
+  const connectionId = NativeModules.TLSWebSocket.connect.mock.calls.at(-1)![2]
+  mockListeners.get('TLSWebSocket_onOpen')?.forEach(cb => cb({ connectionId }))
+  socket.inspectTransport()
+  expect(NativeModules.TLSWebSocket.inspectTransport).toHaveBeenCalledTimes(1)
+  for (const id of ['stale', connectionId]) {
+    mockListeners.get('TLSWebSocket_onState')?.forEach(cb => cb({ connectionId: id,
+      state: 'transport-send-failed', message: 'queuedBytes=1024 sent=3 received=1 receiveSilentMs=10000' }))
+    mockListeners.get('TLSWebSocket_onError')?.forEach(cb => cb({ connectionId: id, message: 'WebSocket send rejected' }))
+  }
+  expect(onError).toHaveBeenCalledTimes(1)
+  expect(onError).toHaveBeenCalledWith('WebSocket send rejected')
+  const events = getRecoveryDiagnostics().trim().split('\n').map(line => JSON.parse(line))
+  expect(events.filter(event => event.event === 'socket.native.transport')).toEqual([
+    expect.objectContaining({ connectionId, phase: 'transport-send-failed', details: expect.stringContaining('queuedBytes=1024') }),
+  ])
+  socket.close()
+})
 
 test('native stage timings are correlated to the current socket and removed on close', () => {
   clearRecoveryDiagnostics()

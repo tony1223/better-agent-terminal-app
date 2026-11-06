@@ -258,7 +258,7 @@ export class WebSocketClient {
   // While a large frame is plausibly still going out, silence on the wire says
   // nothing about the link — see sendFrame.
   private outboundDrainUntil = 0
-  private probeInFlight = false
+  private activeProbe: { generation: number; promise: Promise<boolean> } | null = null
   private probeFailures = 0
 
   get status(): ConnectionStatus {
@@ -776,18 +776,29 @@ export class WebSocketClient {
    * request isn't spent discovering the same thing.
    */
   private probeAfterFailure() {
-    if (this.probeInFlight || this._status !== 'connected') return
-    this.probeInFlight = true
-    void this.checkConnection(PROBE_TIMEOUT_MS).finally(() => {
-      this.probeInFlight = false
-    })
+    if (this._status !== 'connected') return
+    void this.checkConnection(PROBE_TIMEOUT_MS)
   }
 
   checkConnection(timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
     if (!this.isConnected) {
       return Promise.resolve(false)
     }
+    // Resume, screen focus and RPC timeouts can all ask at once. One missed
+    // round trip must count only once, and an old socket must never lend its
+    // pending result to a newly connected socket.
+    if (this.activeProbe?.generation === this.generation) return this.activeProbe.promise
 
+    const probe = { generation: this.generation, promise: this.runConnectionProbe(timeoutMs) }
+    this.activeProbe = probe
+    void probe.promise.finally(() => {
+      if (this.activeProbe === probe) this.activeProbe = null
+    })
+    return probe.promise
+  }
+
+  private runConnectionProbe(timeoutMs: number): Promise<boolean> {
+    this.ws?.inspectTransport()
     const id = this.nextId()
     const frame: RemoteFrame = { type: 'ping', id }
     const endProbe = recoverySpan('socket.probe', { id, timeoutMs })
@@ -796,6 +807,7 @@ export class WebSocketClient {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingPings.delete(id)
+        this.ws?.inspectTransport()
         // Our own large upload is still clearing the uplink, so the probe was
         // queued behind it and never reached the host. Nothing was asked, so
         // the silence says nothing — don't count it against the link.
@@ -810,10 +822,11 @@ export class WebSocketClient {
         dlog('!WS', `health check timeout id=${id} after ${timeoutMs}ms `
           + `(${this.probeFailures}/${PROBE_FAILURES_BEFORE_CLOSE})`
           + `${verdict ? ', closing' : ', giving it one more round'}`)
+        endProbe('timeout', { failures: this.probeFailures, silentMs: Date.now() - this.lastFrameAt,
+          pendingRequests: this.pending.size })
         if (verdict && this.ws && this._status === 'connected') {
           this.handleSilentDrop('health check timeout')
         }
-        endProbe('timeout', { failures: this.probeFailures })
         resolve(false)
       }, timeoutMs)
 

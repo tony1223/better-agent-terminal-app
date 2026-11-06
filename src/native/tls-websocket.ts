@@ -76,6 +76,9 @@ export class TLSWebSocket {
       emitter.addListener('TLSWebSocket_onState', (event: { connectionId?: string; state: string; message?: string }) => {
         if (event.connectionId !== this.connectionId) return
         dlog('!TLS_STATE', `${event.state}${event.message ? `: ${event.message}` : ''}`)
+        if (event.state.startsWith('transport-')) {
+          recoveryEvent('socket.native.transport', { connectionId: this.connectionId, phase: event.state, details: event.message })
+        }
       }),
       emitter.addListener('TLSWebSocket_onError', (event: { connectionId?: string; message: string }) => {
         if (event.connectionId !== this.connectionId) return
@@ -91,6 +94,10 @@ export class TLSWebSocket {
     if (!NativeTLS) return
     if (this._readyState !== 'OPEN') return
     NativeTLS.send(data)
+  }
+
+  inspectTransport(): void {
+    if (this._readyState === 'OPEN') NativeTLS?.inspectTransport?.()
   }
 
   sendGzip(data: string): void {

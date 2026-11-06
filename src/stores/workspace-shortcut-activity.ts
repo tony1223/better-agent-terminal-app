@@ -1,5 +1,6 @@
 import { AppState } from 'react-native'
 import { createChannels } from '@/api/channels'
+import { isRemoteMethodNotFound } from '@/api/websocket-client'
 import { isSdkAgentSession, type TerminalInstance } from '@/types'
 import { isActiveRuntimeStatus } from '@/utils/session-status'
 import { useConnectionStore, type ProfileContext } from './connection-store'
@@ -19,6 +20,10 @@ export interface WorkspaceActivitySummary {
 
 export const workspaceActivityKey = (target: WorkspaceActivityTarget) =>
   JSON.stringify([target.profileId, target.workspaceId])
+
+// Focus/target changes dispose an observer, but cannot cancel its host RPC.
+// Keep the slot across observers so reopening the page cannot pile up scans.
+const sweepsByClient = new WeakMap<object, Promise<void>>()
 
 /** Read the visible shortcuts without switching the selected profile or attaching
  * to conversations. Each sweep owns and releases its temporary profile context.
@@ -67,7 +72,11 @@ export function subscribeWorkspaceShortcutActivity(
           }
         }
         return
-      } catch { /* Preserve old query path on unavailable summary; never replace it with fake idle. */ }
+      } catch (error) {
+        // A timeout is not an unsupported API. Opening more remote profiles
+        // during an outage only adds work to the already stalled connection.
+        if (!(error instanceof Error) || !isRemoteMethodNotFound(error)) return
+      }
     }
     if (!client?.supportsProfileContext) return
     for (const [profileId, workspaceIds] of groups) {
@@ -117,11 +126,24 @@ export function subscribeWorkspaceShortcutActivity(
     }
   }
 
+  async function serializedSweep() {
+    if (!client) return
+    while (sweepsByClient.has(client)) {
+      await sweepsByClient.get(client)
+      if (!isCurrent()) return
+    }
+    if (!isCurrent()) return
+    const pending = sweep()
+    sweepsByClient.set(client, pending)
+    try { await pending }
+    finally { if (sweepsByClient.get(client) === pending) sweepsByClient.delete(client) }
+  }
+
   function refresh(): Promise<void> {
     if (!isCurrent() || (!client?.supportsMobileSync && (!client?.supportsProfileContext || groups.size === 0))) return Promise.resolve()
     if (inFlight) { refreshAgain = true; return inFlight }
     if (timer) clearTimeout(timer)
-    inFlight = sweep().finally(() => {
+    inFlight = serializedSweep().finally(() => {
       inFlight = undefined
       if (isCurrent()) {
         timer = setTimeout(() => { refresh() }, refreshAgain ? 0 : 10_000)
